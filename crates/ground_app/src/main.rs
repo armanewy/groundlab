@@ -1,7 +1,8 @@
 use eframe::egui;
 use ground_core::{
-    export_tileset_bundle, find_path, render_terrain_preview, Brush, BrushKind, GroundMaterial,
-    LightDirection, PixelImage, PreviewMode, PreviewOptions, TerrainMap, Tileset, TilesetRecipe,
+    export_tileset_bundle, find_path, preview_pixel_to_cell, render_terrain_preview, Brush,
+    BrushKind, GroundMaterial, LightDirection, PixelImage, PreviewMode, PreviewOptions, TerrainMap,
+    Tileset, TilesetRecipe,
 };
 
 fn main() -> eframe::Result {
@@ -46,6 +47,8 @@ impl GroundLabApp {
                 show_grid: true,
                 los_source: terrain.objective,
                 los_range: 18,
+                height_step_px: (recipe.tile_size / 4).max(4),
+                fade_raised_faces: true,
             },
             recipe,
             tileset,
@@ -181,6 +184,24 @@ impl GroundLabApp {
         {
             self.dirty_preview = true;
         }
+        if ui
+            .add(
+                egui::Slider::new(&mut self.preview_options.height_step_px, 2..=24)
+                    .text("2.5D height px"),
+            )
+            .changed()
+        {
+            self.dirty_preview = true;
+        }
+        if ui
+            .checkbox(
+                &mut self.preview_options.fade_raised_faces,
+                "Fade raised faces for inspection",
+            )
+            .changed()
+        {
+            self.dirty_preview = true;
+        }
         ui.add(egui::Slider::new(&mut self.zoom, 0.4..=3.0).text("zoom"));
         ui.checkbox(&mut self.show_contact_sheet, "Show contact sheet");
 
@@ -288,10 +309,14 @@ impl GroundLabApp {
                 let local = pos - response.rect.min;
                 let px = (local.x / self.zoom).floor().max(0.0) as u32;
                 let py = (local.y / self.zoom).floor().max(0.0) as u32;
-                let tile_px = self.recipe.tile_size.max(1);
-                let x = px / tile_px;
-                let y = py / tile_px;
-                if x < self.terrain.width && y < self.terrain.height {
+                if let Some((x, y)) = preview_pixel_to_cell(
+                    &self.terrain,
+                    &self.tileset,
+                    self.preview_mode,
+                    &self.preview_options,
+                    px,
+                    py,
+                ) {
                     let primary = ctx.input(|i| i.pointer.primary_down());
                     let secondary = ctx.input(|i| i.pointer.secondary_down());
                     if secondary {
@@ -308,9 +333,7 @@ impl GroundLabApp {
             }
         }
 
-        ui.label(
-            "Left-drag paints. Right-click sets LOS source. Blue = spawn, yellow = objective.",
-        );
+        ui.label("Left-drag paints. Right-click sets LOS source. Blue = spawn, yellow = objective. The 2.5D view supports approximate hit-testing for elevated surfaces.");
     }
 }
 

@@ -55,9 +55,25 @@ pub fn export_tileset_bundle(
             show_grid: true,
             los_source: terrain.objective,
             los_range: 18,
+            height_step_px: (tileset.recipe.tile_size / 4).max(4),
+            fade_raised_faces: true,
         },
     );
     preview.save_png(out_dir.join("terrain_preview.png"))?;
+
+    let preview_2_5d = render_terrain_preview(
+        terrain,
+        tileset,
+        PreviewMode::ErectedTerrain,
+        &PreviewOptions {
+            show_grid: true,
+            los_source: terrain.objective,
+            los_range: 18,
+            height_step_px: (tileset.recipe.tile_size / 4).max(4),
+            fade_raised_faces: true,
+        },
+    );
+    preview_2_5d.save_png(out_dir.join("terrain_preview_2_5d.png"))?;
 
     let normal_atlas = build_placeholder_normal_atlas(&atlas);
     normal_atlas.save_png(out_dir.join("terrain_normal_placeholder.png"))?;

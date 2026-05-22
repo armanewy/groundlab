@@ -69,3 +69,15 @@ Implemented in this starter:
 - budget/labor model
 - post-run explanation
 - one polished dry upland outpost map
+
+
+## Milestone 1.1 — Erected terrain preview
+
+Added a first software-rendered 2.5D pass. Terrain height is now visualized by raising top tiles and drawing exposed terrain faces between neighboring cells with different effective heights. This is not the final GPU renderer, but it prevents the workbench from relying only on height-color overlays.
+
+Important constraints:
+
+- The projection is still high-top-down/rectangular, not full diamond isometric.
+- Raised faces can be faded in the workbench so hidden cells remain inspectable.
+- Final runtime should use conditional occluder fade, silhouettes, cutaway, and/or camera rotation so units and important objects behind high terrain are never lost.
+- The asset generator still needs dedicated wall/face/edge tiles for trench walls, berm faces, cliffs, slopes, and ramps.
