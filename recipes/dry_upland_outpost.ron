@@ -1,0 +1,11 @@
+(
+    id: "dry_upland_outpost",
+    tile_size: 32,
+    seed: 1337,
+    variants_per_material: 8,
+    detail_density: 0.55,
+    shadow_strength: 0.45,
+    highlight_strength: 0.28,
+    outline_strength: 0.45,
+    light_direction: Northwest,
+)

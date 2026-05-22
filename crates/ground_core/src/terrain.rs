@@ -1,0 +1,332 @@
+use serde::{Deserialize, Serialize};
+
+use crate::recipe::GroundMaterial;
+use crate::tileset::hash01;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CoverKind {
+    None,
+    Partial,
+    Strong,
+}
+
+impl CoverKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            CoverKind::None => "none",
+            CoverKind::Partial => "partial",
+            CoverKind::Strong => "strong",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TerrainCell {
+    pub height: i8,
+    pub ground: GroundMaterial,
+    pub trench_depth: u8,
+    pub berm_height: u8,
+    pub cover: CoverKind,
+    pub blocks_sight: bool,
+}
+
+impl TerrainCell {
+    pub fn new(height: i8, ground: GroundMaterial) -> Self {
+        Self {
+            height,
+            ground,
+            trench_depth: 0,
+            berm_height: 0,
+            cover: CoverKind::None,
+            blocks_sight: false,
+        }
+    }
+
+    pub fn effective_height(&self) -> f32 {
+        self.height as f32 + self.berm_height as f32 * 0.65 - self.trench_depth as f32 * 0.35
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TerrainMap {
+    pub width: u32,
+    pub height: u32,
+    pub cells: Vec<TerrainCell>,
+    pub objective: (u32, u32),
+    pub spawn: (u32, u32),
+}
+
+impl TerrainMap {
+    pub fn new(width: u32, height: u32, fill: TerrainCell) -> Self {
+        let cells = vec![fill; width as usize * height as usize];
+        Self {
+            width,
+            height,
+            cells,
+            objective: (width.saturating_sub(4), height / 2),
+            spawn: (2, height / 2),
+        }
+    }
+
+    pub fn demo(width: u32, height: u32, seed: u64) -> Self {
+        let mut map = TerrainMap::new(width, height, TerrainCell::new(2, GroundMaterial::Grass));
+        map.objective = (width.saturating_sub(5), height / 2);
+        map.spawn = (2, height / 2 + 2);
+
+        let hill_center = (width as f32 * 0.68, height as f32 * 0.45);
+        let valley_center_y = height as f32 * 0.62;
+
+        for y in 0..height {
+            for x in 0..width {
+                let dx = x as f32 - hill_center.0;
+                let dy = y as f32 - hill_center.1;
+                let hill =
+                    4.5 * (1.0 - ((dx * dx + dy * dy).sqrt() / (width as f32 * 0.50))).max(0.0);
+                let valley = -1.8
+                    * (1.0 - ((y as f32 - valley_center_y).abs() / (height as f32 * 0.18)))
+                        .max(0.0);
+                let west_slope = (x as f32 / width.max(1) as f32) * 2.2;
+                let noise = (hash01(seed, x, y, 777) - 0.5) * 1.3;
+                let h = (2.0 + hill + valley + west_slope + noise)
+                    .round()
+                    .clamp(0.0, 8.0) as i8;
+
+                let ground = if (y as i32 - map.spawn.1 as i32).abs() <= 1 && x < width / 2 {
+                    GroundMaterial::Dirt
+                } else if valley < -0.75 && hash01(seed, x, y, 33) > 0.35 {
+                    GroundMaterial::Mud
+                } else if h >= 6 && hash01(seed, x, y, 9) > 0.72 {
+                    GroundMaterial::Rock
+                } else if hash01(seed, x, y, 18) > 0.88 {
+                    GroundMaterial::Dirt
+                } else {
+                    GroundMaterial::Grass
+                };
+                let idx = map.index(x, y).expect("demo coordinates are in bounds");
+                map.cells[idx] = TerrainCell::new(h, ground);
+            }
+        }
+
+        map.apply_brush(
+            map.objective.0,
+            map.objective.1,
+            Brush::new(BrushKind::Flatten, 3, 1),
+        );
+        map.apply_brush(
+            map.spawn.0,
+            map.spawn.1,
+            Brush::new(BrushKind::Paint(GroundMaterial::Dirt), 2, 1),
+        );
+        map
+    }
+
+    pub fn index(&self, x: u32, y: u32) -> Option<usize> {
+        if x < self.width && y < self.height {
+            Some(y as usize * self.width as usize + x as usize)
+        } else {
+            None
+        }
+    }
+
+    pub fn cell(&self, x: u32, y: u32) -> Option<&TerrainCell> {
+        self.index(x, y).map(|idx| &self.cells[idx])
+    }
+
+    pub fn cell_mut(&mut self, x: u32, y: u32) -> Option<&mut TerrainCell> {
+        self.index(x, y).map(move |idx| &mut self.cells[idx])
+    }
+
+    pub fn height_at(&self, x: u32, y: u32) -> i8 {
+        self.cell(x, y).map(|c| c.height).unwrap_or(0)
+    }
+
+    pub fn slope_at(&self, x: u32, y: u32) -> f32 {
+        let Some(cell) = self.cell(x, y) else {
+            return 0.0;
+        };
+        let h = cell.effective_height();
+        let mut max_delta: f32 = 0.0;
+        for (nx, ny) in self.neighbors4(x, y) {
+            if let Some(n) = self.cell(nx, ny) {
+                max_delta = max_delta.max((h - n.effective_height()).abs());
+            }
+        }
+        max_delta
+    }
+
+    pub fn movement_cost_at(&self, x: u32, y: u32) -> f32 {
+        let Some(cell) = self.cell(x, y) else {
+            return f32::INFINITY;
+        };
+        let slope = self.slope_at(x, y);
+        let trench_cost = cell.trench_depth as f32 * 0.45;
+        let berm_cost = cell.berm_height as f32 * 0.35;
+        cell.ground.base_movement_cost() + slope * 0.35 + trench_cost + berm_cost
+    }
+
+    pub fn neighbors4(&self, x: u32, y: u32) -> Vec<(u32, u32)> {
+        let mut out = Vec::with_capacity(4);
+        if x > 0 {
+            out.push((x - 1, y));
+        }
+        if y > 0 {
+            out.push((x, y - 1));
+        }
+        if x + 1 < self.width {
+            out.push((x + 1, y));
+        }
+        if y + 1 < self.height {
+            out.push((x, y + 1));
+        }
+        out
+    }
+
+    pub fn apply_brush(&mut self, center_x: u32, center_y: u32, brush: Brush) {
+        let radius = brush.radius as i32;
+        for dy in -radius..=radius {
+            for dx in -radius..=radius {
+                let x = center_x as i32 + dx;
+                let y = center_y as i32 + dy;
+                if x < 0 || y < 0 || x >= self.width as i32 || y >= self.height as i32 {
+                    continue;
+                }
+                let dist2 = dx * dx + dy * dy;
+                if dist2 > radius * radius {
+                    continue;
+                }
+                self.apply_brush_to_cell(x as u32, y as u32, brush.kind, brush.intensity);
+            }
+        }
+    }
+
+    fn apply_brush_to_cell(&mut self, x: u32, y: u32, kind: BrushKind, intensity: u8) {
+        let Some(idx) = self.index(x, y) else {
+            return;
+        };
+        let intensity = intensity.clamp(1, 4) as i8;
+        match kind {
+            BrushKind::Paint(material) => {
+                self.cells[idx].ground = material;
+                if !matches!(
+                    material,
+                    GroundMaterial::TrenchFloor | GroundMaterial::TrenchWall
+                ) {
+                    self.cells[idx].trench_depth = 0;
+                }
+                if !matches!(material, GroundMaterial::BermTop | GroundMaterial::BermFace) {
+                    self.cells[idx].berm_height = 0;
+                }
+                recompute_semantics(&mut self.cells[idx]);
+            }
+            BrushKind::DigTrench => {
+                let cell = &mut self.cells[idx];
+                cell.height = (cell.height - intensity).clamp(0, 9);
+                cell.ground = GroundMaterial::TrenchFloor;
+                cell.trench_depth = cell.trench_depth.saturating_add(intensity as u8).min(4);
+                cell.berm_height = 0;
+                cell.cover = CoverKind::Strong;
+                cell.blocks_sight = false;
+            }
+            BrushKind::RaiseBerm => {
+                let cell = &mut self.cells[idx];
+                cell.height = (cell.height + intensity).clamp(0, 9);
+                cell.ground = GroundMaterial::BermTop;
+                cell.berm_height = cell.berm_height.saturating_add(intensity as u8).min(4);
+                cell.trench_depth = 0;
+                cell.cover = CoverKind::Partial;
+                cell.blocks_sight = cell.berm_height >= 2;
+            }
+            BrushKind::Ditch => {
+                let cell = &mut self.cells[idx];
+                cell.height = (cell.height - 1).clamp(0, 9);
+                cell.ground = GroundMaterial::Mud;
+                cell.trench_depth = cell.trench_depth.saturating_add(1).min(2);
+                cell.cover = CoverKind::Partial;
+                cell.blocks_sight = false;
+            }
+            BrushKind::Flatten => {
+                let target = self.average_height_around(x, y);
+                let cell = &mut self.cells[idx];
+                cell.height = target;
+                cell.trench_depth = 0;
+                cell.berm_height = 0;
+                if matches!(
+                    cell.ground,
+                    GroundMaterial::TrenchFloor | GroundMaterial::BermTop
+                ) {
+                    cell.ground = GroundMaterial::Dirt;
+                }
+                recompute_semantics(cell);
+            }
+        }
+    }
+
+    fn average_height_around(&self, x: u32, y: u32) -> i8 {
+        let mut total = self.height_at(x, y) as i32;
+        let mut count = 1;
+        for (nx, ny) in self.neighbors4(x, y) {
+            total += self.height_at(nx, ny) as i32;
+            count += 1;
+        }
+        (total as f32 / count as f32).round().clamp(0.0, 9.0) as i8
+    }
+}
+
+fn recompute_semantics(cell: &mut TerrainCell) {
+    match cell.ground {
+        GroundMaterial::TrenchFloor => {
+            cell.cover = CoverKind::Strong;
+            cell.blocks_sight = false;
+        }
+        GroundMaterial::TrenchWall | GroundMaterial::BermFace => {
+            cell.cover = CoverKind::Partial;
+            cell.blocks_sight = true;
+        }
+        GroundMaterial::BermTop => {
+            cell.cover = CoverKind::Partial;
+            cell.blocks_sight = cell.berm_height >= 2;
+        }
+        _ => {
+            cell.cover = CoverKind::None;
+            cell.blocks_sight = false;
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BrushKind {
+    Paint(GroundMaterial),
+    DigTrench,
+    RaiseBerm,
+    Ditch,
+    Flatten,
+}
+
+impl BrushKind {
+    pub fn label(self) -> String {
+        match self {
+            BrushKind::Paint(material) => format!("Paint {}", material.display_name()),
+            BrushKind::DigTrench => "Dig trench".to_string(),
+            BrushKind::RaiseBerm => "Raise berm".to_string(),
+            BrushKind::Ditch => "Create ditch".to_string(),
+            BrushKind::Flatten => "Flatten".to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Brush {
+    pub kind: BrushKind,
+    pub radius: u8,
+    pub intensity: u8,
+}
+
+impl Brush {
+    pub fn new(kind: BrushKind, radius: u8, intensity: u8) -> Self {
+        Self {
+            kind,
+            radius: radius.clamp(1, 8),
+            intensity: intensity.clamp(1, 4),
+        }
+    }
+}

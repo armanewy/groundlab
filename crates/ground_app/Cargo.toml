@@ -1,0 +1,11 @@
+[package]
+name = "ground_app"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+eframe.workspace = true
+ground_core = { path = "../ground_core" }

@@ -1,0 +1,13 @@
+[package]
+name = "ground_core"
+edition.workspace = true
+version.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+image.workspace = true
+ron.workspace = true
+serde.workspace = true
+serde_json.workspace = true
