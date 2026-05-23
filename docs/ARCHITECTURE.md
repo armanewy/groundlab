@@ -259,3 +259,21 @@ signatures, and per-cell `TerrainCellChange` entries.
 still the source image. Changed regions get target-derived color sampling, local material/trench/berm
 patches, and optional debug overlays showing semantic cell material, height marks, dirty cells,
 neighbor context, and patch bounds.
+
+## Milestone 4.12 edit patch stress-test note
+
+Milestone 4.12 extends edit patches with operation metadata and scripted stress scenarios:
+
+```txt
+visual target image -> aligned terrain edit -> patch operation classification -> cover pass -> replacement detail -> debug/export metrics
+```
+
+`TerrainEditPatch` now records `old_kind`, `new_kind`, `operation`, `cover_required`, and
+`touches_target_baked_feature`. This distinguishes additive edits, such as grass to trench, from
+subtractive edits, such as trench to grass. Subtractive edits draw a cover pass first so baked target
+features can be visually overwritten before replacement detail is drawn.
+
+`edit_scenario.rs` defines repeatable edits for new trenches, berms, roads, feature removal,
+flattening, and stone painting. `export_edit_scenario_suite` renders those scenarios to
+`edit_scenarios/` with base, edited, cover-only, debug, patch JSON, and summary reports. This makes
+visual edit quality testable without manually brushing the map every time.

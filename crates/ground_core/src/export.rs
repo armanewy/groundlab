@@ -5,7 +5,10 @@ use anyhow::Result;
 use ron::ser::PrettyConfig;
 use serde::Serialize;
 
-use crate::edit_patch::build_edit_patches;
+use crate::edit_patch::{build_edit_patches, TerrainEditPatchMetrics};
+use crate::edit_scenario::{
+    apply_edit_scenario, build_edit_scenario_report, EditScenarioReport, EDIT_SCENARIOS,
+};
 use crate::feature::TerrainFeatureMap;
 use crate::mask::{
     build_height_mask_atlas, build_normal_map_atlas, build_occlusion_mask_atlas,
@@ -70,6 +73,8 @@ pub struct TilesetExportMetadata {
     pub visual_target_source_path: String,
     pub terrain_edit_patches_path: String,
     pub terrain_edit_patch_count: usize,
+    pub terrain_edit_patch_metrics: TerrainEditPatchMetrics,
+    pub edit_scenarios_dir: String,
     pub terrain_forms_path: String,
     pub terrain_stamps_path: String,
     pub terrain_stamp_count: usize,
@@ -143,6 +148,10 @@ pub fn export_tileset_bundle_with_palette(
         show_scene_markers: true,
         show_structure_lips: true,
         show_feature_overlay: false,
+        show_patch_dirty_cells: true,
+        show_patch_bounds: true,
+        show_patch_signatures: true,
+        show_cover_patches_only: false,
         view_orientation: tileset.recipe.projection.default_orientation,
     };
 
@@ -221,6 +230,7 @@ pub fn export_tileset_bundle_with_palette(
     let edit_patches = build_edit_patches(terrain, &baseline, &visual_target);
     let edit_patches_json = serde_json::to_string_pretty(&edit_patches)?;
     fs::write(out_dir.join("terrain_edit_patches.json"), edit_patches_json)?;
+    export_edit_scenario_suite(tileset, terrain, out_dir.join("edit_scenarios"))?;
 
     let visual_scene = VisualScene::from_terrain(terrain);
     let visual_scene_json = serde_json::to_string_pretty(&visual_scene)?;
@@ -365,6 +375,90 @@ pub fn export_tileset_bundle_with_palette(
     Ok(())
 }
 
+pub fn export_edit_scenario_suite(
+    tileset: &Tileset,
+    baseline_terrain: &TerrainMap,
+    out_dir: impl AsRef<Path>,
+) -> Result<()> {
+    let out_dir = out_dir.as_ref();
+    fs::create_dir_all(out_dir)?;
+
+    let visual_target = VisualTarget::load_default()?;
+    visual_target.image.save_png(out_dir.join("base.png"))?;
+
+    let baseline = TerrainMap::target_derived(
+        visual_target.spec.map_size_cells.0,
+        visual_target.spec.map_size_cells.1,
+        tileset.recipe.seed,
+    );
+    let preview_options = PreviewOptions {
+        show_grid: false,
+        los_source: baseline_terrain.objective,
+        los_range: 18,
+        height_step_px: tileset.recipe.projection.faux_height_step_px,
+        fade_raised_faces: false,
+        enable_local_cutaway: true,
+        inspect_cell: None,
+        show_projected_route: false,
+        show_scene_markers: false,
+        show_structure_lips: true,
+        show_feature_overlay: false,
+        show_patch_dirty_cells: true,
+        show_patch_bounds: true,
+        show_patch_signatures: true,
+        show_cover_patches_only: false,
+        view_orientation: tileset.recipe.projection.default_orientation,
+    };
+
+    let mut reports: Vec<EditScenarioReport> = Vec::new();
+    for scenario in EDIT_SCENARIOS {
+        let edited = apply_edit_scenario(&baseline, scenario);
+        let file_id = scenario.file_id();
+
+        let preview = render_terrain_preview(
+            &edited,
+            tileset,
+            PreviewMode::PerspectiveSpriteScene,
+            &preview_options,
+        );
+        preview.save_png(out_dir.join(format!("edit_{file_id}.png")))?;
+
+        let mut debug_options = preview_options.clone();
+        debug_options.show_grid = true;
+        debug_options.show_feature_overlay = true;
+        let debug_preview = render_terrain_preview(
+            &edited,
+            tileset,
+            PreviewMode::PerspectiveSpriteScene,
+            &debug_options,
+        );
+        debug_preview.save_png(out_dir.join(format!("patch_debug_{file_id}.png")))?;
+
+        let mut cover_options = preview_options.clone();
+        cover_options.show_cover_patches_only = true;
+        let cover_preview = render_terrain_preview(
+            &edited,
+            tileset,
+            PreviewMode::PerspectiveSpriteScene,
+            &cover_options,
+        );
+        cover_preview.save_png(out_dir.join(format!("cover_only_{file_id}.png")))?;
+
+        let report = build_edit_scenario_report(scenario, &edited, &baseline, &visual_target);
+        fs::write(
+            out_dir.join(format!("terrain_edit_patches_{file_id}.json")),
+            serde_json::to_string_pretty(&report.patches)?,
+        )?;
+        reports.push(report);
+    }
+
+    fs::write(
+        out_dir.join("summary.json"),
+        serde_json::to_string_pretty(&reports)?,
+    )?;
+    Ok(())
+}
+
 pub fn export_metadata(
     tileset: &Tileset,
     terrain: &TerrainMap,
@@ -445,6 +539,19 @@ pub fn export_metadata(
                 build_edit_patches(terrain, &baseline, &target).len()
             })
             .unwrap_or_default(),
+        terrain_edit_patch_metrics: VisualTarget::load_default()
+            .ok()
+            .map(|target| {
+                let baseline = TerrainMap::target_derived(
+                    target.spec.map_size_cells.0,
+                    target.spec.map_size_cells.1,
+                    tileset.recipe.seed,
+                );
+                let patches = build_edit_patches(terrain, &baseline, &target);
+                crate::edit_patch::summarize_edit_patches(&patches)
+            })
+            .unwrap_or_else(|| crate::edit_patch::summarize_edit_patches(&[])),
+        edit_scenarios_dir: "edit_scenarios".to_string(),
         terrain_artkit_atlas_path: "terrain_artkit_atlas.png".to_string(),
         terrain_artkit_manifest_path: "terrain_artkit_manifest.json".to_string(),
         terrain_artkit_validation_path: "terrain_artkit_validation.json".to_string(),

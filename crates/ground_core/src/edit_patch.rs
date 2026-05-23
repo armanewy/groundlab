@@ -44,6 +44,42 @@ impl TerrainEditPatchKind {
             }
         }
     }
+
+    pub fn from_signature(signature: TerrainSignature) -> Self {
+        if signature.trench_depth > 0
+            || matches!(
+                signature.ground,
+                GroundMaterial::TrenchFloor | GroundMaterial::TrenchWall
+            )
+        {
+            Self::Trench
+        } else if signature.berm_height > 0
+            || matches!(
+                signature.ground,
+                GroundMaterial::BermTop | GroundMaterial::BermFace
+            )
+        {
+            Self::Berm
+        } else {
+            match signature.ground {
+                GroundMaterial::Grass => Self::Grass,
+                GroundMaterial::Dirt => Self::Road,
+                GroundMaterial::Mud => Self::Mud,
+                GroundMaterial::Rock => Self::Stone,
+                GroundMaterial::TrenchFloor | GroundMaterial::TrenchWall => Self::Trench,
+                GroundMaterial::BermTop | GroundMaterial::BermFace => Self::Berm,
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TerrainEditPatchOperation {
+    Additive,
+    Cover,
+    Replace,
+    HeightOnly,
+    Mixed,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -105,12 +141,56 @@ impl PatchRect {
 pub struct TerrainEditPatch {
     pub id: String,
     pub kind: TerrainEditPatchKind,
+    pub old_kind: Option<TerrainEditPatchKind>,
+    pub new_kind: Option<TerrainEditPatchKind>,
+    pub operation: TerrainEditPatchOperation,
+    pub cover_required: bool,
+    pub touches_target_baked_feature: bool,
     pub cells: Vec<(u32, u32)>,
     pub neighbor_cells: Vec<(u32, u32)>,
     pub bounds_px: PatchRect,
     pub old_signature: Option<TerrainSignature>,
     pub new_signature: Option<TerrainSignature>,
     pub changes: Vec<TerrainCellChange>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TerrainEditPatchMetrics {
+    pub patch_count: usize,
+    pub dirty_cell_count: usize,
+    pub cover_patch_count: usize,
+    pub target_baked_feature_touch_count: usize,
+    pub total_patch_bounds_area_px: u64,
+    pub patch_kinds: Vec<TerrainEditPatchKind>,
+    pub operations: Vec<TerrainEditPatchOperation>,
+}
+
+pub fn summarize_edit_patches(patches: &[TerrainEditPatch]) -> TerrainEditPatchMetrics {
+    let mut patch_kinds = Vec::new();
+    let mut operations = Vec::new();
+    for patch in patches {
+        if !patch_kinds.contains(&patch.kind) {
+            patch_kinds.push(patch.kind);
+        }
+        if !operations.contains(&patch.operation) {
+            operations.push(patch.operation);
+        }
+    }
+    TerrainEditPatchMetrics {
+        patch_count: patches.len(),
+        dirty_cell_count: patches.iter().map(|patch| patch.cells.len()).sum(),
+        cover_patch_count: patches.iter().filter(|patch| patch.cover_required).count(),
+        target_baked_feature_touch_count: patches
+            .iter()
+            .filter(|patch| patch.touches_target_baked_feature)
+            .count(),
+        total_patch_bounds_area_px: patches
+            .iter()
+            .map(|patch| patch.bounds_px.width as u64 * patch.bounds_px.height as u64)
+            .sum(),
+        patch_kinds,
+        operations,
+    }
 }
 
 pub fn build_edit_patches(
@@ -197,6 +277,8 @@ pub fn build_edit_patches(
 
         let old_signature = changes.first().and_then(|change| change.old);
         let new_signature = changes.first().and_then(|change| change.new);
+        let (old_kind, new_kind, operation, cover_required, touches_target_baked_feature) =
+            classify_patch(&changes);
         patches.push(TerrainEditPatch {
             id: format!(
                 "edit_patch_{:02}_{:02}_{}",
@@ -205,6 +287,11 @@ pub fn build_edit_patches(
                 patches.len()
             ),
             kind: seed_kind,
+            old_kind,
+            new_kind,
+            operation,
+            cover_required,
+            touches_target_baked_feature,
             cells,
             neighbor_cells,
             bounds_px,
@@ -231,6 +318,107 @@ pub fn build_edit_patches(
         )
     });
     patches
+}
+
+fn classify_patch(
+    changes: &[TerrainCellChange],
+) -> (
+    Option<TerrainEditPatchKind>,
+    Option<TerrainEditPatchKind>,
+    TerrainEditPatchOperation,
+    bool,
+    bool,
+) {
+    let mut old_kinds = Vec::new();
+    let mut new_kinds = Vec::new();
+    let mut height_only = true;
+    let mut cover_required = false;
+    let mut touches_target_baked_feature = false;
+
+    for change in changes {
+        let old_kind = change.old.map(TerrainEditPatchKind::from_signature);
+        let new_kind = change.new.map(TerrainEditPatchKind::from_signature);
+        if let Some(kind) = old_kind {
+            if !old_kinds.contains(&kind) {
+                old_kinds.push(kind);
+            }
+            if kind != TerrainEditPatchKind::Grass {
+                touches_target_baked_feature = true;
+            }
+        }
+        if let Some(kind) = new_kind {
+            if !new_kinds.contains(&kind) {
+                new_kinds.push(kind);
+            }
+        }
+
+        if change.old.map(|sig| sig.ground) != change.new.map(|sig| sig.ground)
+            || change.old.map(|sig| sig.trench_depth) != change.new.map(|sig| sig.trench_depth)
+            || change.old.map(|sig| sig.berm_height) != change.new.map(|sig| sig.berm_height)
+        {
+            height_only = false;
+        }
+
+        if matches!(
+            (old_kind, new_kind),
+            (
+                Some(TerrainEditPatchKind::Trench),
+                Some(TerrainEditPatchKind::Grass)
+            ) | (
+                Some(TerrainEditPatchKind::Road),
+                Some(TerrainEditPatchKind::Grass)
+            ) | (
+                Some(TerrainEditPatchKind::Stone),
+                Some(TerrainEditPatchKind::Grass)
+            ) | (
+                Some(TerrainEditPatchKind::Berm),
+                Some(TerrainEditPatchKind::Grass)
+            )
+        ) {
+            cover_required = true;
+        }
+        if let (Some(old), Some(new)) = (old_kind, new_kind) {
+            if old != TerrainEditPatchKind::Grass && old != new {
+                cover_required = true;
+            }
+        }
+    }
+
+    let old_kind = single_kind(&old_kinds);
+    let new_kind = single_kind(&new_kinds);
+    let operation = if cover_required
+        || matches!(
+            (old_kind, new_kind),
+            (Some(old), Some(TerrainEditPatchKind::Grass)) if old != TerrainEditPatchKind::Grass
+        ) {
+        TerrainEditPatchOperation::Cover
+    } else if old_kinds.len() > 1 || new_kinds.len() > 1 {
+        TerrainEditPatchOperation::Mixed
+    } else if height_only {
+        TerrainEditPatchOperation::HeightOnly
+    } else if matches!(
+        (old_kind, new_kind),
+        (Some(TerrainEditPatchKind::Grass), Some(new)) if new != TerrainEditPatchKind::Grass
+    ) {
+        TerrainEditPatchOperation::Additive
+    } else {
+        TerrainEditPatchOperation::Replace
+    };
+
+    (
+        old_kind,
+        new_kind,
+        operation,
+        cover_required,
+        touches_target_baked_feature,
+    )
+}
+
+fn single_kind(kinds: &[TerrainEditPatchKind]) -> Option<TerrainEditPatchKind> {
+    match kinds {
+        [kind] => Some(*kind),
+        _ => None,
+    }
 }
 
 fn neighbors4_in_bounds(x: u32, y: u32, width: u32, height: u32) -> Vec<(u32, u32)> {
@@ -281,6 +469,7 @@ fn patch_bounds(cells: &[(u32, u32)], target: &VisualTarget) -> Option<PatchRect
 mod tests {
     use super::*;
     use crate::color::Rgba8;
+    use crate::recipe::GroundMaterial;
     use crate::terrain::{Brush, BrushKind};
     use crate::visual_target::VisualTargetSpec;
 
@@ -322,10 +511,31 @@ mod tests {
         assert!(patches
             .iter()
             .any(|patch| patch.kind == TerrainEditPatchKind::Trench));
+        assert!(patches
+            .iter()
+            .any(|patch| patch.operation == TerrainEditPatchOperation::Additive));
         assert!(patches.iter().any(|patch| !patch.neighbor_cells.is_empty()));
         assert!(patches
             .iter()
             .flat_map(|patch| patch.changes.iter())
             .any(|change| change.old != change.new));
+    }
+
+    #[test]
+    fn removing_baked_feature_requires_cover_patch() {
+        let target = test_target();
+        let baseline = TerrainMap::target_derived(16, 12, 0);
+        let mut map = baseline.clone();
+        map.apply_brush(
+            4,
+            7,
+            Brush::new(BrushKind::Paint(GroundMaterial::Grass), 1, 1),
+        );
+
+        let patches = build_edit_patches(&map, &baseline, &target);
+        assert!(patches.iter().any(|patch| patch.cover_required));
+        assert!(patches
+            .iter()
+            .any(|patch| patch.operation == TerrainEditPatchOperation::Cover));
     }
 }

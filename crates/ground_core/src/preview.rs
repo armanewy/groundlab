@@ -90,6 +90,14 @@ pub struct PreviewOptions {
     pub show_structure_lips: bool,
     /// Workbench debug overlay for derived feature masks and coherent terrain runs.
     pub show_feature_overlay: bool,
+    /// Target-derived debug option: outline cells that differ from the source-art baseline.
+    pub show_patch_dirty_cells: bool,
+    /// Target-derived debug option: outline image-space bounds for each edit patch.
+    pub show_patch_bounds: bool,
+    /// Target-derived debug option: draw material and height marks for semantic cells.
+    pub show_patch_signatures: bool,
+    /// Target-derived inspection option: draw only cover/erase passes for subtractive edits.
+    pub show_cover_patches_only: bool,
     /// Current viewing direction for angled 2.5D projection.
     pub view_orientation: ViewOrientation,
 }
@@ -108,6 +116,10 @@ impl Default for PreviewOptions {
             show_scene_markers: true,
             show_structure_lips: true,
             show_feature_overlay: false,
+            show_patch_dirty_cells: true,
+            show_patch_bounds: true,
+            show_patch_signatures: true,
+            show_cover_patches_only: false,
             view_orientation: ViewOrientation::SouthEast,
         }
     }
@@ -128,6 +140,10 @@ pub fn render_terrain_preview(
             inspect_cell: options.inspect_cell,
             view_orientation: options.view_orientation,
             height_step_px: options.height_step_px,
+            show_dirty_cells: options.show_patch_dirty_cells,
+            show_patch_bounds: options.show_patch_bounds,
+            show_patch_signatures: options.show_patch_signatures,
+            show_cover_patches_only: options.show_cover_patches_only,
         };
         return render_target_look_scene(map, tileset, &target_options);
     }
@@ -515,6 +531,10 @@ pub fn preview_pixel_to_cell(
             inspect_cell: options.inspect_cell,
             view_orientation: options.view_orientation,
             height_step_px: options.height_step_px,
+            show_dirty_cells: options.show_patch_dirty_cells,
+            show_patch_bounds: options.show_patch_bounds,
+            show_patch_signatures: options.show_patch_signatures,
+            show_cover_patches_only: options.show_cover_patches_only,
         };
         return target_look_pixel_to_cell(map, tileset, &target_options, px, py);
     }

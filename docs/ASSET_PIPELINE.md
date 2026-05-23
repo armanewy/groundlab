@@ -220,3 +220,28 @@ shows the aligned semantic grid, material swatches, height marks, dirty cells, n
 and patch bounds. `terrain_edit_patches.json` is the machine-readable bridge for future target-style
 patch pieces: it contains changed cells, old/new terrain signatures, neighbor cells, and image-space
 bounds for every dirty region.
+
+## Milestone 4.12 edit scenario and cover patch note
+
+Milestone 4.12 adds repeatable edit-patch stress exports under `edit_scenarios/`:
+
+```txt
+base.png
+edit_new_trench.png
+edit_new_berm.png
+edit_new_road.png
+edit_remove_trench.png
+edit_remove_road.png
+edit_flatten_trench.png
+edit_paint_stone.png
+patch_debug_*.png
+cover_only_*.png
+terrain_edit_patches_*.json
+summary.json
+```
+
+These exports intentionally include additive and subtractive cases. Subtractive cases use
+`cover_required` patch metadata and a cover rendering pass to repaint the baked target feature before
+new terrain detail is drawn. `summary.json` carries patch counts, dirty-cell counts, cover-patch
+counts, target-baked feature touches, patch kinds, and operations so visual regressions can be judged
+alongside image output.

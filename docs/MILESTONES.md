@@ -262,6 +262,24 @@ This is the editability checkpoint for the target-derived source-art path. The b
 scene cohesive, while brush edits now produce explicit visual deltas that can be inspected, exported,
 and replaced with stronger target-style patch pieces.
 
+## Milestone 4.12 — Edit patch stress test and cover patches
+
+Implemented in this drop.
+
+- edit patches now record old/new patch kind, operation, cover requirement, and baked-feature touch
+- patch metrics summarize dirty cells, patch count, cover patch count, patch kinds, operations, and patch bounds area
+- target renderer adds a cover pass for subtractive edits before drawing replacement detail
+- workbench exposes dirty-cell, patch-bounds, terrain-signature, and cover-only inspection toggles
+- `edit_scenario.rs` adds scripted new-trench, new-berm, new-road, remove-trench, remove-road, flatten-trench, and paint-stone scenarios
+- CLI adds `edit-scenarios` export command
+- app adds `Export edit stress tests`
+- bundle export writes `edit_scenarios/base.png`, edited previews, patch-debug previews, cover-only previews, per-scenario patch JSON, and `summary.json`
+- CLI/app export target defaults to `exports/milestone_04_12`
+
+This is the first visual stress-test milestone for target-derived editing. It proves the unedited
+scene is no longer the only export and gives additive/removal edits concrete artifacts for judging
+patch blending quality.
+
 ## Milestone 5 — Custom renderer/runtime
 
 - introduce `ground_render`

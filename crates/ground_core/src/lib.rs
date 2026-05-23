@@ -1,5 +1,6 @@
 pub mod color;
 pub mod edit_patch;
+pub mod edit_scenario;
 pub mod export;
 pub mod feature;
 pub mod hero_scene;
@@ -23,6 +24,7 @@ pub mod visual_target;
 
 pub use color::*;
 pub use edit_patch::*;
+pub use edit_scenario::*;
 pub use export::*;
 pub use feature::*;
 pub use hero_scene::*;

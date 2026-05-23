@@ -2,12 +2,12 @@ use std::path::PathBuf;
 
 use eframe::egui;
 use ground_core::{
-    build_seam_test_sheet, ensure_default_asset_files, export_tileset_bundle_with_palette,
-    find_path, load_workbench_assets, muted_field_32, preview_pixel_to_cell,
-    render_terrain_preview, save_palette_file, save_recipe_file, validate_tileset, Brush,
-    BrushKind, FileSnapshot, GroundMaterial, LightDirection, Palette, PixelImage, PreviewMode,
-    PreviewOptions, ProjectionKind, TerrainMap, Tileset, TilesetRecipe, ValidationReport,
-    ViewOrientation, WorkbenchAssetPaths,
+    build_seam_test_sheet, ensure_default_asset_files, export_edit_scenario_suite,
+    export_tileset_bundle_with_palette, find_path, load_workbench_assets, muted_field_32,
+    preview_pixel_to_cell, render_terrain_preview, save_palette_file, save_recipe_file,
+    validate_tileset, Brush, BrushKind, FileSnapshot, GroundMaterial, LightDirection, Palette,
+    PixelImage, PreviewMode, PreviewOptions, ProjectionKind, TerrainMap, Tileset, TilesetRecipe,
+    ValidationReport, ViewOrientation, WorkbenchAssetPaths,
 };
 
 const MAX_UI_TEXTURE_SIDE: usize = 2048;
@@ -110,6 +110,10 @@ impl GroundLabApp {
                 show_scene_markers: true,
                 show_structure_lips: true,
                 show_feature_overlay: false,
+                show_patch_dirty_cells: true,
+                show_patch_bounds: true,
+                show_patch_signatures: true,
+                show_cover_patches_only: false,
                 view_orientation: loaded.recipe.projection.default_orientation,
             },
             recipe: loaded.recipe,
@@ -127,7 +131,8 @@ impl GroundLabApp {
             dirty_assets: true,
             dirty_preview: true,
             last_preview_size: [1, 1],
-            status: "Ready. Milestone 4.11 target-derived local edit patches are active: edits render as tracked dirty regions over the source image.".to_string(),
+            status: "Ready. Milestone 4.12 edit patch stress tests and cover patches are active."
+                .to_string(),
         };
         app.refresh_if_dirty(&cc.egui_ctx);
         app
@@ -611,6 +616,48 @@ impl GroundLabApp {
         {
             self.dirty_preview = true;
         }
+        ui.indent("target_patch_debug_options", |ui| {
+            if ui
+                .checkbox(
+                    &mut self.preview_options.show_patch_dirty_cells,
+                    "Show dirty cells",
+                )
+                .changed()
+            {
+                self.preview_options.show_feature_overlay = true;
+                self.dirty_preview = true;
+            }
+            if ui
+                .checkbox(
+                    &mut self.preview_options.show_patch_bounds,
+                    "Show patch bounds",
+                )
+                .changed()
+            {
+                self.preview_options.show_feature_overlay = true;
+                self.dirty_preview = true;
+            }
+            if ui
+                .checkbox(
+                    &mut self.preview_options.show_patch_signatures,
+                    "Show terrain signatures",
+                )
+                .changed()
+            {
+                self.preview_options.show_feature_overlay = true;
+                self.dirty_preview = true;
+            }
+            if ui
+                .checkbox(
+                    &mut self.preview_options.show_cover_patches_only,
+                    "Show cover patches only",
+                )
+                .changed()
+            {
+                self.preview_mode = PreviewMode::PerspectiveSpriteScene;
+                self.dirty_preview = true;
+            }
+        });
         ui.add(egui::Slider::new(&mut self.zoom, 0.4..=3.0).text("zoom"));
 
         ui.separator();
@@ -686,10 +733,25 @@ impl GroundLabApp {
                 &self.tileset,
                 &self.palette,
                 &self.terrain,
-                "exports/milestone_04_11",
+                "exports/milestone_04_12",
             ) {
-                Ok(()) => self.status = "Exported to exports/milestone_04_11".to_string(),
+                Ok(()) => self.status = "Exported to exports/milestone_04_12".to_string(),
                 Err(err) => self.status = format!("Export failed: {err}"),
+            }
+        }
+        if ui.button("Export edit stress tests").clicked() {
+            self.refresh_if_dirty(ctx);
+            match export_edit_scenario_suite(
+                &self.tileset,
+                &self.terrain,
+                "exports/milestone_04_12/edit_scenarios",
+            ) {
+                Ok(()) => {
+                    self.status =
+                        "Exported edit stress tests to exports/milestone_04_12/edit_scenarios"
+                            .to_string()
+                }
+                Err(err) => self.status = format!("Edit stress export failed: {err}"),
             }
         }
 

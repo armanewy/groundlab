@@ -1,7 +1,8 @@
 use anyhow::{bail, Result};
 use ground_core::{
-    ensure_default_asset_files, export_tileset_bundle_with_palette, load_workbench_assets,
-    TerrainArtKit, TerrainMap, WorkbenchAssetPaths, DEFAULT_PALETTE_PATH, DEFAULT_RECIPE_PATH,
+    ensure_default_asset_files, export_edit_scenario_suite, export_tileset_bundle_with_palette,
+    load_workbench_assets, TerrainArtKit, TerrainMap, WorkbenchAssetPaths, DEFAULT_PALETTE_PATH,
+    DEFAULT_RECIPE_PATH,
 };
 
 fn main() -> Result<()> {
@@ -15,7 +16,7 @@ fn main() -> Result<()> {
         "export" => {
             let out_dir = args
                 .next()
-                .unwrap_or_else(|| "exports/milestone_04_11".to_string());
+                .unwrap_or_else(|| "exports/milestone_04_12".to_string());
             let recipe_path = args
                 .next()
                 .unwrap_or_else(|| DEFAULT_RECIPE_PATH.to_string());
@@ -35,7 +36,7 @@ fn main() -> Result<()> {
                 &terrain,
                 out_dir,
             )?;
-            println!("Exported GroundLab Milestone 4.11 bundle.");
+            println!("Exported GroundLab Milestone 4.12 bundle.");
             println!("{}", loaded.validation.summary_line());
             let artkit_validation =
                 TerrainArtKit::load_default_or_generate(&loaded.tileset).validate();
@@ -44,6 +45,26 @@ fn main() -> Result<()> {
                 artkit_validation.present_piece_count,
                 artkit_validation.issues.len()
             );
+        }
+        "edit-scenarios" => {
+            let out_dir = args
+                .next()
+                .unwrap_or_else(|| "exports/milestone_04_12/edit_scenarios".to_string());
+            let recipe_path = args
+                .next()
+                .unwrap_or_else(|| DEFAULT_RECIPE_PATH.to_string());
+            let palette_path = args
+                .next()
+                .unwrap_or_else(|| DEFAULT_PALETTE_PATH.to_string());
+            let paths = WorkbenchAssetPaths {
+                recipe_path: recipe_path.into(),
+                palette_path: palette_path.into(),
+            };
+            ensure_default_asset_files(&paths)?;
+            let loaded = load_workbench_assets(&paths)?;
+            let terrain = TerrainMap::target_derived(16, 12, loaded.recipe.seed);
+            export_edit_scenario_suite(&loaded.tileset, &terrain, out_dir)?;
+            println!("Exported GroundLab Milestone 4.12 edit scenario suite.");
         }
         "validate" => {
             let recipe_path = args
@@ -95,5 +116,6 @@ fn print_help() {
     eprintln!();
     eprintln!("Usage:");
     eprintln!("  cargo run -p ground_cli -- export [out_dir] [recipe_path] [palette_path]");
+    eprintln!("  cargo run -p ground_cli -- edit-scenarios [out_dir] [recipe_path] [palette_path]");
     eprintln!("  cargo run -p ground_cli -- validate [recipe_path] [palette_path]");
 }
