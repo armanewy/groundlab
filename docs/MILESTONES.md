@@ -37,7 +37,7 @@ Implemented.
 
 ## Milestone 2 — Better asset pipeline
 
-Implemented in this drop.
+Implemented.
 
 - external RON recipe loading/saving
 - external RON palette loading/saving
@@ -52,22 +52,37 @@ Implemented in this drop.
 - metadata-rich export bundle
 - CLI `export` and `validate` commands
 
-Milestone 2 is deliberately still CPU/software-preview based. It gives the renderer a stronger asset contract before `wgpu` runtime work begins.
+## Milestone 3 — Terrain extrusion and occlusion workbench
 
-## Milestone 2.1 — Terrain extrusion asset upgrade
+Implemented in this drop.
 
-Recommended next sub-milestone before the GPU renderer if visual readability still feels weak.
+- generated structure-face tiles: front, left, right, and lip
+- structure-face metadata in `TileMetadata`
+- structure face masks for height, normal, shadow, and occlusion outputs
+- validation count coverage for structure faces
+- seam-test/contact-sheet display of structure faces
+- 2.5D terrain preview uses generated face art instead of flat debug rectangles
+- terrain lips/cut-edges are rendered using generated lip art
+- projected route overlay draws in erected terrain mode
+- hover-driven local cutaway lens fades occluding faces near the inspected cell
+- global face fade remains as a workbench-only debug option
+- CLI/app export target defaults to `exports/milestone_03`
 
-- dedicated trench-wall and berm-face tile generation
-- exposed-face atlas separate from top-surface atlas
-- slope/ramp tiles
-- cliff/ledge lip tiles
-- cutaway and hidden-object silhouette preview
-- better 2.5D hit testing for walls vs top surfaces
+Milestone 3 is deliberately still CPU/software-preview based. It makes the asset/rendering contract
+stronger before `wgpu` runtime work begins.
 
-## Milestone 3 — Custom renderer/runtime
+## Milestone 3.1 — Slope/ramp and corner structure pass
 
-Next major milestone.
+Recommended if visual readability still feels too blocky.
+
+- diagonal/corner face pieces
+- ramp/slope top tiles
+- trench corner lips
+- berm corner lips
+- face seam validation by face kind
+- hidden-object x-ray silhouettes in the software preview
+
+## Milestone 4 — Custom renderer/runtime
 
 - introduce `ground_render`
 - `wgpu` native renderer
@@ -78,7 +93,7 @@ Next major milestone.
 - debug overlay render passes
 - keep `eframe` either as editor shell or replace it with raw `winit + wgpu + egui`
 
-## Milestone 4 — Terrain gameplay sandbox
+## Milestone 5 — Terrain gameplay sandbox
 
 - fixed-step simulation
 - enemy agents
@@ -88,7 +103,7 @@ Next major milestone.
 - selected-defense LOS overlay
 - objective and spawn definitions
 
-## Milestone 5 — Rolling hazard sandbox
+## Milestone 6 — Rolling hazard sandbox
 
 - custom rolling-log model based on height gradient
 - controllable release triggers
@@ -96,7 +111,7 @@ Next major milestone.
 - path trace overlay
 - impact/damage summary
 
-## Milestone 6 — Prepared-ground vertical slice
+## Milestone 7 — Prepared-ground vertical slice
 
 - prep phase
 - assault phase

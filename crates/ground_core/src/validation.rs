@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::color::{clamp01, Rgba8};
 use crate::pixel_image::PixelImage;
-use crate::recipe::GroundMaterial;
+use crate::recipe::{GroundMaterial, StructureFaceKind};
 use crate::tileset::Tileset;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,6 +37,7 @@ pub struct ValidationReport {
     pub score: f32,
     pub surface_tiles: usize,
     pub transition_tiles: usize,
+    pub structure_face_tiles: usize,
     pub palette_ramps: usize,
     pub missing_ramps: Vec<String>,
     pub max_seam_delta: f32,
@@ -51,6 +52,7 @@ impl Default for ValidationReport {
             score: 0.0,
             surface_tiles: 0,
             transition_tiles: 0,
+            structure_face_tiles: 0,
             palette_ramps: 0,
             missing_ramps: Vec::new(),
             max_seam_delta: 0.0,
@@ -64,10 +66,11 @@ impl Default for ValidationReport {
 impl ValidationReport {
     pub fn summary_line(&self) -> String {
         format!(
-            "score {:.0}/100 · {} surface · {} transition · max seam {:.1} · palette drift {:.1}",
+            "score {:.0}/100 · {} surface · {} transition · {} faces · max seam {:.1} · palette drift {:.1}",
             self.score,
             self.surface_tiles,
             self.transition_tiles,
+            self.structure_face_tiles,
             self.max_seam_delta,
             self.avg_palette_drift
         )
@@ -92,12 +95,14 @@ pub fn validate_tileset(tileset: &Tileset) -> ValidationReport {
     let mut report = ValidationReport {
         surface_tiles: tileset.surface_tile_count(),
         transition_tiles: tileset.transition_tile_count(),
+        structure_face_tiles: tileset.structure_face_tile_count(),
         palette_ramps: tileset.palette.ramps.len(),
         ..ValidationReport::default()
     };
 
     validate_palette(tileset, &mut report);
     validate_surface_counts(tileset, &mut report);
+    validate_structure_face_counts(tileset, &mut report);
     validate_same_material_seams(tileset, &mut report);
     validate_palette_drift(tileset, &mut report);
     compute_score(&mut report);
@@ -109,8 +114,17 @@ pub fn build_seam_test_sheet(tileset: &Tileset) -> PixelImage {
     let padding = 2;
     let cols = 6_u32;
     let material_block_rows = GroundMaterial::ALL.len() as u32 * 2;
-    let transition_rows = 6_u32;
-    let rows = material_block_rows + transition_rows;
+    let transition_rows = if tileset.transition_tile_count() > 0 {
+        6_u32
+    } else {
+        0
+    };
+    let face_rows = if tileset.structure_face_tile_count() > 0 {
+        8_u32
+    } else {
+        0
+    };
+    let rows = material_block_rows + transition_rows + face_rows;
     let width = cols * tile + (cols + 1) * padding;
     let height = rows * tile + (rows + 1) * padding;
     let mut image = PixelImage::new(width, height, Rgba8::opaque(15, 15, 18));
@@ -140,6 +154,21 @@ pub fn build_seam_test_sheet(tileset: &Tileset) -> PixelImage {
                 let y = padding + row * (tile + padding);
                 image.blit(&asset.image, x, y);
                 image.outline_rect(x, y, tile, tile, Rgba8::opaque(67, 88, 78));
+            }
+            row += 1;
+        }
+    }
+
+    let faces = tileset.structure_face_tiles();
+    if !faces.is_empty() {
+        for face_row in 0..face_rows {
+            for col in 0..cols {
+                let idx = (face_row * cols + col) as usize % faces.len();
+                let asset = faces[idx];
+                let x = padding + col * (tile + padding);
+                let y = padding + row * (tile + padding);
+                image.blit(&asset.image, x, y);
+                image.outline_rect(x, y, tile, tile, Rgba8::opaque(104, 70, 46));
             }
             row += 1;
         }
@@ -202,6 +231,38 @@ fn validate_surface_counts(tileset: &Tileset, report: &mut ValidationReport) {
             tile_b: None,
             metric: None,
         });
+    }
+}
+
+fn validate_structure_face_counts(tileset: &Tileset, report: &mut ValidationReport) {
+    if !tileset.recipe.generate_structure_faces {
+        return;
+    }
+
+    for material in [
+        GroundMaterial::Dirt,
+        GroundMaterial::Mud,
+        GroundMaterial::Rock,
+        GroundMaterial::TrenchWall,
+        GroundMaterial::BermFace,
+    ] {
+        for face in StructureFaceKind::ALL {
+            let count = tileset.structure_face_tiles_for(material, face).len();
+            if count == 0 {
+                report.issues.push(ValidationIssue {
+                    severity: ValidationSeverity::Error,
+                    category: "tiles".to_string(),
+                    message: format!(
+                        "no structure-face tiles generated for {} {}",
+                        material.display_name(),
+                        face.label()
+                    ),
+                    tile_a: None,
+                    tile_b: None,
+                    metric: None,
+                });
+            }
+        }
     }
 }
 

@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::color::{clamp01, Rgba8};
 use crate::palette::{muted_field_32, Palette};
 use crate::pixel_image::PixelImage;
-use crate::recipe::{GroundMaterial, TileRole, TilesetRecipe, TransitionEdge};
+use crate::recipe::{GroundMaterial, StructureFaceKind, TileRole, TilesetRecipe, TransitionEdge};
 
 const TRANSITION_PAIRS: [(GroundMaterial, GroundMaterial); 8] = [
     (GroundMaterial::Grass, GroundMaterial::Dirt),
@@ -16,6 +16,14 @@ const TRANSITION_PAIRS: [(GroundMaterial, GroundMaterial); 8] = [
     (GroundMaterial::Grass, GroundMaterial::TrenchFloor),
 ];
 
+const STRUCTURE_FACE_MATERIALS: [GroundMaterial; 5] = [
+    GroundMaterial::Dirt,
+    GroundMaterial::Mud,
+    GroundMaterial::Rock,
+    GroundMaterial::TrenchWall,
+    GroundMaterial::BermFace,
+];
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TileMetadata {
     pub id: String,
@@ -23,6 +31,7 @@ pub struct TileMetadata {
     pub material: GroundMaterial,
     pub transition_to: Option<GroundMaterial>,
     pub transition_edge: Option<TransitionEdge>,
+    pub structure_face: Option<StructureFaceKind>,
     pub variant: u32,
     pub movement_cost: f32,
     pub cover_hint: f32,
@@ -63,6 +72,7 @@ impl Tileset {
                     material,
                     transition_to: None,
                     transition_edge: None,
+                    structure_face: None,
                     variant,
                     movement_cost: material.base_movement_cost(),
                     cover_hint: cover_hint(material),
@@ -95,12 +105,39 @@ impl Tileset {
                             material: from,
                             transition_to: Some(to),
                             transition_edge: Some(edge),
+                            structure_face: None,
                             variant,
                             movement_cost: (from.base_movement_cost() + to.base_movement_cost())
                                 * 0.5,
                             cover_hint: cover_hint(from).max(cover_hint(to)) * 0.5,
                             blocks_sight_hint: false,
                             height_role: "material_transition".to_string(),
+                        };
+                        tiles.push(TileAsset { meta, image });
+                    }
+                }
+            }
+        }
+
+        if recipe.generate_structure_faces {
+            for material in STRUCTURE_FACE_MATERIALS {
+                for face in StructureFaceKind::ALL {
+                    for variant in 0..recipe.variants_per_material {
+                        let image = generate_structure_face_image(
+                            &recipe, &palette, material, face, variant,
+                        );
+                        let meta = TileMetadata {
+                            id: format!("face_{}_{}_{}", material.id(), face.id(), variant),
+                            role: TileRole::StructureFace,
+                            material,
+                            transition_to: None,
+                            transition_edge: None,
+                            structure_face: Some(face),
+                            variant,
+                            movement_cost: material.base_movement_cost(),
+                            cover_hint: cover_hint(material),
+                            blocks_sight_hint: true,
+                            height_role: format!("structure_{}", face.id()),
                         };
                         tiles.push(TileAsset { meta, image });
                     }
@@ -146,6 +183,22 @@ impl Tileset {
         })
     }
 
+    pub fn structure_face_tile(
+        &self,
+        material: GroundMaterial,
+        face: StructureFaceKind,
+        variant: u32,
+    ) -> Option<&TileAsset> {
+        let variants = self.recipe.variants_per_material.max(1);
+        let wanted = variant % variants;
+        self.tiles.iter().find(|t| {
+            t.meta.role == TileRole::StructureFace
+                && t.meta.material == material
+                && t.meta.structure_face == Some(face)
+                && t.meta.variant == wanted
+        })
+    }
+
     pub fn surface_tiles_for(&self, material: GroundMaterial) -> Vec<&TileAsset> {
         self.tiles
             .iter()
@@ -160,6 +213,28 @@ impl Tileset {
             .collect()
     }
 
+    pub fn structure_face_tiles(&self) -> Vec<&TileAsset> {
+        self.tiles
+            .iter()
+            .filter(|tile| tile.meta.role == TileRole::StructureFace)
+            .collect()
+    }
+
+    pub fn structure_face_tiles_for(
+        &self,
+        material: GroundMaterial,
+        face: StructureFaceKind,
+    ) -> Vec<&TileAsset> {
+        self.tiles
+            .iter()
+            .filter(|tile| {
+                tile.meta.role == TileRole::StructureFace
+                    && tile.meta.material == material
+                    && tile.meta.structure_face == Some(face)
+            })
+            .collect()
+    }
+
     pub fn surface_tile_count(&self) -> usize {
         self.tiles
             .iter()
@@ -171,6 +246,13 @@ impl Tileset {
         self.tiles
             .iter()
             .filter(|tile| tile.meta.role == TileRole::Transition)
+            .count()
+    }
+
+    pub fn structure_face_tile_count(&self) -> usize {
+        self.tiles
+            .iter()
+            .filter(|tile| tile.meta.role == TileRole::StructureFace)
             .count()
     }
 
@@ -202,7 +284,7 @@ fn role_outline(role: TileRole) -> Rgba8 {
     match role {
         TileRole::Surface => Rgba8::opaque(38, 38, 42),
         TileRole::Transition => Rgba8::opaque(60, 78, 68),
-        TileRole::StructureFace => Rgba8::opaque(82, 58, 42),
+        TileRole::StructureFace => Rgba8::opaque(92, 62, 42),
     }
 }
 
@@ -304,6 +386,123 @@ fn generate_transition_tile_image(
     }
 
     image
+}
+
+fn generate_structure_face_image(
+    recipe: &TilesetRecipe,
+    palette: &Palette,
+    material: GroundMaterial,
+    face: StructureFaceKind,
+    variant: u32,
+) -> PixelImage {
+    let size = recipe.tile_size;
+    let mut image = PixelImage::transparent(size, size);
+    let seed = recipe.seed
+        ^ (material as u64).wrapping_mul(0x12c4_77f4_5a3e_0db5)
+        ^ (face as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15)
+        ^ (variant as u64).wrapping_mul(0x6a09_e667_f3bc_c909);
+    let lip_h = (size / 6).max(2);
+
+    for y in 0..size {
+        for x in 0..size {
+            let nx = if size <= 1 {
+                0.0
+            } else {
+                x as f32 / (size - 1) as f32
+            };
+            let ny = if size <= 1 {
+                0.0
+            } else {
+                y as f32 / (size - 1) as f32
+            };
+            let coarse = value_noise(seed, x / 3, y / 2, 521);
+            let fine = value_noise(seed, x.wrapping_mul(3), y.wrapping_mul(5), 733);
+            let strata = (((ny * 9.0) + (coarse - 0.5) * 0.8).fract() - 0.5).abs();
+            let side_light = match face {
+                StructureFaceKind::Front => 0.0,
+                StructureFaceKind::Left => -0.10,
+                StructureFaceKind::Right => 0.08,
+                StructureFaceKind::Lip => 0.18,
+            };
+            let vertical_shadow = match face {
+                StructureFaceKind::Lip => -0.03,
+                _ => -recipe.face_shadow_strength * (0.18 + ny * 0.34),
+            };
+            let detail_noise = (coarse - 0.5) * recipe.face_detail_density * 0.28
+                + (fine - 0.5) * recipe.face_detail_density * 0.12;
+            let mut t = material_base_t(material) + side_light + vertical_shadow + detail_noise;
+
+            if strata < 0.07 {
+                t -= recipe.face_shadow_strength * 0.10;
+            }
+            if y < lip_h {
+                t += recipe.face_lip_strength * (0.18 * (1.0 - ny));
+            }
+            if y + 2 >= size && !matches!(face, StructureFaceKind::Lip) {
+                t -= recipe.face_shadow_strength * 0.20;
+            }
+            if matches!(face, StructureFaceKind::Left) && x < (size / 5).max(2) {
+                t -= recipe.face_shadow_strength * 0.08;
+            }
+            if matches!(face, StructureFaceKind::Right) && x + (size / 5).max(2) >= size {
+                t += recipe.highlight_strength * 0.08;
+            }
+            if matches!(face, StructureFaceKind::Lip) {
+                let center = 1.0 - ((nx - 0.5).abs() * 2.0).min(1.0);
+                t += center * 0.04;
+            }
+
+            let mut color = palette.sample(material.ramp(), t);
+            if fine > 0.86 {
+                color = color.lighten(0.08 * recipe.face_detail_density);
+            }
+            if fine < 0.14 {
+                color = color.darken(0.10 * recipe.face_detail_density);
+            }
+            if x == 0 || x + 1 == size || y == 0 || y + 1 == size {
+                color = color.darken(recipe.outline_strength * 0.18);
+            }
+            image.set(x, y, color);
+        }
+    }
+
+    add_face_detail(&mut image, recipe, material, face, seed);
+    image
+}
+
+fn add_face_detail(
+    image: &mut PixelImage,
+    recipe: &TilesetRecipe,
+    material: GroundMaterial,
+    face: StructureFaceKind,
+    seed: u64,
+) {
+    let size = recipe.tile_size;
+    let count = ((size * size) as f32 * recipe.face_detail_density * 0.055) as u32;
+    for i in 0..count {
+        let x = hash_u32(seed, i, 141) % size.max(1);
+        let y = hash_u32(seed, i, 353) % size.max(1);
+        let roll = hash01(seed, x, y, i.wrapping_add(700));
+        let px = image.get(x, y);
+        let marked = if roll > 0.60 {
+            px.lighten(0.07)
+        } else {
+            px.darken(0.10)
+        };
+        image.set(x, y, marked);
+
+        let can_extend = matches!(
+            material,
+            GroundMaterial::Rock | GroundMaterial::TrenchWall | GroundMaterial::BermFace
+        ) && !matches!(face, StructureFaceKind::Lip)
+            && x + 1 < size
+            && y + 1 < size
+            && roll > 0.72;
+        if can_extend {
+            image.set(x + 1, y, marked.darken(0.04));
+            image.set(x, y + 1, marked.darken(0.05));
+        }
+    }
 }
 
 fn material_base_t(material: GroundMaterial) -> f32 {

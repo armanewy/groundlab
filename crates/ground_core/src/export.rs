@@ -38,6 +38,7 @@ pub struct TilesetExportMetadata {
     pub seam_validation_path: String,
     pub terrain_preview_path: String,
     pub terrain_preview_2_5d_path: String,
+    pub terrain_preview_cutaway_path: String,
     pub columns: u32,
     pub padding: u32,
     pub tiles: Vec<ExportedTile>,
@@ -85,11 +86,15 @@ pub fn export_tileset_bundle_with_palette(
     seam_sheet.save_png(out_dir.join("seam_validation.png"))?;
 
     let preview_options = PreviewOptions {
-        show_grid: true,
+        show_grid: false,
         los_source: terrain.objective,
         los_range: 18,
         height_step_px: (tileset.recipe.tile_size / 4).max(4),
-        fade_raised_faces: true,
+        fade_raised_faces: false,
+        enable_local_cutaway: true,
+        inspect_cell: None,
+        show_projected_route: true,
+        show_structure_lips: true,
     };
 
     let preview = render_terrain_preview(terrain, tileset, PreviewMode::Material, &preview_options);
@@ -102,6 +107,18 @@ pub fn export_tileset_bundle_with_palette(
         &preview_options,
     );
     preview_2_5d.save_png(out_dir.join("terrain_preview_2_5d.png"))?;
+
+    let mut cutaway_options = preview_options.clone();
+    cutaway_options.inspect_cell = Some(terrain.objective);
+    cutaway_options.fade_raised_faces = false;
+    cutaway_options.enable_local_cutaway = true;
+    let cutaway_preview = render_terrain_preview(
+        terrain,
+        tileset,
+        PreviewMode::ErectedTerrain,
+        &cutaway_options,
+    );
+    cutaway_preview.save_png(out_dir.join("terrain_preview_cutaway.png"))?;
 
     let validation = validate_tileset(tileset);
     let metadata = export_metadata(tileset, columns, padding, validation.clone());
@@ -156,6 +173,7 @@ pub fn export_metadata(
         seam_validation_path: "seam_validation.png".to_string(),
         terrain_preview_path: "terrain_preview.png".to_string(),
         terrain_preview_2_5d_path: "terrain_preview_2_5d.png".to_string(),
+        terrain_preview_cutaway_path: "terrain_preview_cutaway.png".to_string(),
         columns,
         padding,
         tiles,

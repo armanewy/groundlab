@@ -1,6 +1,6 @@
 use crate::color::{clamp_u8, Rgba8};
 use crate::pixel_image::PixelImage;
-use crate::recipe::{GroundMaterial, TileRole, TilesetRecipe, TransitionEdge};
+use crate::recipe::{GroundMaterial, StructureFaceKind, TileRole, TilesetRecipe, TransitionEdge};
 use crate::tileset::{hash01, TileAsset, Tileset};
 
 pub fn build_height_mask_atlas(tileset: &Tileset, columns: u32, padding: u32) -> PixelImage {
@@ -70,18 +70,30 @@ pub fn build_height_mask_tile(asset: &TileAsset, recipe: &TilesetRecipe) -> Pixe
                 y as f32 / (size - 1) as f32
             };
             let base = material_height_signal(asset.meta.material, nx, ny);
-            let signal = if asset.meta.role == TileRole::Transition {
-                let to = asset.meta.transition_to.unwrap_or(asset.meta.material);
-                let edge = asset.meta.transition_edge.unwrap_or(TransitionEdge::North);
-                let to_signal = material_height_signal(to, nx, ny);
-                let alpha = transition_alpha(edge, nx, ny, asset.meta.variant, recipe);
-                base * (1.0 - alpha) + to_signal * alpha
-            } else {
-                base
+            let signal = match asset.meta.role {
+                TileRole::Surface => base,
+                TileRole::Transition => {
+                    let to = asset.meta.transition_to.unwrap_or(asset.meta.material);
+                    let edge = asset.meta.transition_edge.unwrap_or(TransitionEdge::North);
+                    let to_signal = material_height_signal(to, nx, ny);
+                    let alpha = transition_alpha(edge, nx, ny, asset.meta.variant, recipe);
+                    base * (1.0 - alpha) + to_signal * alpha
+                }
+                TileRole::StructureFace => {
+                    let face = asset
+                        .meta
+                        .structure_face
+                        .unwrap_or(StructureFaceKind::Front);
+                    structure_face_height_signal(asset.meta.material, face, nx, ny)
+                }
             };
             let grain = (hash01(recipe.seed, x, y, asset.meta.variant.wrapping_add(9001)) - 0.5)
                 * 16.0
-                * recipe.detail_density;
+                * if asset.meta.role == TileRole::StructureFace {
+                    recipe.face_detail_density
+                } else {
+                    recipe.detail_density
+                };
             let value = clamp_u8((signal * 255.0) + grain);
             image.set(x, y, Rgba8::opaque(value, value, value));
         }
@@ -106,7 +118,7 @@ pub fn build_shadow_mask_tile(asset: &TileAsset, recipe: &TilesetRecipe) -> Pixe
                 y as f32 / (size - 1) as f32
             };
             let directional = ((nx - 0.5) * lx + (ny - 0.5) * ly).max(0.0);
-            let role_shadow = match asset.meta.material {
+            let mut role_shadow = match asset.meta.material {
                 GroundMaterial::TrenchFloor => 0.48,
                 GroundMaterial::TrenchWall => 0.62,
                 GroundMaterial::BermFace => 0.58,
@@ -115,14 +127,30 @@ pub fn build_shadow_mask_tile(asset: &TileAsset, recipe: &TilesetRecipe) -> Pixe
                 GroundMaterial::Rock => 0.18,
                 GroundMaterial::Grass | GroundMaterial::Dirt => 0.12,
             };
+            if asset.meta.role == TileRole::StructureFace {
+                let face = asset
+                    .meta
+                    .structure_face
+                    .unwrap_or(StructureFaceKind::Front);
+                role_shadow += match face {
+                    StructureFaceKind::Front => 0.22 + ny * 0.18,
+                    StructureFaceKind::Left => 0.34 + ny * 0.20,
+                    StructureFaceKind::Right => 0.16 + ny * 0.12,
+                    StructureFaceKind::Lip => 0.06,
+                };
+            }
             let edge_shadow = if nx < 0.05 || ny < 0.05 || nx > 0.95 || ny > 0.95 {
                 0.22
             } else {
                 0.0
             };
-            let value = clamp_u8(
-                (role_shadow + directional * 0.34 + edge_shadow) * 255.0 * recipe.shadow_strength,
-            );
+            let strength = if asset.meta.role == TileRole::StructureFace {
+                recipe.face_shadow_strength.max(recipe.shadow_strength)
+            } else {
+                recipe.shadow_strength
+            };
+            let value =
+                clamp_u8((role_shadow + directional * 0.34 + edge_shadow) * 255.0 * strength);
             image.set(x, y, Rgba8::opaque(value, value, value));
         }
     }
@@ -142,7 +170,7 @@ pub fn build_occlusion_mask_tile(asset: &TileAsset, recipe: &TilesetRecipe) -> P
     };
     let role_bonus = match asset.meta.role {
         TileRole::Transition => 18,
-        TileRole::StructureFace => 55,
+        TileRole::StructureFace => 90,
         TileRole::Surface => 0,
     };
     let value = (base + role_bonus).min(255) as u8;
@@ -209,6 +237,31 @@ fn material_height_signal(material: GroundMaterial, nx: f32, ny: f32) -> f32 {
         GroundMaterial::BermFace => 0.36 + (1.0 - ny) * 0.34,
     }
     .clamp(0.0, 1.0)
+}
+
+fn structure_face_height_signal(
+    material: GroundMaterial,
+    face: StructureFaceKind,
+    nx: f32,
+    ny: f32,
+) -> f32 {
+    let material_base = match material {
+        GroundMaterial::Rock => 0.60,
+        GroundMaterial::TrenchWall => 0.44,
+        GroundMaterial::BermFace => 0.50,
+        GroundMaterial::Mud => 0.38,
+        GroundMaterial::Dirt
+        | GroundMaterial::Grass
+        | GroundMaterial::TrenchFloor
+        | GroundMaterial::BermTop => 0.46,
+    };
+    let directional = match face {
+        StructureFaceKind::Front => 0.22 + ny * 0.36,
+        StructureFaceKind::Left => 0.18 + ny * 0.42 - nx * 0.10,
+        StructureFaceKind::Right => 0.30 + ny * 0.28 + nx * 0.08,
+        StructureFaceKind::Lip => 0.62 + soft_center_crown(nx, ny) * 0.10,
+    };
+    (material_base + directional * 0.45).clamp(0.0, 1.0)
 }
 
 fn soft_center_crown(nx: f32, ny: f32) -> f32 {

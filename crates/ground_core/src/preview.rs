@@ -4,16 +4,15 @@ use crate::color::{clamp01, Rgba8};
 use crate::los::{visibility_grid, Visibility};
 use crate::pathfinding::find_path;
 use crate::pixel_image::PixelImage;
-use crate::recipe::GroundMaterial;
+use crate::recipe::{GroundMaterial, StructureFaceKind};
 use crate::terrain::TerrainMap;
 use crate::tileset::{stable_tile_variant, Tileset};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PreviewMode {
     Material,
-    /// First true 2.5D visualization pass: top tiles are displaced upward by height,
-    /// and exposed height deltas draw vertical terrain faces. This is intentionally
-    /// still a software preview, not the final GPU renderer.
+    /// Software 2.5D visualization pass: top tiles are displaced upward by height,
+    /// and exposed height deltas draw actual generated structure-face tiles.
     ErectedTerrain,
     Height,
     Slope,
@@ -54,20 +53,32 @@ pub struct PreviewOptions {
     /// Pixels of vertical visual displacement per terrain height level.
     /// This is deliberately separate from simulation units.
     pub height_step_px: u32,
-    /// Workbench-only visibility helper: raised faces are slightly translucent
-    /// so hidden cells remain inspectable. The final runtime should make this
-    /// conditional on selected units/cells, not permanently global.
+    /// Workbench global helper: raised faces become slightly translucent.
+    /// The final runtime should use local/conditional fading most of the time.
     pub fade_raised_faces: bool,
+    /// Workbench-only inspection helper. When true and `inspect_cell` is set,
+    /// faces near that projected cell fade to reveal terrain/objects behind them.
+    pub enable_local_cutaway: bool,
+    pub inspect_cell: Option<(u32, u32)>,
+    /// Draw a projected route over the 2.5D terrain. Planning overlays should win
+    /// over occluders so pathing remains inspectable.
+    pub show_projected_route: bool,
+    /// Draw thin generated lip strips on exposed terrain cuts.
+    pub show_structure_lips: bool,
 }
 
 impl Default for PreviewOptions {
     fn default() -> Self {
         Self {
-            show_grid: true,
+            show_grid: false,
             los_source: (8, 8),
             los_range: 18,
             height_step_px: 8,
-            fade_raised_faces: true,
+            fade_raised_faces: false,
+            enable_local_cutaway: true,
+            inspect_cell: None,
+            show_projected_route: true,
+            show_structure_lips: true,
         }
     }
 }
@@ -258,6 +269,11 @@ impl RaisedProjection {
             - (h * self.height_step_px as f32).round() as i32;
         (sx, sy)
     }
+
+    fn cell_center(self, map: &TerrainMap, x: u32, y: u32) -> (i32, i32) {
+        let (sx, sy) = self.cell_top_left(map, x, y);
+        (sx + self.tile_px as i32 / 2, sy + self.tile_px as i32 / 2)
+    }
 }
 
 fn raised_projection(
@@ -293,95 +309,44 @@ fn render_erected_terrain_preview(
     let proj = raised_projection(map, tileset, options);
     let mut image = PixelImage::new(proj.width, proj.height, Rgba8::opaque(13, 14, 17));
 
-    // Pass 0: cheap terrain contact shadows under high faces.
+    // Pass 0: terrain contact shadows under high faces.
     for y in 0..map.height {
         for x in 0..map.width {
-            draw_raised_shadow(&mut image, map, x, y, proj);
+            draw_raised_shadow(&mut image, map, x, y, proj, tileset.recipe.shadow_strength);
         }
     }
 
-    // Pass 1: top surfaces. These remain normal generated pixel tiles, but are
-    // displaced up by terrain height rather than recolored like a flat map.
+    // Pass 1: top surfaces. These remain generated pixel tiles, but are displaced
+    // by terrain height rather than recolored like a flat map.
     for y in 0..map.height {
         for x in 0..map.width {
-            let Some(cell) = map.cell(x, y) else {
-                continue;
-            };
-            let variant = stable_tile_variant(
-                tileset.recipe.seed,
-                x,
-                y,
-                visual_material_for_cell(cell.ground),
-                tileset.recipe.variants_per_material,
-            );
-            let tile = &tileset
-                .tile(visual_material_for_cell(cell.ground), variant)
-                .image;
-            let (sx, sy) = proj.cell_top_left(map, x, y);
-            blit_i32(&mut image, tile, sx, sy);
-
-            let height_t = cell.height as f32 / 9.0;
-            let shade = 0.10 * (height_t - 0.45);
-            apply_rect_tint_i32(
-                &mut image,
-                sx,
-                sy,
-                proj.tile_px,
-                proj.tile_px,
-                Rgba8::WHITE,
-                shade.max(0.0),
-            );
-            apply_rect_tint_i32(
-                &mut image,
-                sx,
-                sy,
-                proj.tile_px,
-                proj.tile_px,
-                Rgba8::BLACK,
-                (-shade).max(0.0),
-            );
-
-            if cell.trench_depth > 0 {
-                outline_rect_i32(
-                    &mut image,
-                    sx + 2,
-                    sy + 2,
-                    proj.tile_px.saturating_sub(4),
-                    proj.tile_px.saturating_sub(4),
-                    Rgba8::opaque(28, 17, 12),
-                );
-            }
-            if cell.berm_height > 0 {
-                outline_rect_i32(
-                    &mut image,
-                    sx + 1,
-                    sy + 1,
-                    proj.tile_px.saturating_sub(2),
-                    proj.tile_px.saturating_sub(2),
-                    Rgba8::opaque(142, 96, 50),
-                );
-            }
+            draw_projected_top_surface(&mut image, map, tileset, x, y, proj);
         }
     }
 
-    // Pass 2: vertical/exposed terrain faces. Drawing this after all top surfaces
-    // makes raised ground read as erected terrain instead of a colored height map.
+    // Pass 2: generated vertical/exposed terrain faces. Drawing this after all
+    // top surfaces makes raised ground visibly occupy space and overlap lower cells.
     for y in 0..map.height {
         for x in 0..map.width {
-            draw_exposed_faces(
-                &mut image,
-                map,
-                tileset,
-                x,
-                y,
-                proj,
-                options.fade_raised_faces,
-            );
+            draw_exposed_faces(&mut image, map, tileset, x, y, proj, options);
         }
     }
 
-    // Pass 3: grid and editor markers. These deliberately draw on top so the
-    // workbench remains usable even when faces overlap other cells.
+    if options.show_projected_route {
+        let path = find_path(map, map.spawn, map.objective);
+        draw_projected_path(
+            &mut image,
+            map,
+            proj,
+            &path.points,
+            if path.reached_goal {
+                Rgba8::opaque(235, 174, 77)
+            } else {
+                Rgba8::opaque(230, 74, 74)
+            },
+        );
+    }
+
     if options.show_grid {
         for y in 0..map.height {
             for x in 0..map.width {
@@ -392,12 +357,15 @@ fn render_erected_terrain_preview(
                     sy,
                     proj.tile_px,
                     proj.tile_px,
-                    Rgba8::opaque(22, 23, 27),
+                    Rgba8::opaque(27, 29, 34),
                 );
             }
         }
     }
 
+    if let Some(cell) = options.inspect_cell {
+        draw_projected_selection(&mut image, map, proj, cell, Rgba8::opaque(154, 215, 238));
+    }
     draw_projected_marker(
         &mut image,
         map,
@@ -421,6 +389,58 @@ fn render_erected_terrain_preview(
     );
 
     image
+}
+
+fn draw_projected_top_surface(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    tileset: &Tileset,
+    x: u32,
+    y: u32,
+    proj: RaisedProjection,
+) {
+    let Some(cell) = map.cell(x, y) else {
+        return;
+    };
+    let visual_material = visual_material_for_cell(cell.ground);
+    let variant = stable_tile_variant(
+        tileset.recipe.seed,
+        x,
+        y,
+        visual_material,
+        tileset.recipe.variants_per_material,
+    );
+    let tile = &tileset.tile(visual_material, variant).image;
+    let (sx, sy) = proj.cell_top_left(map, x, y);
+    blit_i32(image, tile, sx, sy);
+
+    let height_t = cell.height as f32 / 9.0;
+    let shade = 0.10 * (height_t - 0.45);
+    apply_rect_tint_i32(
+        image,
+        sx,
+        sy,
+        proj.tile_px,
+        proj.tile_px,
+        Rgba8::WHITE,
+        shade.max(0.0),
+    );
+    apply_rect_tint_i32(
+        image,
+        sx,
+        sy,
+        proj.tile_px,
+        proj.tile_px,
+        Rgba8::BLACK,
+        (-shade).max(0.0),
+    );
+
+    if cell.trench_depth > 0 {
+        draw_trench_floor_detail(image, sx, sy, proj.tile_px);
+    }
+    if cell.berm_height > 0 {
+        draw_berm_top_detail(image, sx, sy, proj.tile_px);
+    }
 }
 
 /// Convert a preview pixel coordinate to a terrain cell. Flat modes are direct.
@@ -464,6 +484,7 @@ fn draw_raised_shadow(
     x: u32,
     y: u32,
     proj: RaisedProjection,
+    shadow_strength: f32,
 ) {
     let Some(cell) = map.cell(x, y) else {
         return;
@@ -489,7 +510,7 @@ fn draw_raised_shadow(
     }
     let (sx, sy) = proj.cell_top_left(map, x, y);
     let shadow_h = (delta * proj.height_step_px as f32).ceil() as u32;
-    let alpha = (0.08 + delta * 0.035).min(0.24);
+    let alpha = (0.08 + delta * 0.045).min(0.32) * shadow_strength.max(0.15);
     blend_rect_i32(
         image,
         sx + (proj.tile_px / 10) as i32,
@@ -508,15 +529,23 @@ fn draw_exposed_faces(
     x: u32,
     y: u32,
     proj: RaisedProjection,
-    fade_faces: bool,
+    options: &PreviewOptions,
 ) {
     let Some(cell) = map.cell(x, y) else {
         return;
     };
     let current = cell.effective_height();
     let (sx, sy) = proj.cell_top_left(map, x, y);
+    let material = face_material_for_cell(cell);
+    let variant = stable_tile_variant(
+        tileset.recipe.seed ^ 0x5f37_59df_6c8d_1b29,
+        x,
+        y,
+        material,
+        tileset.recipe.variants_per_material,
+    );
 
-    // South/front face: the important one for a Stardew-like high-top-down view.
+    // South/front face: the important one for a high-top-down tactical view.
     if y + 1 < map.height {
         let south = map
             .cell(x, y + 1)
@@ -524,20 +553,27 @@ fn draw_exposed_faces(
             .unwrap_or(current);
         if current > south {
             let face_h = ((current - south) * proj.height_step_px as f32).ceil() as u32;
-            draw_vertical_face(
+            draw_structure_face(
                 image,
+                map,
                 tileset,
-                face_material_for_cell(cell),
-                FaceRect::new(sx, sy + proj.tile_px as i32, proj.tile_px, face_h),
-                FaceShade::Front,
-                fade_faces,
+                proj,
+                FaceDraw {
+                    material,
+                    face: StructureFaceKind::Front,
+                    variant,
+                    x: sx,
+                    y: sy + proj.tile_px as i32,
+                    width: proj.tile_px,
+                    height: face_h,
+                },
+                options,
             );
         }
     }
 
-    // East/right side hint. This is not a full isometric side polygon yet; it is
-    // a narrow readable face that communicates height deltas without requiring a
-    // diamond-isometric asset set.
+    // East/right side hint. This keeps the projection square/readable while still
+    // making height deltas feel like physical side walls.
     if x + 1 < map.width {
         let east = map
             .cell(x + 1, y)
@@ -546,18 +582,21 @@ fn draw_exposed_faces(
         if current > east {
             let face_h = ((current - east) * proj.height_step_px as f32).ceil() as u32;
             let strip_w = (proj.tile_px / 5).max(3);
-            draw_vertical_face(
+            draw_structure_face(
                 image,
+                map,
                 tileset,
-                face_material_for_cell(cell),
-                FaceRect::new(
-                    sx + proj.tile_px as i32 - strip_w as i32,
-                    sy + proj.tile_px as i32,
-                    strip_w,
-                    face_h,
-                ),
-                FaceShade::Right,
-                fade_faces,
+                proj,
+                FaceDraw {
+                    material,
+                    face: StructureFaceKind::Right,
+                    variant,
+                    x: sx + proj.tile_px as i32 - strip_w as i32,
+                    y: sy + proj.tile_px as i32,
+                    width: strip_w,
+                    height: face_h,
+                },
+                options,
             );
         }
     }
@@ -571,16 +610,196 @@ fn draw_exposed_faces(
         if current > west {
             let face_h = ((current - west) * proj.height_step_px as f32).ceil() as u32;
             let strip_w = (proj.tile_px / 7).max(2);
-            draw_vertical_face(
+            draw_structure_face(
                 image,
+                map,
                 tileset,
-                face_material_for_cell(cell),
-                FaceRect::new(sx, sy + proj.tile_px as i32, strip_w, face_h),
-                FaceShade::Left,
-                fade_faces,
+                proj,
+                FaceDraw {
+                    material,
+                    face: StructureFaceKind::Left,
+                    variant,
+                    x: sx,
+                    y: sy + proj.tile_px as i32,
+                    width: strip_w,
+                    height: face_h,
+                },
+                options,
             );
         }
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct FaceDraw {
+    material: GroundMaterial,
+    face: StructureFaceKind,
+    variant: u32,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
+fn draw_structure_face(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    tileset: &Tileset,
+    proj: RaisedProjection,
+    draw: FaceDraw,
+    options: &PreviewOptions,
+) {
+    if draw.width == 0 || draw.height == 0 {
+        return;
+    }
+
+    let alpha = face_alpha(map, tileset, proj, draw, options);
+    if let Some(asset) = tileset.structure_face_tile(draw.material, draw.face, draw.variant) {
+        draw_tiled_face_image(image, &asset.image, draw, alpha);
+    } else {
+        draw_vertical_face_fallback(image, tileset, draw, alpha);
+    }
+
+    if options.show_structure_lips {
+        draw_structure_lip(image, tileset, draw, alpha.max(0.72));
+    }
+}
+
+fn draw_structure_lip(image: &mut PixelImage, tileset: &Tileset, draw: FaceDraw, alpha: f32) {
+    let lip_h = (tileset.recipe.tile_size / 6)
+        .max(2)
+        .min(draw.height.max(2));
+    let lip_y = draw.y - lip_h as i32 + 1;
+    if let Some(asset) =
+        tileset.structure_face_tile(draw.material, StructureFaceKind::Lip, draw.variant)
+    {
+        let lip_draw = FaceDraw {
+            face: StructureFaceKind::Lip,
+            y: lip_y,
+            height: lip_h,
+            ..draw
+        };
+        draw_tiled_face_image(image, &asset.image, lip_draw, alpha);
+    } else {
+        let base = tileset
+            .palette
+            .sample(draw.material.ramp(), 0.58)
+            .lighten(0.08);
+        blend_rect_i32(image, draw.x, lip_y, draw.width, lip_h, base, alpha);
+    }
+}
+
+fn draw_tiled_face_image(image: &mut PixelImage, src: &PixelImage, draw: FaceDraw, alpha: f32) {
+    for yy in 0..draw.height {
+        for xx in 0..draw.width {
+            let src_x = if draw.width == 0 {
+                0
+            } else if draw.width >= src.width {
+                xx % src.width
+            } else {
+                (xx * src.width / draw.width).min(src.width - 1)
+            };
+            let src_y = if draw.height >= src.height {
+                yy % src.height
+            } else {
+                (yy * src.height / draw.height).min(src.height - 1)
+            };
+            let color = src.get(src_x, src_y);
+            let dither = ((draw.x + xx as i32 * 3 + draw.y + yy as i32 * 5) & 7) as f32 / 7.0;
+            let row_alpha = if alpha < 0.95 && dither < 0.14 {
+                alpha * 0.62
+            } else {
+                alpha
+            };
+            blend_pixel_i32(
+                image,
+                draw.x + xx as i32,
+                draw.y + yy as i32,
+                color,
+                row_alpha,
+            );
+        }
+    }
+
+    let edge = Rgba8::BLACK.with_alpha(255);
+    draw_line_i32(
+        image,
+        draw.x,
+        draw.y,
+        draw.x + draw.width as i32 - 1,
+        draw.y,
+        edge.darken(0.10),
+    );
+    draw_line_i32(
+        image,
+        draw.x,
+        draw.y + draw.height as i32 - 1,
+        draw.x + draw.width as i32 - 1,
+        draw.y + draw.height as i32 - 1,
+        edge,
+    );
+}
+
+fn draw_vertical_face_fallback(
+    image: &mut PixelImage,
+    tileset: &Tileset,
+    draw: FaceDraw,
+    alpha: f32,
+) {
+    let base = tileset.palette.sample(draw.material.ramp(), 0.42);
+    let color = match draw.face {
+        StructureFaceKind::Front => base.darken(0.20),
+        StructureFaceKind::Left => base.darken(0.30),
+        StructureFaceKind::Right => base.darken(0.12),
+        StructureFaceKind::Lip => base.lighten(0.06),
+    };
+    for yy in 0..draw.height {
+        let t = if draw.height <= 1 {
+            0.0
+        } else {
+            yy as f32 / (draw.height - 1) as f32
+        };
+        let row_color = color.darken(t * 0.24);
+        for xx in 0..draw.width {
+            blend_pixel_i32(
+                image,
+                draw.x + xx as i32,
+                draw.y + yy as i32,
+                row_color,
+                alpha,
+            );
+        }
+    }
+}
+
+fn face_alpha(
+    map: &TerrainMap,
+    tileset: &Tileset,
+    proj: RaisedProjection,
+    draw: FaceDraw,
+    options: &PreviewOptions,
+) -> f32 {
+    let mut alpha: f32 = if options.fade_raised_faces { 0.82 } else { 1.0 };
+    if options.enable_local_cutaway {
+        if let Some((cx, cy)) = options.inspect_cell {
+            if cx < map.width && cy < map.height {
+                let (focus_x, focus_y) = proj.cell_center(map, cx, cy);
+                let face_cx = draw.x + draw.width as i32 / 2;
+                let face_cy = draw.y + draw.height as i32 / 2;
+                let dx = (face_cx - focus_x) as f32;
+                let dy = (face_cy - focus_y) as f32;
+                let dist = (dx * dx + dy * dy).sqrt();
+                let radius = tileset.recipe.cutaway_radius_px.max(1) as f32;
+                if dist < radius {
+                    let t = clamp01(dist / radius);
+                    let cutaway =
+                        tileset.recipe.cutaway_alpha + (1.0 - tileset.recipe.cutaway_alpha) * t;
+                    alpha = alpha.min(cutaway);
+                }
+            }
+        }
+    }
+    alpha.clamp(0.15, 1.0)
 }
 
 fn point_in_any_face(
@@ -648,97 +867,6 @@ fn point_in_any_face(
     false
 }
 
-#[derive(Clone, Copy)]
-enum FaceShade {
-    Front,
-    Left,
-    Right,
-}
-
-#[derive(Clone, Copy)]
-struct FaceRect {
-    x: i32,
-    y: i32,
-    width: u32,
-    height: u32,
-}
-
-impl FaceRect {
-    fn new(x: i32, y: i32, width: u32, height: u32) -> Self {
-        Self {
-            x,
-            y,
-            width,
-            height,
-        }
-    }
-}
-
-fn draw_vertical_face(
-    image: &mut PixelImage,
-    tileset: &Tileset,
-    material: GroundMaterial,
-    rect: FaceRect,
-    shade: FaceShade,
-    fade_faces: bool,
-) {
-    if rect.height == 0 || rect.width == 0 {
-        return;
-    }
-    let base = tileset.palette.sample(material.ramp(), 0.42);
-    let color = match shade {
-        FaceShade::Front => base.darken(0.20),
-        FaceShade::Left => base.darken(0.30),
-        FaceShade::Right => base.darken(0.12),
-    };
-    let alpha = if fade_faces { 0.82 } else { 1.0 };
-
-    for yy in 0..rect.height {
-        let t = if rect.height <= 1 {
-            0.0
-        } else {
-            yy as f32 / (rect.height - 1) as f32
-        };
-        let row_color = color.darken(t * 0.24);
-        for xx in 0..rect.width {
-            // Deterministic dither helps translucent faces preserve a pixel-art feel.
-            let dither = ((rect.x + xx as i32 * 3 + rect.y + yy as i32 * 5) & 7) as f32 / 7.0;
-            let row_alpha = if fade_faces && dither < 0.18 {
-                alpha * 0.60
-            } else {
-                alpha
-            };
-            blend_pixel_i32(
-                image,
-                rect.x + xx as i32,
-                rect.y + yy as i32,
-                row_color,
-                row_alpha,
-            );
-        }
-    }
-
-    // Top/lip highlight and bottom contact line.
-    let lip = base.lighten(0.12);
-    let foot = base.darken(0.44);
-    draw_line_i32(
-        image,
-        rect.x,
-        rect.y,
-        rect.x + rect.width as i32 - 1,
-        rect.y,
-        lip,
-    );
-    draw_line_i32(
-        image,
-        rect.x,
-        rect.y + rect.height as i32 - 1,
-        rect.x + rect.width as i32 - 1,
-        rect.y + rect.height as i32 - 1,
-        foot,
-    );
-}
-
 fn face_material_for_cell(cell: &crate::terrain::TerrainCell) -> GroundMaterial {
     if cell.trench_depth > 0 {
         GroundMaterial::TrenchWall
@@ -746,16 +874,57 @@ fn face_material_for_cell(cell: &crate::terrain::TerrainCell) -> GroundMaterial 
         GroundMaterial::BermFace
     } else {
         match cell.ground {
-            GroundMaterial::Grass
-            | GroundMaterial::Dirt
-            | GroundMaterial::Mud
-            | GroundMaterial::Rock => cell.ground,
+            GroundMaterial::Grass | GroundMaterial::Dirt => GroundMaterial::Dirt,
+            GroundMaterial::Mud => GroundMaterial::Mud,
+            GroundMaterial::Rock => GroundMaterial::Rock,
             GroundMaterial::TrenchFloor => GroundMaterial::TrenchWall,
             GroundMaterial::TrenchWall => GroundMaterial::TrenchWall,
             GroundMaterial::BermTop => GroundMaterial::BermFace,
             GroundMaterial::BermFace => GroundMaterial::BermFace,
         }
     }
+}
+
+fn draw_trench_floor_detail(image: &mut PixelImage, sx: i32, sy: i32, tile_px: u32) {
+    let inset = (tile_px / 6).max(2);
+    blend_rect_i32(
+        image,
+        sx + inset as i32,
+        sy + inset as i32,
+        tile_px.saturating_sub(inset * 2),
+        tile_px.saturating_sub(inset * 2),
+        Rgba8::opaque(13, 10, 9),
+        0.24,
+    );
+    outline_rect_i32(
+        image,
+        sx + 2,
+        sy + 2,
+        tile_px.saturating_sub(4),
+        tile_px.saturating_sub(4),
+        Rgba8::opaque(37, 25, 18),
+    );
+}
+
+fn draw_berm_top_detail(image: &mut PixelImage, sx: i32, sy: i32, tile_px: u32) {
+    let inset = (tile_px / 8).max(2);
+    outline_rect_i32(
+        image,
+        sx + inset as i32,
+        sy + inset as i32,
+        tile_px.saturating_sub(inset * 2),
+        tile_px.saturating_sub(inset * 2),
+        Rgba8::opaque(158, 111, 57),
+    );
+    blend_rect_i32(
+        image,
+        sx,
+        sy,
+        tile_px,
+        (tile_px / 5).max(2),
+        Rgba8::WHITE,
+        0.04,
+    );
 }
 
 fn draw_projected_marker(
@@ -768,9 +937,7 @@ fn draw_projected_marker(
     if cell.0 >= map.width || cell.1 >= map.height {
         return;
     }
-    let (sx, sy) = proj.cell_top_left(map, cell.0, cell.1);
-    let cx = sx + proj.tile_px as i32 / 2;
-    let cy = sy + proj.tile_px as i32 / 2;
+    let (cx, cy) = proj.cell_center(map, cell.0, cell.1);
     let r = (proj.tile_px / 4).max(2) as i32;
     for dy in -r..=r {
         for dx in -r..=r {
@@ -778,6 +945,58 @@ fn draw_projected_marker(
                 blend_pixel_i32(image, cx + dx, cy + dy, color, 0.92);
             }
         }
+    }
+    for dy in -r - 1..=r + 1 {
+        for dx in -r - 1..=r + 1 {
+            let d = dx * dx + dy * dy;
+            if d <= (r + 1) * (r + 1) && d > r * r {
+                blend_pixel_i32(image, cx + dx, cy + dy, Rgba8::opaque(9, 10, 12), 0.85);
+            }
+        }
+    }
+}
+
+fn draw_projected_selection(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    proj: RaisedProjection,
+    cell: (u32, u32),
+    color: Rgba8,
+) {
+    if cell.0 >= map.width || cell.1 >= map.height {
+        return;
+    }
+    let (sx, sy) = proj.cell_top_left(map, cell.0, cell.1);
+    outline_rect_i32(
+        image,
+        sx - 1,
+        sy - 1,
+        proj.tile_px + 2,
+        proj.tile_px + 2,
+        color,
+    );
+    blend_rect_i32(image, sx, sy, proj.tile_px, proj.tile_px, color, 0.12);
+}
+
+fn draw_projected_path(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    proj: RaisedProjection,
+    points: &[(u32, u32)],
+    color: Rgba8,
+) {
+    for window in points.windows(2) {
+        let a = window[0];
+        let b = window[1];
+        if a.0 >= map.width || a.1 >= map.height || b.0 >= map.width || b.1 >= map.height {
+            continue;
+        }
+        let (ax, ay) = proj.cell_center(map, a.0, a.1);
+        let (bx, by) = proj.cell_center(map, b.0, b.1);
+        draw_line_i32(image, ax, ay, bx, by, Rgba8::opaque(12, 11, 9));
+        draw_line_i32(image, ax + 1, ay, bx + 1, by, Rgba8::opaque(12, 11, 9));
+        draw_line_i32(image, ax, ay - 1, bx, by - 1, color);
+        draw_line_i32(image, ax + 1, ay - 1, bx + 1, by - 1, color);
     }
 }
 

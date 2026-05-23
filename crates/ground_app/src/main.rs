@@ -96,11 +96,15 @@ impl GroundLabApp {
             paths,
             auto_reload: true,
             preview_options: PreviewOptions {
-                show_grid: true,
+                show_grid: false,
                 los_source: terrain.objective,
                 los_range: 18,
                 height_step_px: (loaded.recipe.tile_size / 4).max(4),
-                fade_raised_faces: true,
+                fade_raised_faces: false,
+                enable_local_cutaway: true,
+                inspect_cell: None,
+                show_projected_route: true,
+                show_structure_lips: true,
             },
             recipe: loaded.recipe,
             palette: loaded.palette,
@@ -117,7 +121,7 @@ impl GroundLabApp {
             dirty_assets: true,
             dirty_preview: true,
             last_preview_size: [1, 1],
-            status: "Ready. Milestone 2 pipeline is active: recipe/palette files, masks, transitions, validation, export.".to_string(),
+            status: "Ready. Milestone 3 terrain extrusion is active: generated structure faces, lips, projected route, and local cutaway.".to_string(),
         };
         app.refresh_if_dirty(&cc.egui_ctx);
         app
@@ -345,10 +349,51 @@ impl GroundLabApp {
                 )
                 .changed();
             ui.label(format!(
-                "Tiles: {} surface, {} transition",
+                "Tiles: {} surface, {} transition, {} face",
                 self.tileset.surface_tile_count(),
-                self.tileset.transition_tile_count()
+                self.tileset.transition_tile_count(),
+                self.tileset.structure_face_tile_count()
             ));
+        });
+
+        ui.collapsing("Milestone 3 terrain extrusion", |ui| {
+            recipe_changed |= ui
+                .checkbox(
+                    &mut self.recipe.generate_structure_faces,
+                    "Generate structure-face tiles",
+                )
+                .changed();
+            recipe_changed |= ui
+                .add(
+                    egui::Slider::new(&mut self.recipe.face_shadow_strength, 0.0..=1.0)
+                        .text("face shadow"),
+                )
+                .changed();
+            recipe_changed |= ui
+                .add(
+                    egui::Slider::new(&mut self.recipe.face_lip_strength, 0.0..=1.0)
+                        .text("lip highlight"),
+                )
+                .changed();
+            recipe_changed |= ui
+                .add(
+                    egui::Slider::new(&mut self.recipe.face_detail_density, 0.0..=1.0)
+                        .text("face detail"),
+                )
+                .changed();
+            recipe_changed |= ui
+                .add(
+                    egui::Slider::new(&mut self.recipe.cutaway_alpha, 0.15..=1.0)
+                        .text("cutaway alpha"),
+                )
+                .changed();
+            recipe_changed |= ui
+                .add(
+                    egui::Slider::new(&mut self.recipe.cutaway_radius_px, 16..=256)
+                        .text("cutaway radius px"),
+                )
+                .changed();
+            ui.small("Structure faces are generated art assets, not flat debug rectangles.");
         });
 
         if recipe_changed {
@@ -402,7 +447,34 @@ impl GroundLabApp {
         if ui
             .checkbox(
                 &mut self.preview_options.fade_raised_faces,
-                "Fade raised faces for inspection",
+                "Global face fade",
+            )
+            .changed()
+        {
+            self.dirty_preview = true;
+        }
+        if ui
+            .checkbox(
+                &mut self.preview_options.enable_local_cutaway,
+                "Hover cutaway lens",
+            )
+            .changed()
+        {
+            self.dirty_preview = true;
+        }
+        if ui
+            .checkbox(
+                &mut self.preview_options.show_projected_route,
+                "Projected route in 2.5D",
+            )
+            .changed()
+        {
+            self.dirty_preview = true;
+        }
+        if ui
+            .checkbox(
+                &mut self.preview_options.show_structure_lips,
+                "Generated cut lips",
             )
             .changed()
         {
@@ -470,9 +542,9 @@ impl GroundLabApp {
                 &self.tileset,
                 &self.palette,
                 &self.terrain,
-                "exports/milestone_02",
+                "exports/milestone_03",
             ) {
-                Ok(()) => self.status = "Exported to exports/milestone_02".to_string(),
+                Ok(()) => self.status = "Exported to exports/milestone_03".to_string(),
                 Err(err) => self.status = format!("Export failed: {err}"),
             }
         }
@@ -545,40 +617,53 @@ impl GroundLabApp {
                 .sense(egui::Sense::click_and_drag()),
         );
 
-        if response.hovered() {
+        let pointer_cell = if response.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
-        }
-
-        if response.clicked() || response.dragged() {
-            if let Some(pos) = response.interact_pointer_pos() {
+            ctx.input(|i| i.pointer.hover_pos()).and_then(|pos| {
                 let local = pos - response.rect.min;
                 let px = (local.x / self.zoom).floor().max(0.0) as u32;
                 let py = (local.y / self.zoom).floor().max(0.0) as u32;
-                if let Some((x, y)) = preview_pixel_to_cell(
+                preview_pixel_to_cell(
                     &self.terrain,
                     &self.tileset,
                     self.preview_mode,
                     &self.preview_options,
                     px,
                     py,
-                ) {
-                    let primary = ctx.input(|i| i.pointer.primary_down());
-                    let secondary = ctx.input(|i| i.pointer.secondary_down());
-                    if secondary {
-                        self.preview_options.los_source = (x, y);
-                        self.preview_mode = PreviewMode::LineOfSight;
-                        self.status = format!("LOS source set to ({x}, {y}).");
-                    } else if primary {
-                        self.terrain.apply_brush(x, y, self.brush);
-                        self.status = format!("Applied {} at ({x}, {y}).", self.brush.kind.label());
-                    }
-                    self.dirty_preview = true;
-                    ctx.request_repaint();
-                }
+                )
+            })
+        } else {
+            None
+        };
+
+        if self.preview_options.inspect_cell != pointer_cell {
+            self.preview_options.inspect_cell = pointer_cell;
+            if self.preview_mode == PreviewMode::ErectedTerrain
+                && self.preview_options.enable_local_cutaway
+            {
+                self.dirty_preview = true;
+                ctx.request_repaint();
             }
         }
 
-        ui.label("Left-drag paints. Right-click sets LOS source. Blue = spawn, yellow = objective. The 2.5D view supports approximate hit-testing for elevated surfaces.");
+        if response.clicked() || response.dragged() {
+            if let Some((x, y)) = pointer_cell {
+                let primary = ctx.input(|i| i.pointer.primary_down());
+                let secondary = ctx.input(|i| i.pointer.secondary_down());
+                if secondary {
+                    self.preview_options.los_source = (x, y);
+                    self.preview_mode = PreviewMode::LineOfSight;
+                    self.status = format!("LOS source set to ({x}, {y}).");
+                } else if primary {
+                    self.terrain.apply_brush(x, y, self.brush);
+                    self.status = format!("Applied {} at ({x}, {y}).", self.brush.kind.label());
+                }
+                self.dirty_preview = true;
+                ctx.request_repaint();
+            }
+        }
+
+        ui.label("Left-drag paints. Right-click sets LOS source. Hovering in 2.5D drives a local cutaway lens. Blue = spawn, yellow = objective.");
     }
 }
 

@@ -89,6 +89,8 @@ impl fmt::Display for GroundMaterial {
 pub enum TileRole {
     Surface,
     Transition,
+    /// Erected/extruded terrain body tile used for visible vertical faces,
+    /// trench walls, berm sides, cliffs, and terrain cutaway/cross-section art.
     StructureFace,
 }
 
@@ -133,6 +135,41 @@ impl TransitionEdge {
             TransitionEdge::South => "south edge",
             TransitionEdge::East => "east edge",
             TransitionEdge::West => "west edge",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum StructureFaceKind {
+    Front,
+    Left,
+    Right,
+    Lip,
+}
+
+impl StructureFaceKind {
+    pub const ALL: [StructureFaceKind; 4] = [
+        StructureFaceKind::Front,
+        StructureFaceKind::Left,
+        StructureFaceKind::Right,
+        StructureFaceKind::Lip,
+    ];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            StructureFaceKind::Front => "front",
+            StructureFaceKind::Left => "left",
+            StructureFaceKind::Right => "right",
+            StructureFaceKind::Lip => "lip",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            StructureFaceKind::Front => "front / south face",
+            StructureFaceKind::Left => "left side face",
+            StructureFaceKind::Right => "right side face",
+            StructureFaceKind::Lip => "top lip / cut edge",
         }
     }
 }
@@ -195,6 +232,12 @@ pub struct TilesetRecipe {
     pub transition_feather: f32,
     pub mask_strength: f32,
     pub seam_warning_threshold: f32,
+    pub generate_structure_faces: bool,
+    pub face_shadow_strength: f32,
+    pub face_lip_strength: f32,
+    pub face_detail_density: f32,
+    pub cutaway_alpha: f32,
+    pub cutaway_radius_px: u32,
 }
 
 impl Default for TilesetRecipe {
@@ -214,6 +257,12 @@ impl Default for TilesetRecipe {
             transition_feather: 0.24,
             mask_strength: 0.75,
             seam_warning_threshold: 38.0,
+            generate_structure_faces: true,
+            face_shadow_strength: 0.62,
+            face_lip_strength: 0.45,
+            face_detail_density: 0.70,
+            cutaway_alpha: 0.42,
+            cutaway_radius_px: 96,
         }
     }
 }
@@ -235,6 +284,11 @@ impl TilesetRecipe {
         self.transition_feather = self.transition_feather.clamp(0.05, 0.45);
         self.mask_strength = self.mask_strength.clamp(0.0, 2.0);
         self.seam_warning_threshold = self.seam_warning_threshold.clamp(8.0, 160.0);
+        self.face_shadow_strength = self.face_shadow_strength.clamp(0.0, 1.0);
+        self.face_lip_strength = self.face_lip_strength.clamp(0.0, 1.0);
+        self.face_detail_density = self.face_detail_density.clamp(0.0, 1.0);
+        self.cutaway_alpha = self.cutaway_alpha.clamp(0.15, 1.0);
+        self.cutaway_radius_px = self.cutaway_radius_px.clamp(16, 256);
         if self.palette_id.trim().is_empty() {
             self.palette_id = "muted_field_32".to_string();
         }

@@ -11,10 +11,11 @@ for one future game family: terrain-first prepared-ground defense.
 - Palette ramps and palette file format
 - Tile metadata
 - Material transition tile generation
+- Structure-face and lip tile generation
 - Height/normal/shadow/occlusion mask generation
-- Seam/palette validation
+- Seam/palette/structure validation
 - Software preview renderer
-- 2.5D erected terrain preview
+- 2.5D erected terrain preview with local cutaway inspection
 - A* route query
 - Line-of-sight query
 - Export bundle format
@@ -35,7 +36,7 @@ without changing the terrain, generation, pathing, or LOS systems.
 recipe.ron + palette.ron
   -> TilesetRecipe + Palette
   -> Tileset::generate_with_palette
-  -> surface tiles + transition tiles
+  -> surface tiles + transition tiles + structure-face tiles
   -> height/normal/shadow/occlusion masks
   -> validation report + seam test sheet
   -> export bundle
@@ -44,7 +45,7 @@ recipe.ron + palette.ron
 
 The important design rule is that generated art remains deterministic and metadata-rich. Tiles are
 not just PNGs; they carry role, material, movement cost, cover hint, sight-blocking hint, height role,
-and transition metadata.
+transition metadata, and structure-face metadata.
 
 ## Simulation vs faked/custom
 
@@ -59,9 +60,10 @@ Visual/software-rendered systems:
 
 - pixel tiles are deterministic recipes
 - material transitions are generated from material pairs and edge masks
+- structure faces and cut lips are generated as first-class tiles
 - terrain preview is CPU-rasterized into an egui texture
 - height and slope are shown as overlays
-- 2.5D terrain is previewed by lifting cell tops and drawing exposed faces
+- 2.5D terrain is previewed by lifting cell tops and drawing generated exposed-face art
 
 Future physics/hazard systems:
 
@@ -80,4 +82,4 @@ Visibility policy for hidden objects should be explicit in the runtime renderer:
 4. draw an outline/silhouette for the hidden object through the occluder, and
 5. keep overlays screen-space readable even when terrain overlaps.
 
-The workbench uses global face fading as a temporary inspection aid. The game should make fading conditional so terrain still feels solid.
+The workbench now supports both global face fading and a local hover-driven cutaway lens. The game should prefer conditional/local fading so terrain still feels solid.

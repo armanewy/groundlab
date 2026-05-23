@@ -13,4 +13,10 @@
     transition_feather: 0.24,
     mask_strength: 0.75,
     seam_warning_threshold: 38.0,
+    generate_structure_faces: true,
+    face_shadow_strength: 0.62,
+    face_lip_strength: 0.45,
+    face_detail_density: 0.70,
+    cutaway_alpha: 0.42,
+    cutaway_radius_px: 96,
 )
