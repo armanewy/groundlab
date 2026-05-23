@@ -102,7 +102,7 @@ impl GroundLabApp {
                 show_grid: false,
                 los_source: terrain.objective,
                 los_range: 18,
-                height_step_px: (loaded.recipe.tile_size / 4).max(4),
+                height_step_px: loaded.recipe.projection.faux_height_step_px,
                 fade_raised_faces: false,
                 enable_local_cutaway: true,
                 inspect_cell: None,
@@ -115,7 +115,7 @@ impl GroundLabApp {
             tileset: loaded.tileset,
             validation: loaded.validation,
             terrain,
-            preview_mode: PreviewMode::AngledTerrain,
+            preview_mode: PreviewMode::FauxPerspectiveTerrain,
             brush: Brush::new(BrushKind::DigTrench, 1, 1),
             zoom: 0.75,
             canvas_view: CanvasView::TerrainPreview,
@@ -125,7 +125,7 @@ impl GroundLabApp {
             dirty_assets: true,
             dirty_preview: true,
             last_preview_size: [1, 1],
-            status: "Ready. Milestone 4 angled projection pivot is active: large tiles, dimetric terrain, rotation, command map, and cutaway tools.".to_string(),
+            status: "Ready. Milestone 4.1 faux-perspective 2D is active: rectangular large tiles, sprite-stacked terrain body, rotation, and cutaway tools.".to_string(),
         };
         app.refresh_if_dirty(&cc.egui_ctx);
         app
@@ -153,7 +153,8 @@ impl GroundLabApp {
                     self.palette = loaded.palette;
                     self.tileset = loaded.tileset;
                     self.validation = loaded.validation;
-                    self.preview_options.height_step_px = (self.recipe.tile_size / 4).max(4);
+                    self.preview_options.height_step_px =
+                        self.recipe.projection.faux_height_step_px;
                     self.preview_options.view_orientation =
                         self.recipe.projection.default_orientation;
                     self.dirty_assets = true;
@@ -208,7 +209,7 @@ impl GroundLabApp {
                 self.palette = loaded.palette;
                 self.tileset = loaded.tileset;
                 self.validation = loaded.validation;
-                self.preview_options.height_step_px = (self.recipe.tile_size / 4).max(4);
+                self.preview_options.height_step_px = self.recipe.projection.faux_height_step_px;
                 self.preview_options.view_orientation = self.recipe.projection.default_orientation;
                 self.dirty_assets = true;
                 self.dirty_preview = true;
@@ -408,21 +409,55 @@ impl GroundLabApp {
                 .selected_text(self.recipe.projection.kind.label())
                 .show_ui(ui, |ui| {
                     recipe_changed |= ui
+                        .selectable_value(
+                            &mut self.recipe.projection.kind,
+                            ProjectionKind::FauxPerspective2D,
+                            ProjectionKind::FauxPerspective2D.label(),
+                        )
+                        .changed();
+                    recipe_changed |= ui
                         .selectable_value(&mut self.recipe.projection.kind, ProjectionKind::Dimetric, ProjectionKind::Dimetric.label())
                         .changed();
                     recipe_changed |= ui
                         .selectable_value(&mut self.recipe.projection.kind, ProjectionKind::SquareTopDown, ProjectionKind::SquareTopDown.label())
                         .changed();
                 });
+            ui.label("Faux-perspective main view");
             recipe_changed |= ui
-                .add(egui::Slider::new(&mut self.recipe.projection.tile_screen_width_px, 48..=192).text("diamond width px"))
+                .add(egui::Slider::new(&mut self.recipe.projection.faux_cell_width_px, 32..=160).text("faux cell width px"))
                 .changed();
             recipe_changed |= ui
-                .add(egui::Slider::new(&mut self.recipe.projection.tile_screen_height_px, 24..=128).text("diamond height px"))
+                .add(egui::Slider::new(&mut self.recipe.projection.faux_cell_height_px, 32..=160).text("faux cell height px"))
+                .changed();
+            recipe_changed |= ui
+                .add(egui::Slider::new(&mut self.recipe.projection.faux_height_step_px, 4..=64).text("faux height step px"))
+                .changed();
+            recipe_changed |= ui
+                .add(egui::Slider::new(&mut self.recipe.projection.faux_side_face_width_px, 2..=48).text("side face strip px"))
+                .changed();
+
+            ui.separator();
+            ui.label("Angled/dimetric alternate view");
+            recipe_changed |= ui
+                .add(egui::Slider::new(&mut self.recipe.projection.tile_screen_width_px, 32..=192).text("angled tile width px"))
+                .changed();
+            recipe_changed |= ui
+                .add(egui::Slider::new(&mut self.recipe.projection.tile_screen_height_px, 24..=128).text("angled tile height px"))
                 .changed();
             recipe_changed |= ui
                 .add(egui::Slider::new(&mut self.recipe.projection.height_step_px, 4..=96).text("angled height step px"))
                 .changed();
+            if ui.button("Use faux-perspective defaults").clicked() {
+                self.recipe.projection.kind = ProjectionKind::FauxPerspective2D;
+                self.recipe.projection.faux_cell_width_px = 64;
+                self.recipe.projection.faux_cell_height_px = 64;
+                self.recipe.projection.faux_height_step_px = 18;
+                self.recipe.projection.faux_side_face_width_px = 12;
+                self.preview_options.height_step_px = 18;
+                self.preview_mode = PreviewMode::FauxPerspectiveTerrain;
+                recipe_changed = true;
+                self.dirty_preview = true;
+            }
             egui::ComboBox::from_label("Default orientation")
                 .selected_text(self.recipe.projection.default_orientation.label())
                 .show_ui(ui, |ui| {
@@ -439,11 +474,15 @@ impl GroundLabApp {
             recipe_changed |= ui
                 .checkbox(&mut self.recipe.projection.supports_four_way_rotation, "Support 90° rotation")
                 .changed();
-            ui.small("Angled previews project square source art into large diamond footprints. The flat material view remains the command/debug map.");
+            ui.small("Faux-perspective keeps the map top-down and rectangular while sprite faces/lips/shadows imply physical elevation. Angled dimetric remains available as an experiment.");
         });
 
         if recipe_changed {
             self.dirty_assets = true;
+            self.preview_options.height_step_px = match self.preview_mode {
+                PreviewMode::AngledTerrain => self.recipe.projection.height_step_px,
+                _ => self.recipe.projection.faux_height_step_px,
+            };
             self.status = "Recipe changed; regenerated tiles next frame.".to_string();
             ctx.request_repaint();
         }
@@ -465,6 +504,10 @@ impl GroundLabApp {
                         .selectable_value(&mut self.preview_mode, mode, mode.label())
                         .changed()
                     {
+                        self.preview_options.height_step_px = match self.preview_mode {
+                            PreviewMode::AngledTerrain => self.recipe.projection.height_step_px,
+                            _ => self.recipe.projection.faux_height_step_px,
+                        };
                         self.dirty_preview = true;
                     }
                 }
@@ -473,13 +516,13 @@ impl GroundLabApp {
             if ui.button("⟲ Rotate view").clicked() {
                 self.preview_options.view_orientation =
                     self.preview_options.view_orientation.rotate_ccw();
-                self.preview_mode = PreviewMode::AngledTerrain;
+                self.preview_mode = PreviewMode::FauxPerspectiveTerrain;
                 self.dirty_preview = true;
             }
             if ui.button("Rotate view ⟳").clicked() {
                 self.preview_options.view_orientation =
                     self.preview_options.view_orientation.rotate_cw();
-                self.preview_mode = PreviewMode::AngledTerrain;
+                self.preview_mode = PreviewMode::FauxPerspectiveTerrain;
                 self.dirty_preview = true;
             }
         });
@@ -495,7 +538,7 @@ impl GroundLabApp {
                         )
                         .changed()
                     {
-                        self.preview_mode = PreviewMode::AngledTerrain;
+                        self.preview_mode = PreviewMode::FauxPerspectiveTerrain;
                         self.dirty_preview = true;
                     }
                 }
@@ -514,8 +557,8 @@ impl GroundLabApp {
         }
         if ui
             .add(
-                egui::Slider::new(&mut self.preview_options.height_step_px, 2..=24)
-                    .text("legacy 2.5D height px"),
+                egui::Slider::new(&mut self.preview_options.height_step_px, 4..=96)
+                    .text("view height step px"),
             )
             .changed()
         {
@@ -542,7 +585,7 @@ impl GroundLabApp {
         if ui
             .checkbox(
                 &mut self.preview_options.show_projected_route,
-                "Projected route in 2.5D",
+                "Projected route on terrain",
             )
             .changed()
         {
@@ -619,9 +662,9 @@ impl GroundLabApp {
                 &self.tileset,
                 &self.palette,
                 &self.terrain,
-                "exports/milestone_04",
+                "exports/milestone_04_1",
             ) {
-                Ok(()) => self.status = "Exported to exports/milestone_04".to_string(),
+                Ok(()) => self.status = "Exported to exports/milestone_04_1".to_string(),
                 Err(err) => self.status = format!("Export failed: {err}"),
             }
         }
@@ -724,7 +767,9 @@ impl GroundLabApp {
             self.preview_options.inspect_cell = pointer_cell;
             if matches!(
                 self.preview_mode,
-                PreviewMode::AngledTerrain | PreviewMode::ErectedTerrain
+                PreviewMode::FauxPerspectiveTerrain
+                    | PreviewMode::AngledTerrain
+                    | PreviewMode::ErectedTerrain
             ) && self.preview_options.enable_local_cutaway
             {
                 self.dirty_preview = true;
@@ -749,7 +794,7 @@ impl GroundLabApp {
             }
         }
 
-        ui.label("Left-drag paints. Right-click sets LOS source. Hovering in angled/legacy 2.5D drives a local cutaway lens. Blue = spawn, yellow = objective.");
+        ui.label("Left-drag paints. Right-click sets LOS source. Hovering in faux/angled/legacy views drives a local cutaway lens. Blue = spawn, yellow = objective.");
     }
 }
 

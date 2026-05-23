@@ -30,6 +30,15 @@ pub struct TilesetExportMetadata {
     pub recipe_id: String,
     pub palette_id: String,
     pub tile_size: u32,
+    pub projection_kind: String,
+    pub faux_cell_width_px: u32,
+    pub faux_cell_height_px: u32,
+    pub faux_height_step_px: u32,
+    pub faux_side_face_width_px: u32,
+    pub angled_tile_screen_width_px: u32,
+    pub angled_tile_screen_height_px: u32,
+    pub angled_height_step_px: u32,
+    pub default_orientation: ViewOrientation,
     pub atlas_path: String,
     pub height_mask_path: String,
     pub normal_map_path: String,
@@ -40,6 +49,9 @@ pub struct TilesetExportMetadata {
     pub terrain_preview_path: String,
     pub terrain_preview_2_5d_path: String,
     pub terrain_preview_cutaway_path: String,
+    pub terrain_preview_faux_path: String,
+    pub terrain_preview_faux_cutaway_path: String,
+    pub terrain_preview_faux_orientation_paths: Vec<String>,
     pub terrain_preview_angled_path: String,
     pub terrain_preview_angled_cutaway_path: String,
     pub terrain_preview_angled_orientation_paths: Vec<String>,
@@ -93,7 +105,7 @@ pub fn export_tileset_bundle_with_palette(
         show_grid: false,
         los_source: terrain.objective,
         los_range: 18,
-        height_step_px: (tileset.recipe.tile_size / 4).max(4),
+        height_step_px: tileset.recipe.projection.faux_height_step_px,
         fade_raised_faces: false,
         enable_local_cutaway: true,
         inspect_cell: None,
@@ -112,6 +124,26 @@ pub fn export_tileset_bundle_with_palette(
         &preview_options,
     );
     preview_2_5d.save_png(out_dir.join("terrain_preview_2_5d.png"))?;
+
+    let faux_preview = render_terrain_preview(
+        terrain,
+        tileset,
+        PreviewMode::FauxPerspectiveTerrain,
+        &preview_options,
+    );
+    faux_preview.save_png(out_dir.join("terrain_preview_faux.png"))?;
+
+    for orientation in ViewOrientation::ALL {
+        let mut orientation_options = preview_options.clone();
+        orientation_options.view_orientation = orientation;
+        let preview = render_terrain_preview(
+            terrain,
+            tileset,
+            PreviewMode::FauxPerspectiveTerrain,
+            &orientation_options,
+        );
+        preview.save_png(out_dir.join(format!("terrain_preview_faux_{}.png", orientation.id())))?;
+    }
 
     let angled_preview = render_terrain_preview(
         terrain,
@@ -145,6 +177,14 @@ pub fn export_tileset_bundle_with_palette(
         &cutaway_options,
     );
     cutaway_preview.save_png(out_dir.join("terrain_preview_cutaway.png"))?;
+
+    let faux_cutaway_preview = render_terrain_preview(
+        terrain,
+        tileset,
+        PreviewMode::FauxPerspectiveTerrain,
+        &cutaway_options,
+    );
+    faux_cutaway_preview.save_png(out_dir.join("terrain_preview_faux_cutaway.png"))?;
 
     let angled_cutaway_preview = render_terrain_preview(
         terrain,
@@ -198,6 +238,15 @@ pub fn export_metadata(
         recipe_id: tileset.recipe.id.clone(),
         palette_id: tileset.palette.id.clone(),
         tile_size,
+        projection_kind: tileset.recipe.projection.kind.label().to_string(),
+        faux_cell_width_px: tileset.recipe.projection.faux_cell_width_px,
+        faux_cell_height_px: tileset.recipe.projection.faux_cell_height_px,
+        faux_height_step_px: tileset.recipe.projection.faux_height_step_px,
+        faux_side_face_width_px: tileset.recipe.projection.faux_side_face_width_px,
+        angled_tile_screen_width_px: tileset.recipe.projection.tile_screen_width_px,
+        angled_tile_screen_height_px: tileset.recipe.projection.tile_screen_height_px,
+        angled_height_step_px: tileset.recipe.projection.height_step_px,
+        default_orientation: tileset.recipe.projection.default_orientation,
         atlas_path: "terrain_atlas.png".to_string(),
         height_mask_path: "terrain_height_mask.png".to_string(),
         normal_map_path: "terrain_normal.png".to_string(),
@@ -208,6 +257,12 @@ pub fn export_metadata(
         terrain_preview_path: "terrain_preview.png".to_string(),
         terrain_preview_2_5d_path: "terrain_preview_2_5d.png".to_string(),
         terrain_preview_cutaway_path: "terrain_preview_cutaway.png".to_string(),
+        terrain_preview_faux_path: "terrain_preview_faux.png".to_string(),
+        terrain_preview_faux_cutaway_path: "terrain_preview_faux_cutaway.png".to_string(),
+        terrain_preview_faux_orientation_paths: ViewOrientation::ALL
+            .iter()
+            .map(|orientation| format!("terrain_preview_faux_{}.png", orientation.id()))
+            .collect(),
         terrain_preview_angled_path: "terrain_preview_angled.png".to_string(),
         terrain_preview_angled_cutaway_path: "terrain_preview_angled_cutaway.png".to_string(),
         terrain_preview_angled_orientation_paths: ViewOrientation::ALL

@@ -15,7 +15,8 @@ for one future game family: terrain-first prepared-ground defense.
 - Height/normal/shadow/occlusion mask generation
 - Seam/palette/structure validation
 - Software preview renderer
-- 2.5D erected terrain preview with local cutaway inspection
+- Faux-perspective 2D terrain preview with sprite-stacked faces/lips/shadows
+- Experimental angled terrain preview and legacy 2.5D erected preview
 - A* route query
 - Line-of-sight query
 - Export bundle format
@@ -84,31 +85,39 @@ Visibility policy for hidden objects should be explicit in the runtime renderer:
 
 The workbench now supports both global face fading and a local hover-driven cutaway lens. The game should prefer conditional/local fading so terrain still feels solid.
 
-## Milestone 4 angled projection pivot
+## Milestone 4.1 faux-perspective 2D renderer
 
-The main visual preview is now `PreviewMode::AngledTerrain`. It uses the same terrain grid and
-same generated surface/structure assets, but projects cells through `ProjectionSpec`:
+The main visual preview is now `PreviewMode::FauxPerspectiveTerrain`. It keeps the world top-down and
+rectangular, then uses sprite stacks to imply physical height:
+
+```txt
+screen_x = left_padding + oriented_x * cell_width_px
+screen_y = top_padding + oriented_y * cell_height_px - effective_height * height_step_px
+```
+
+Each visible height delta can emit a front face, side-face hint, lip strip, and contact shadow. This
+keeps planning/editing readable while letting trenches, berms, cliffs, and ridges feel like objects
+with real terrain body.
+
+`PreviewMode::AngledTerrain` is still available as an experimental dimetric view:
 
 ```txt
 screen_x = origin_x + (u - v) * tile_screen_width_px / 2
 screen_y = origin_y + (u + v) * tile_screen_height_px / 2 - effective_height * height_step_px
 ```
 
-`u,v` are orientation-space coordinates derived from the world grid and `ViewOrientation`. This lets
-one terrain map render from NE/SE/SW/NW without changing simulation data.
+The flat `Material` preview is intentionally preserved as a command/debug map for pathfinding, LOS,
+movement-cost overlays, and schematic inspection.
 
-The flat `Material` preview is intentionally preserved as a command/debug map. It is useful for
-pathfinding, LOS, movement-cost overlays, and schematic inspection when the angled view naturally
-occludes cells.
+Current faux renderer policy:
 
-Current angled renderer policy:
-
-- render generated square source tiles into diamond top footprints
-- draw exposed faces between height deltas using generated structure-face tiles
+- draw generated square source tiles as screen-aligned top surfaces
+- draw exposed terrain body using generated structure-face tiles
 - draw generated lip strips along terrain cuts
 - draw route, markers, and selection above terrain
 - use orientation-aware inverse picking for edit tools
 - expose 90-degree view rotation in the workbench
+- preserve full-resolution exports while downscaling only UI texture uploads
 
 This remains a software preview. Once the projection and asset contract feel right, the GPU runtime
-should implement the same command model with sprite batching and depth/sort keys.
+should implement the same command model with sprite batching and y/elevation sort keys.

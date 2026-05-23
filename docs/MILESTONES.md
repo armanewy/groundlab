@@ -69,12 +69,10 @@ Implemented.
 
 ## Milestone 4 — Angled projection pivot
 
-Implemented in this drop.
+Implemented.
 
 - `ProjectionSpec` added to `TilesetRecipe`
 - default tile source size changed to `64 px`
-- default angled screen footprint set to `96x48 px`
-- default angled height step set to `24 px`
 - new `PreviewMode::AngledTerrain`
 - new `ViewOrientation` enum with NE/SE/SW/NW views
 - workbench rotate-left / rotate-right controls
@@ -83,22 +81,37 @@ Implemented in this drop.
 - angled exposed-face renderer using generated structure-face/lip art
 - local cutaway/selection support in angled view
 - flat material view preserved as command/debug map
-- CLI/app export target defaults to `exports/milestone_04`
 - export bundle writes default angled preview, cutaway preview, and all four orientation previews
 
+## Milestone 4.1 — Faux-perspective 2D terrain renderer
+
+Implemented in this drop.
+
+- `ProjectionKind::FauxPerspective2D` added and made the default
+- `PreviewMode::FauxPerspectiveTerrain` added and made the default workbench view
+- default screen cell footprint set to `64x64 px`
+- default faux height step set to `18 px`
+- rectangular top-down renderer using sprite-stacked terrain faces/lips/shadows
+- orientation-aware picking and 90-degree rotation retained in the faux view
+- hover cutaway/selection support in faux view
+- UI texture uploads downscale large previews while CLI exports stay full resolution
+- CLI/app export target defaults to `exports/milestone_04_1`
+- export bundle writes default faux preview, cutaway preview, and all four orientation previews
+
 This milestone is a visual-direction pivot, not a gameplay expansion. It preserves the terrain data,
-asset pipeline, pathing, LOS, and validation systems while changing the main visual projection.
+asset pipeline, pathing, LOS, validation, and experimental angled renderer while changing the main
+visual projection to “actually 2D, but drawn to look 3D.”
 
-## Milestone 4.1 — Art-directed angled terrain pass
+## Milestone 4.2 — Art-directed faux terrain pass
 
-Recommended next if the projection feels directionally right.
+Recommended next.
 
-- ramp/slope top tiles
+- ramp/slope top sprites
 - cliff cap/lip variants
 - trench inside corners and outside corners
 - berm corner lips
 - face seam validation by face kind and orientation
-- better region transitions in angled view
+- better region transitions in faux view
 - hidden-object x-ray silhouettes in the software preview
 
 ## Milestone 5 — Custom renderer/runtime

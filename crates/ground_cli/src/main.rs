@@ -15,7 +15,7 @@ fn main() -> Result<()> {
         "export" => {
             let out_dir = args
                 .next()
-                .unwrap_or_else(|| "exports/milestone_04".to_string());
+                .unwrap_or_else(|| "exports/milestone_04_1".to_string());
             let recipe_path = args
                 .next()
                 .unwrap_or_else(|| DEFAULT_RECIPE_PATH.to_string());
@@ -35,7 +35,7 @@ fn main() -> Result<()> {
                 &terrain,
                 out_dir,
             )?;
-            println!("Exported GroundLab Milestone 4 bundle.");
+            println!("Exported GroundLab Milestone 4.1 bundle.");
             println!("{}", loaded.validation.summary_line());
         }
         "validate" => {

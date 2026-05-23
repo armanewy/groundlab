@@ -4,14 +4,17 @@ use crate::color::{clamp01, Rgba8};
 use crate::los::{visibility_grid, Visibility};
 use crate::pathfinding::find_path;
 use crate::pixel_image::PixelImage;
-use crate::recipe::{GroundMaterial, ProjectionKind, StructureFaceKind, ViewOrientation};
+use crate::recipe::{GroundMaterial, StructureFaceKind, ViewOrientation};
 use crate::terrain::TerrainMap;
 use crate::tileset::{stable_tile_variant, Tileset};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PreviewMode {
     Material,
-    /// New main visual target: large-tile angled/dimetric 2.5D terrain with
+    /// New main visual target: screen-aligned 2D terrain whose sprite stack
+    /// implies 3D height, lips, shadows, trenches, berms, and physical faces.
+    FauxPerspectiveTerrain,
+    /// Alternate/debug view: large-tile angled/dimetric 2.5D terrain with
     /// diamond top footprints, visible vertical faces, route overlays, and
     /// orientation-aware picking.
     AngledTerrain,
@@ -26,8 +29,9 @@ pub enum PreviewMode {
 }
 
 impl PreviewMode {
-    pub const ALL: [PreviewMode; 8] = [
+    pub const ALL: [PreviewMode; 9] = [
         PreviewMode::Material,
+        PreviewMode::FauxPerspectiveTerrain,
         PreviewMode::AngledTerrain,
         PreviewMode::ErectedTerrain,
         PreviewMode::Height,
@@ -40,6 +44,7 @@ impl PreviewMode {
     pub fn label(self) -> &'static str {
         match self {
             PreviewMode::Material => "Command map / flat material",
+            PreviewMode::FauxPerspectiveTerrain => "Faux-perspective 2D terrain",
             PreviewMode::AngledTerrain => "Angled 2.5D terrain",
             PreviewMode::ErectedTerrain => "Legacy erected terrain",
             PreviewMode::Height => "Height",
@@ -81,7 +86,7 @@ impl Default for PreviewOptions {
             show_grid: false,
             los_source: (8, 8),
             los_range: 18,
-            height_step_px: 8,
+            height_step_px: 18,
             fade_raised_faces: false,
             enable_local_cutaway: true,
             inspect_cell: None,
@@ -98,6 +103,9 @@ pub fn render_terrain_preview(
     mode: PreviewMode,
     options: &PreviewOptions,
 ) -> PixelImage {
+    if mode == PreviewMode::FauxPerspectiveTerrain {
+        return render_faux_perspective_terrain_preview(map, tileset, options);
+    }
     if mode == PreviewMode::AngledTerrain {
         return render_angled_terrain_preview(map, tileset, options);
     }
@@ -160,6 +168,7 @@ pub fn render_terrain_preview(
 
             match mode {
                 PreviewMode::Material
+                | PreviewMode::FauxPerspectiveTerrain
                 | PreviewMode::AngledTerrain
                 | PreviewMode::ErectedTerrain => {
                     draw_height_edges(&mut image, map, x, y, tile_px);
@@ -468,6 +477,9 @@ pub fn preview_pixel_to_cell(
     px: u32,
     py: u32,
 ) -> Option<(u32, u32)> {
+    if mode == PreviewMode::FauxPerspectiveTerrain {
+        return faux_preview_pixel_to_cell(map, tileset, options, px, py);
+    }
     if mode == PreviewMode::AngledTerrain {
         return angled_preview_pixel_to_cell(map, tileset, options, px, py);
     }
@@ -491,6 +503,28 @@ pub fn preview_pixel_to_cell(
             if point_in_any_face(map, x, y, px, py, proj) {
                 return Some((x, y));
             }
+        }
+    }
+    None
+}
+
+fn faux_preview_pixel_to_cell(
+    map: &TerrainMap,
+    tileset: &Tileset,
+    options: &PreviewOptions,
+    px: u32,
+    py: u32,
+) -> Option<(u32, u32)> {
+    let proj = faux_projection(map, tileset, options);
+    let px = px as i32;
+    let py = py as i32;
+    let mut cells = faux_draw_order(map, proj.orientation);
+    cells.reverse();
+    for (x, y) in cells {
+        if point_in_faux_top(map, proj, x, y, px, py)
+            || point_in_faux_faces(map, proj, x, y, px, py)
+        {
+            return Some((x, y));
         }
     }
     None
@@ -1107,6 +1141,721 @@ fn point_in_rect(px: i32, py: i32, x: i32, y: i32, width: u32, height: u32) -> b
     px >= x && py >= y && px < x + width as i32 && py < y + height as i32
 }
 
+fn draw_scaled_image_rect(
+    image: &mut PixelImage,
+    src: &PixelImage,
+    dst_x: i32,
+    dst_y: i32,
+    dst_w: u32,
+    dst_h: u32,
+    alpha: f32,
+) {
+    if dst_w == 0 || dst_h == 0 || src.width == 0 || src.height == 0 {
+        return;
+    }
+    for yy in 0..dst_h {
+        for xx in 0..dst_w {
+            let src_x = (xx * src.width / dst_w).min(src.width - 1);
+            let src_y = (yy * src.height / dst_h).min(src.height - 1);
+            let color = src.get(src_x, src_y);
+            if color.a == 0 {
+                continue;
+            }
+            blend_pixel_i32(
+                image,
+                dst_x + xx as i32,
+                dst_y + yy as i32,
+                color,
+                alpha * (color.a as f32 / 255.0),
+            );
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct FauxProjection {
+    cell_w: u32,
+    cell_h: u32,
+    height_step_px: u32,
+    side_face_w: u32,
+    offset_x: i32,
+    offset_y: i32,
+    width: u32,
+    height: u32,
+    orientation: ViewOrientation,
+}
+
+impl FauxProjection {
+    fn cell_top_left(self, map: &TerrainMap, x: u32, y: u32) -> (i32, i32) {
+        let h = map
+            .cell(x, y)
+            .map(|cell| cell.effective_height())
+            .unwrap_or(0.0);
+        let (vx, vy) = world_to_faux_view(self.orientation, map, x, y);
+        let sx = vx * self.cell_w as i32 + self.offset_x;
+        let sy = vy * self.cell_h as i32 + self.offset_y
+            - (h * self.height_step_px as f32).round() as i32;
+        (sx, sy)
+    }
+
+    fn cell_center(self, map: &TerrainMap, x: u32, y: u32) -> (i32, i32) {
+        let (sx, sy) = self.cell_top_left(map, x, y);
+        (sx + self.cell_w as i32 / 2, sy + self.cell_h as i32 / 2)
+    }
+}
+
+fn faux_projection(
+    map: &TerrainMap,
+    tileset: &Tileset,
+    options: &PreviewOptions,
+) -> FauxProjection {
+    let mut projection = tileset.recipe.projection.clone();
+    projection.sanitize(tileset.recipe.tile_size);
+    let cell_w = projection.faux_cell_width_px.max(8);
+    let cell_h = projection.faux_cell_height_px.max(8);
+    let height_step_px = options.height_step_px.clamp(4, 96);
+    let side_face_w = projection.faux_side_face_width_px.min(cell_w / 2).max(2);
+    let orientation = options.view_orientation;
+
+    let mut min_x = i32::MAX;
+    let mut min_y = i32::MAX;
+    let mut max_x = i32::MIN;
+    let mut max_y = i32::MIN;
+
+    for y in 0..map.height {
+        for x in 0..map.width {
+            let h = map
+                .cell(x, y)
+                .map(|cell| cell.effective_height())
+                .unwrap_or(0.0);
+            let (vx, vy) = world_to_faux_view(orientation, map, x, y);
+            let sx = vx * cell_w as i32;
+            let sy = vy * cell_h as i32 - (h * height_step_px as f32).round() as i32;
+            let face_extra = ((h.max(0.0) + 2.0) * height_step_px as f32).ceil() as i32;
+            min_x = min_x.min(sx - side_face_w as i32 - 2);
+            min_y = min_y.min(sy - 2);
+            max_x = max_x.max(sx + cell_w as i32 + side_face_w as i32 + 2);
+            max_y = max_y.max(sy + cell_h as i32 + face_extra + 4);
+        }
+    }
+
+    let padding = 48_i32;
+    FauxProjection {
+        cell_w,
+        cell_h,
+        height_step_px,
+        side_face_w,
+        offset_x: -min_x + padding,
+        offset_y: -min_y + padding,
+        width: (max_x - min_x + padding * 2).max(cell_w as i32) as u32,
+        height: (max_y - min_y + padding * 2).max(cell_h as i32) as u32,
+        orientation,
+    }
+}
+
+fn render_faux_perspective_terrain_preview(
+    map: &TerrainMap,
+    tileset: &Tileset,
+    options: &PreviewOptions,
+) -> PixelImage {
+    let proj = faux_projection(map, tileset, options);
+    let mut image = PixelImage::new(proj.width, proj.height, Rgba8::opaque(12, 13, 16));
+    let draw_order = faux_draw_order(map, proj.orientation);
+
+    for &(x, y) in &draw_order {
+        draw_faux_contact_shadow(&mut image, map, x, y, proj, tileset.recipe.shadow_strength);
+    }
+    for &(x, y) in &draw_order {
+        draw_faux_top_surface(&mut image, map, tileset, x, y, proj);
+    }
+    for &(x, y) in &draw_order {
+        draw_faux_exposed_faces(&mut image, map, tileset, x, y, proj, options);
+    }
+
+    if options.show_projected_route {
+        let path = find_path(map, map.spawn, map.objective);
+        draw_faux_path(
+            &mut image,
+            map,
+            proj,
+            &path.points,
+            if path.reached_goal {
+                Rgba8::opaque(235, 174, 77)
+            } else {
+                Rgba8::opaque(230, 74, 74)
+            },
+        );
+    }
+    if options.show_grid {
+        for &(x, y) in &draw_order {
+            draw_faux_grid_cell(&mut image, map, proj, x, y, Rgba8::opaque(24, 26, 31));
+        }
+    }
+    if let Some(cell) = options.inspect_cell {
+        draw_faux_selection(&mut image, map, proj, cell, Rgba8::opaque(154, 215, 238));
+    }
+    draw_faux_marker(
+        &mut image,
+        map,
+        proj,
+        map.spawn,
+        Rgba8::opaque(99, 169, 218),
+    );
+    draw_faux_marker(
+        &mut image,
+        map,
+        proj,
+        map.objective,
+        Rgba8::opaque(225, 196, 91),
+    );
+    draw_faux_marker(
+        &mut image,
+        map,
+        proj,
+        options.los_source,
+        Rgba8::opaque(145, 222, 165),
+    );
+    image
+}
+
+fn faux_draw_order(map: &TerrainMap, orientation: ViewOrientation) -> Vec<(u32, u32)> {
+    let mut cells = Vec::with_capacity(map.cells.len());
+    for y in 0..map.height {
+        for x in 0..map.width {
+            cells.push((x, y));
+        }
+    }
+    cells.sort_by_key(|&(x, y)| {
+        let (vx, vy) = world_to_faux_view(orientation, map, x, y);
+        (vy, vx)
+    });
+    cells
+}
+
+fn draw_faux_top_surface(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    tileset: &Tileset,
+    x: u32,
+    y: u32,
+    proj: FauxProjection,
+) {
+    let Some(cell) = map.cell(x, y) else {
+        return;
+    };
+    let visual_material = visual_material_for_cell(cell.ground);
+    let variant = stable_tile_variant(
+        tileset.recipe.seed,
+        x,
+        y,
+        visual_material,
+        tileset.recipe.variants_per_material,
+    );
+    let tile = &tileset.tile(visual_material, variant).image;
+    let (sx, sy) = proj.cell_top_left(map, x, y);
+    draw_scaled_image_rect(image, tile, sx, sy, proj.cell_w, proj.cell_h, 1.0);
+
+    let height_t = cell.height as f32 / 9.0;
+    let shade = 0.09 * (height_t - 0.45);
+    if shade > 0.0 {
+        blend_rect_i32(image, sx, sy, proj.cell_w, proj.cell_h, Rgba8::WHITE, shade);
+    } else {
+        blend_rect_i32(
+            image,
+            sx,
+            sy,
+            proj.cell_w,
+            proj.cell_h,
+            Rgba8::BLACK,
+            -shade,
+        );
+    }
+
+    if cell.trench_depth > 0 {
+        let inset = (proj.cell_w.min(proj.cell_h) / 7).max(3);
+        blend_rect_i32(
+            image,
+            sx + inset as i32,
+            sy + inset as i32,
+            proj.cell_w.saturating_sub(inset * 2),
+            proj.cell_h.saturating_sub(inset * 2),
+            Rgba8::opaque(17, 12, 10),
+            0.28,
+        );
+        outline_rect_i32(
+            image,
+            sx + inset as i32,
+            sy + inset as i32,
+            proj.cell_w.saturating_sub(inset * 2),
+            proj.cell_h.saturating_sub(inset * 2),
+            Rgba8::opaque(44, 29, 21),
+        );
+    }
+    if cell.berm_height > 0 {
+        outline_rect_i32(
+            image,
+            sx,
+            sy,
+            proj.cell_w,
+            proj.cell_h,
+            Rgba8::opaque(171, 123, 59),
+        );
+        blend_rect_i32(image, sx, sy, proj.cell_w, proj.cell_h, Rgba8::WHITE, 0.05);
+    }
+}
+
+fn draw_faux_exposed_faces(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    tileset: &Tileset,
+    x: u32,
+    y: u32,
+    proj: FauxProjection,
+    options: &PreviewOptions,
+) {
+    let Some(cell) = map.cell(x, y) else {
+        return;
+    };
+    let current = cell.effective_height();
+    let material = face_material_for_cell(cell);
+    let variant = stable_tile_variant(
+        tileset.recipe.seed ^ 0x9e37_79b9_7f4a_7c15,
+        x,
+        y,
+        material,
+        tileset.recipe.variants_per_material,
+    );
+
+    for (view_dx, view_dy, face) in [
+        (0, 1, StructureFaceKind::Front),
+        (1, 0, StructureFaceKind::Right),
+        (-1, 0, StructureFaceKind::Left),
+    ] {
+        let neighbor =
+            faux_neighbor_height_in_view_direction(map, proj.orientation, x, y, view_dx, view_dy)
+                .unwrap_or(0.0);
+        let delta = current - neighbor;
+        if delta <= 0.01 {
+            continue;
+        }
+        let face_h = ((delta * proj.height_step_px as f32).ceil() as u32).max(2);
+        let (x_offset, width) = match face {
+            StructureFaceKind::Front | StructureFaceKind::Lip => (0, proj.cell_w),
+            StructureFaceKind::Right => (
+                proj.cell_w as i32 - proj.side_face_w as i32,
+                proj.side_face_w,
+            ),
+            StructureFaceKind::Left => (0, proj.side_face_w),
+        };
+        draw_faux_structure_face(
+            image,
+            map,
+            tileset,
+            proj,
+            FauxFaceDraw {
+                material,
+                face,
+                variant,
+                x,
+                y,
+                screen_x_offset: x_offset,
+                screen_y_offset: proj.cell_h as i32,
+                width,
+                height: face_h,
+            },
+            options,
+        );
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct FauxFaceDraw {
+    material: GroundMaterial,
+    face: StructureFaceKind,
+    variant: u32,
+    x: u32,
+    y: u32,
+    screen_x_offset: i32,
+    screen_y_offset: i32,
+    width: u32,
+    height: u32,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct FauxFaceRect {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
+fn draw_faux_structure_face(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    tileset: &Tileset,
+    proj: FauxProjection,
+    draw: FauxFaceDraw,
+    options: &PreviewOptions,
+) {
+    if draw.width == 0 || draw.height == 0 {
+        return;
+    }
+    let (sx, sy) = proj.cell_top_left(map, draw.x, draw.y);
+    let face_x = sx + draw.screen_x_offset;
+    let face_y = sy + draw.screen_y_offset;
+    let face_rect = FauxFaceRect {
+        x: face_x,
+        y: face_y,
+        width: draw.width,
+        height: draw.height,
+    };
+    let alpha = faux_face_alpha(
+        map,
+        proj,
+        face_rect,
+        tileset.recipe.cutaway_radius_px,
+        tileset.recipe.cutaway_alpha,
+        options,
+    );
+    if let Some(asset) = tileset.structure_face_tile(draw.material, draw.face, draw.variant) {
+        draw_scaled_image_rect(
+            image,
+            &asset.image,
+            face_x,
+            face_y,
+            draw.width,
+            draw.height,
+            alpha,
+        );
+    } else {
+        draw_faux_face_fallback(image, tileset, draw, face_rect, alpha);
+    }
+
+    if options.show_structure_lips && draw.face == StructureFaceKind::Front {
+        let lip_h = (proj.cell_h / 9).max(2).min(draw.height.max(2));
+        let lip_y = face_y - lip_h as i32 / 2;
+        if let Some(asset) =
+            tileset.structure_face_tile(draw.material, StructureFaceKind::Lip, draw.variant)
+        {
+            draw_scaled_image_rect(
+                image,
+                &asset.image,
+                face_x,
+                lip_y,
+                draw.width,
+                lip_h,
+                alpha.max(0.72),
+            );
+        } else {
+            let base = tileset
+                .palette
+                .sample(draw.material.ramp(), 0.60)
+                .lighten(0.06);
+            blend_rect_i32(
+                image,
+                face_x,
+                lip_y,
+                draw.width,
+                lip_h,
+                base,
+                alpha.max(0.72),
+            );
+        }
+    }
+}
+
+fn draw_faux_face_fallback(
+    image: &mut PixelImage,
+    tileset: &Tileset,
+    draw: FauxFaceDraw,
+    rect: FauxFaceRect,
+    alpha: f32,
+) {
+    let base = tileset.palette.sample(draw.material.ramp(), 0.42);
+    let color = match draw.face {
+        StructureFaceKind::Front => base.darken(0.24),
+        StructureFaceKind::Left => base.darken(0.34),
+        StructureFaceKind::Right => base.darken(0.14),
+        StructureFaceKind::Lip => base.lighten(0.06),
+    };
+    for yy in 0..rect.height {
+        let t = if rect.height <= 1 {
+            0.0
+        } else {
+            yy as f32 / (rect.height - 1) as f32
+        };
+        let row = color.darken(t * 0.20);
+        for xx in 0..rect.width {
+            blend_pixel_i32(image, rect.x + xx as i32, rect.y + yy as i32, row, alpha);
+        }
+    }
+    outline_rect_i32(
+        image,
+        rect.x,
+        rect.y,
+        rect.width,
+        rect.height,
+        Rgba8::opaque(7, 8, 10),
+    );
+}
+
+fn draw_faux_contact_shadow(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    x: u32,
+    y: u32,
+    proj: FauxProjection,
+    shadow_strength: f32,
+) {
+    let Some(cell) = map.cell(x, y) else {
+        return;
+    };
+    let current = cell.effective_height();
+    let front =
+        faux_neighbor_height_in_view_direction(map, proj.orientation, x, y, 0, 1).unwrap_or(0.0);
+    let right =
+        faux_neighbor_height_in_view_direction(map, proj.orientation, x, y, 1, 0).unwrap_or(0.0);
+    let delta = (current - front).max(current - right).max(0.0);
+    if delta <= 0.01 {
+        return;
+    }
+    let (sx, sy) = proj.cell_top_left(map, x, y);
+    let shadow_h = ((delta * proj.height_step_px as f32).ceil() as u32).max(2);
+    blend_rect_i32(
+        image,
+        sx + (proj.cell_w / 10) as i32,
+        sy + proj.cell_h as i32 + shadow_h as i32 / 2,
+        proj.cell_w,
+        (proj.cell_h / 5).max(4) + shadow_h / 3,
+        Rgba8::BLACK,
+        (0.08 + delta * 0.035).min(0.26) * shadow_strength.max(0.15),
+    );
+}
+
+fn faux_face_alpha(
+    map: &TerrainMap,
+    proj: FauxProjection,
+    rect: FauxFaceRect,
+    cutaway_radius_px: u32,
+    cutaway_alpha: f32,
+    options: &PreviewOptions,
+) -> f32 {
+    let mut alpha: f32 = if options.fade_raised_faces { 0.82 } else { 1.0 };
+    if options.enable_local_cutaway {
+        if let Some((cx, cy)) = options.inspect_cell {
+            if cx < map.width && cy < map.height {
+                let (focus_x, focus_y) = proj.cell_center(map, cx, cy);
+                let face_cx = rect.x + rect.width as i32 / 2;
+                let face_cy = rect.y + rect.height as i32 / 2;
+                let dx = (face_cx - focus_x) as f32;
+                let dy = (face_cy - focus_y) as f32;
+                let dist = (dx * dx + dy * dy).sqrt();
+                let radius = cutaway_radius_px.max(1) as f32;
+                if dist < radius {
+                    let t = clamp01(dist / radius);
+                    let cutaway = cutaway_alpha + (1.0 - cutaway_alpha) * t;
+                    alpha = alpha.min(cutaway);
+                }
+            }
+        }
+    }
+    alpha.clamp(0.15, 1.0)
+}
+
+fn draw_faux_selection(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    proj: FauxProjection,
+    cell: (u32, u32),
+    color: Rgba8,
+) {
+    if cell.0 >= map.width || cell.1 >= map.height {
+        return;
+    }
+    let (sx, sy) = proj.cell_top_left(map, cell.0, cell.1);
+    blend_rect_i32(image, sx, sy, proj.cell_w, proj.cell_h, color, 0.14);
+    outline_rect_i32(image, sx, sy, proj.cell_w, proj.cell_h, color);
+    outline_rect_i32(
+        image,
+        sx - 1,
+        sy - 1,
+        proj.cell_w + 2,
+        proj.cell_h + 2,
+        color,
+    );
+}
+
+fn draw_faux_marker(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    proj: FauxProjection,
+    cell: (u32, u32),
+    color: Rgba8,
+) {
+    if cell.0 >= map.width || cell.1 >= map.height {
+        return;
+    }
+    let (cx, cy) = proj.cell_center(map, cell.0, cell.1);
+    let r = (proj.cell_w.min(proj.cell_h) / 5).max(5) as i32;
+    for dy in -r..=r {
+        for dx in -r..=r {
+            if dx * dx + dy * dy <= r * r {
+                blend_pixel_i32(image, cx + dx, cy + dy, color, 0.92);
+            }
+        }
+    }
+    for dy in -r - 1..=r + 1 {
+        for dx in -r - 1..=r + 1 {
+            let d = dx * dx + dy * dy;
+            if d <= (r + 1) * (r + 1) && d > r * r {
+                blend_pixel_i32(image, cx + dx, cy + dy, Rgba8::opaque(9, 10, 12), 0.85);
+            }
+        }
+    }
+}
+
+fn draw_faux_path(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    proj: FauxProjection,
+    points: &[(u32, u32)],
+    color: Rgba8,
+) {
+    for window in points.windows(2) {
+        let a = window[0];
+        let b = window[1];
+        if a.0 >= map.width || a.1 >= map.height || b.0 >= map.width || b.1 >= map.height {
+            continue;
+        }
+        let (ax, ay) = proj.cell_center(map, a.0, a.1);
+        let (bx, by) = proj.cell_center(map, b.0, b.1);
+        draw_line_i32(image, ax, ay, bx, by, Rgba8::opaque(12, 11, 9));
+        draw_line_i32(image, ax + 1, ay, bx + 1, by, Rgba8::opaque(12, 11, 9));
+        draw_line_i32(image, ax, ay - 1, bx, by - 1, color);
+        draw_line_i32(image, ax + 1, ay - 1, bx + 1, by - 1, color);
+    }
+}
+
+fn draw_faux_grid_cell(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    proj: FauxProjection,
+    x: u32,
+    y: u32,
+    color: Rgba8,
+) {
+    let (sx, sy) = proj.cell_top_left(map, x, y);
+    outline_rect_i32(image, sx, sy, proj.cell_w, proj.cell_h, color);
+}
+
+fn point_in_faux_top(
+    map: &TerrainMap,
+    proj: FauxProjection,
+    x: u32,
+    y: u32,
+    px: i32,
+    py: i32,
+) -> bool {
+    let (sx, sy) = proj.cell_top_left(map, x, y);
+    point_in_rect(px, py, sx, sy, proj.cell_w, proj.cell_h)
+}
+
+fn point_in_faux_faces(
+    map: &TerrainMap,
+    proj: FauxProjection,
+    x: u32,
+    y: u32,
+    px: i32,
+    py: i32,
+) -> bool {
+    let Some(cell) = map.cell(x, y) else {
+        return false;
+    };
+    let current = cell.effective_height();
+    let (sx, sy) = proj.cell_top_left(map, x, y);
+    for (view_dx, view_dy, face) in [
+        (0, 1, StructureFaceKind::Front),
+        (1, 0, StructureFaceKind::Right),
+        (-1, 0, StructureFaceKind::Left),
+    ] {
+        let neighbor =
+            faux_neighbor_height_in_view_direction(map, proj.orientation, x, y, view_dx, view_dy)
+                .unwrap_or(0.0);
+        let delta = current - neighbor;
+        if delta <= 0.01 {
+            continue;
+        }
+        let face_h = ((delta * proj.height_step_px as f32).ceil() as u32).max(2);
+        let (x_offset, width) = match face {
+            StructureFaceKind::Front | StructureFaceKind::Lip => (0, proj.cell_w),
+            StructureFaceKind::Right => (
+                proj.cell_w as i32 - proj.side_face_w as i32,
+                proj.side_face_w,
+            ),
+            StructureFaceKind::Left => (0, proj.side_face_w),
+        };
+        if point_in_rect(
+            px,
+            py,
+            sx + x_offset,
+            sy + proj.cell_h as i32,
+            width,
+            face_h,
+        ) {
+            return true;
+        }
+    }
+    false
+}
+
+fn world_to_faux_view(
+    orientation: ViewOrientation,
+    map: &TerrainMap,
+    x: u32,
+    y: u32,
+) -> (i32, i32) {
+    match orientation {
+        ViewOrientation::SouthEast => (x as i32, y as i32),
+        ViewOrientation::SouthWest => (y as i32, map.width as i32 - 1 - x as i32),
+        ViewOrientation::NorthWest => (
+            map.width as i32 - 1 - x as i32,
+            map.height as i32 - 1 - y as i32,
+        ),
+        ViewOrientation::NorthEast => (map.height as i32 - 1 - y as i32, x as i32),
+    }
+}
+
+fn faux_view_delta_to_world(
+    orientation: ViewOrientation,
+    view_dx: i32,
+    view_dy: i32,
+) -> (i32, i32) {
+    match orientation {
+        ViewOrientation::SouthEast => (view_dx, view_dy),
+        ViewOrientation::SouthWest => (-view_dy, view_dx),
+        ViewOrientation::NorthWest => (-view_dx, -view_dy),
+        ViewOrientation::NorthEast => (view_dy, -view_dx),
+    }
+}
+
+fn faux_neighbor_height_in_view_direction(
+    map: &TerrainMap,
+    orientation: ViewOrientation,
+    x: u32,
+    y: u32,
+    view_dx: i32,
+    view_dy: i32,
+) -> Option<f32> {
+    let (world_dx, world_dy) = faux_view_delta_to_world(orientation, view_dx, view_dy);
+    let nx = x as i32 + world_dx;
+    let ny = y as i32 + world_dy;
+    if nx < 0 || ny < 0 || nx >= map.width as i32 || ny >= map.height as i32 {
+        return None;
+    }
+    map.cell(nx as u32, ny as u32)
+        .map(|cell| cell.effective_height())
+}
+
 #[derive(Clone, Copy, Debug)]
 struct AngledProjection {
     half_w: i32,
@@ -1120,6 +1869,8 @@ struct AngledProjection {
     height: u32,
     orientation: ViewOrientation,
 }
+
+type AngledEdgePoints = ((i32, i32), (i32, i32), StructureFaceKind, bool);
 
 impl AngledProjection {
     fn cell_center(self, map: &TerrainMap, x: u32, y: u32) -> (i32, i32) {
@@ -1215,10 +1966,6 @@ fn render_angled_terrain_preview(
     tileset: &Tileset,
     options: &PreviewOptions,
 ) -> PixelImage {
-    if tileset.recipe.projection.kind == ProjectionKind::SquareTopDown {
-        return render_erected_terrain_preview(map, tileset, options);
-    }
-
     let proj = angled_projection(map, tileset, options);
     let mut image = PixelImage::new(proj.width, proj.height, Rgba8::opaque(11, 12, 15));
     let cells = proj.ordered_cells(map);
@@ -1676,8 +2423,6 @@ fn point_in_angled_any_face(
     }
     false
 }
-
-type AngledEdgePoints = ((i32, i32), (i32, i32), StructureFaceKind, bool);
 
 fn angled_edge_points_for_delta(
     map: &TerrainMap,

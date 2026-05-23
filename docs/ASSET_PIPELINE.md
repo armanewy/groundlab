@@ -76,39 +76,43 @@ report is the machine-readable gate.
 The app polls modification timestamps for the active recipe and palette files. It is intentionally
 simple and dependency-free for now. A later editor pass can replace this with a richer file-watcher if needed.
 
-## Angled projection assets
+## Faux-perspective 2D assets
 
-Milestone 4 does not require a second independent angled-art atlas yet. Instead, the preview treats
-existing generated surface tiles as source art and projects them into diamond footprints. This keeps
-the pipeline deterministic and lets us test the camera/projection before committing to more expensive
-angle-specific tile families.
+Milestone 4.1 makes faux-perspective 2D the default projection. The preview treats the existing
+generated surface tiles as square top surfaces, then layers structure-face, lip, and shadow sprites
+below them. This keeps the map top-down and editable while making height look physical.
 
-The recipe now includes:
+The recipe now defaults to:
 
 ```ron
 projection: (
-    kind: Dimetric,
+    kind: FauxPerspective2D,
     source_tile_px: 64,
     tile_screen_width_px: 96,
     tile_screen_height_px: 48,
+    faux_cell_width_px: 64,
+    faux_cell_height_px: 64,
+    faux_height_step_px: 18,
+    faux_side_face_width_px: 12,
     height_step_px: 24,
     default_orientation: SouthEast,
     supports_four_way_rotation: true,
 )
 ```
 
-The next art-pipeline step should add explicit angled/corner/ramp assets once the projection feels
-right:
+`Dimetric` remains available for experiments, but the next art-pipeline step should improve the
+faux-perspective sprite stack:
 
 ```txt
-angled_top_grass
-angled_top_dirt
+faux_top_grass
+faux_top_dirt
 cliff_face_front_left_corner
 cliff_face_front_right_corner
 trench_inner_corner
 berm_outer_corner
-ramp_up_u
-ramp_up_v
+ramp_up_front
+ramp_up_side
+contact_shadow_front
 ```
 
 Rotation is handled by data first: terrain cells do not rotate; only the view projection does. Asset

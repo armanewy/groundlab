@@ -219,6 +219,8 @@ impl fmt::Display for LightDirection {
 pub enum ProjectionKind {
     /// Legacy square-map/debug view. Kept for command maps, masks, and schematic overlays.
     SquareTopDown,
+    /// Screen-aligned 2D terrain whose sprite stack implies depth, height, and perspective.
+    FauxPerspective2D,
     /// Angled tactical 2.5D projection with diamond top footprints and visible terrain body.
     Dimetric,
 }
@@ -227,6 +229,7 @@ impl ProjectionKind {
     pub fn label(self) -> &'static str {
         match self {
             ProjectionKind::SquareTopDown => "square top-down",
+            ProjectionKind::FauxPerspective2D => "faux-perspective 2D",
             ProjectionKind::Dimetric => "angled dimetric",
         }
     }
@@ -296,12 +299,20 @@ impl fmt::Display for ViewOrientation {
 pub struct ProjectionSpec {
     pub kind: ProjectionKind,
     /// Source art size in pixels. For now this is kept in sync with tile_size so
-    /// generated material tiles can be projected into larger diamond footprints.
+    /// generated material tiles can be projected into larger screen footprints.
     pub source_tile_px: u32,
     /// Diamond footprint width on screen in angled previews.
     pub tile_screen_width_px: u32,
     /// Diamond footprint height on screen in angled previews.
     pub tile_screen_height_px: u32,
+    /// Screen-aligned faux-perspective cell width. This is the main-view footprint.
+    pub faux_cell_width_px: u32,
+    /// Screen-aligned faux-perspective cell height. This keeps the camera directly overhead.
+    pub faux_cell_height_px: u32,
+    /// Visual lift per effective terrain-height unit in faux-perspective previews.
+    pub faux_height_step_px: u32,
+    /// Side-face strip width for visible left/right height hints.
+    pub faux_side_face_width_px: u32,
     /// Visual lift per effective terrain-height unit in angled previews.
     pub height_step_px: u32,
     pub default_orientation: ViewOrientation,
@@ -311,10 +322,14 @@ pub struct ProjectionSpec {
 impl Default for ProjectionSpec {
     fn default() -> Self {
         Self {
-            kind: ProjectionKind::Dimetric,
+            kind: ProjectionKind::FauxPerspective2D,
             source_tile_px: 64,
             tile_screen_width_px: 96,
             tile_screen_height_px: 48,
+            faux_cell_width_px: 64,
+            faux_cell_height_px: 64,
+            faux_height_step_px: 18,
+            faux_side_face_width_px: 12,
             height_step_px: 24,
             default_orientation: ViewOrientation::SouthEast,
             supports_four_way_rotation: true,
@@ -330,12 +345,17 @@ impl ProjectionSpec {
         if self.tile_screen_width_px < self.tile_screen_height_px {
             self.tile_screen_width_px = (self.tile_screen_height_px * 2).min(192);
         }
+        self.faux_cell_width_px = sanitize_screen_dim(self.faux_cell_width_px, 32, 160);
+        self.faux_cell_height_px = sanitize_screen_dim(self.faux_cell_height_px, 32, 160);
+        self.faux_height_step_px = self.faux_height_step_px.clamp(4, 96);
+        self.faux_side_face_width_px = self.faux_side_face_width_px.clamp(2, 48);
         self.height_step_px = self.height_step_px.clamp(4, 96);
     }
 }
 
 fn sanitize_screen_dim(value: u32, min: u32, max: u32) -> u32 {
-    value.clamp(min, max).div_ceil(4) * 4
+    let rounded = value.clamp(min, max).div_ceil(4) * 4;
+    rounded.clamp(min, max)
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
