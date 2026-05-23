@@ -91,7 +91,7 @@ impl GroundLabApp {
                 validation,
             }
         });
-        let terrain = TerrainMap::visual_target(14, 9, loaded.recipe.seed);
+        let terrain = TerrainMap::target_derived(16, 12, loaded.recipe.seed);
         let mut app = Self {
             recipe_path_text: paths.recipe_path.to_string_lossy().to_string(),
             palette_path_text: paths.palette_path.to_string_lossy().to_string(),
@@ -127,7 +127,7 @@ impl GroundLabApp {
             dirty_assets: true,
             dirty_preview: true,
             last_preview_size: [1, 1],
-            status: "Ready. Milestone 4.9 target-look terrain composition is active: roads, trenches, berms, stone platforms, lighting, and hero dressing render from editable terrain.".to_string(),
+            status: "Ready. Milestone 4.10 target-derived editable scene is active: the visual target image is the base art source and edits render as local terrain patches.".to_string(),
         };
         app.refresh_if_dirty(&cc.egui_ctx);
         app
@@ -657,7 +657,7 @@ impl GroundLabApp {
         ui.separator();
         ui.strong("Actions");
         if ui.button("Reset visual-target scene").clicked() {
-            self.terrain = TerrainMap::visual_target(14, 9, self.recipe.seed);
+            self.terrain = TerrainMap::target_derived(16, 12, self.recipe.seed);
             self.preview_options.los_source = self.terrain.objective;
             self.preview_mode = PreviewMode::PerspectiveSpriteScene;
             self.dirty_preview = true;
@@ -686,9 +686,9 @@ impl GroundLabApp {
                 &self.tileset,
                 &self.palette,
                 &self.terrain,
-                "exports/milestone_04_9",
+                "exports/milestone_04_10",
             ) {
-                Ok(()) => self.status = "Exported to exports/milestone_04_9".to_string(),
+                Ok(()) => self.status = "Exported to exports/milestone_04_10".to_string(),
                 Err(err) => self.status = format!("Export failed: {err}"),
             }
         }

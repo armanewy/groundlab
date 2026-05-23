@@ -19,6 +19,7 @@ use crate::terrain_artkit::{TerrainArtKit, TerrainArtKitValidation};
 use crate::tileset::{TileMetadata, Tileset};
 use crate::validation::{build_seam_test_sheet, validate_tileset, ValidationReport};
 use crate::visual_scene::VisualScene;
+use crate::visual_target::VisualTarget;
 
 #[derive(Debug, Serialize)]
 pub struct ExportedTile {
@@ -62,6 +63,7 @@ pub struct TilesetExportMetadata {
     pub terrain_preview_visual_target_path: String,
     pub terrain_preview_visual_target_no_overlay_path: String,
     pub terrain_preview_visual_target_debug_path: String,
+    pub visual_target_source_path: String,
     pub terrain_forms_path: String,
     pub terrain_stamps_path: String,
     pub terrain_stamp_count: usize,
@@ -181,6 +183,11 @@ pub fn export_tileset_bundle_with_palette(
         &visual_debug_options,
     );
     visual_target_debug.save_png(out_dir.join("terrain_preview_visual_target_debug.png"))?;
+
+    let visual_target = VisualTarget::load_default()?;
+    visual_target
+        .image
+        .save_png(out_dir.join("visual_target_source.png"))?;
 
     let visual_scene = VisualScene::from_terrain(terrain);
     let visual_scene_json = serde_json::to_string_pretty(&visual_scene)?;
@@ -384,9 +391,10 @@ pub fn export_metadata(
         terrain_forms_path: "terrain_forms.json".to_string(),
         terrain_stamps_path: "terrain_stamps.json".to_string(),
         terrain_stamp_count: {
-            let visual = TerrainMap::visual_target(14, 9, tileset.recipe.seed);
+            let visual = TerrainMap::target_derived(16, 12, tileset.recipe.seed);
             TerrainStampResolver::resolve(&visual).len()
         },
+        visual_target_source_path: "visual_target_source.png".to_string(),
         terrain_artkit_atlas_path: "terrain_artkit_atlas.png".to_string(),
         terrain_artkit_manifest_path: "terrain_artkit_manifest.json".to_string(),
         terrain_artkit_validation_path: "terrain_artkit_validation.json".to_string(),
@@ -395,11 +403,11 @@ pub fn export_metadata(
             .len(),
         terrain_artkit_validation: TerrainArtKit::load_default_or_generate(tileset).validate(),
         visual_target_form_count: {
-            let visual = TerrainMap::visual_target(14, 9, tileset.recipe.seed);
+            let visual = TerrainMap::target_derived(16, 12, tileset.recipe.seed);
             VisualScene::from_terrain(&visual).forms.len()
         },
         visual_target_summary: {
-            let visual = TerrainMap::visual_target(14, 9, tileset.recipe.seed);
+            let visual = TerrainMap::target_derived(16, 12, tileset.recipe.seed);
             VisualScene::from_terrain(&visual).summary_line()
         },
         art_preview_structural_edge_count: {

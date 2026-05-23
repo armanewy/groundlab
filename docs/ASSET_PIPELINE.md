@@ -187,3 +187,17 @@ steps, hero-scene dressing, and final lighting.
 The superseded 4.8R perspective helper path was removed instead of retained as fallback code. Debug
 previews remain explicit preview modes; the default visual target path is now the target-look
 composition renderer.
+
+## Milestone 4.10 target-derived source-art note
+
+Milestone 4.10 adds `assets/visual_targets/dry_upland_outpost_01/visual_target.png` and a matching
+`manifest.ron`. This is the first committed source image that the editable renderer treats as the
+visual base rather than a comparison reference.
+
+The manifest records image size, 16x12 semantic grid size, grid origin, cell size, spawn/objective
+cells, and lighting notes. Export bundles now include `visual_target_source.png` so the rendered
+workbench output can be compared against the exact source image.
+
+The default perspective renderer draws the visual target first and then draws local replacement
+patches only where the editable terrain map differs from `TerrainMap::target_derived`. This keeps
+the art source cohesive while preserving terrain brushes, pathing, LOS, and debug overlays.

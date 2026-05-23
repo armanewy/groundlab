@@ -53,7 +53,7 @@ impl PreviewMode {
     pub fn label(self) -> &'static str {
         match self {
             PreviewMode::Material => "Command map / flat material",
-            PreviewMode::PerspectiveSpriteScene => "Target-style editable scene",
+            PreviewMode::PerspectiveSpriteScene => "Target-derived editable scene",
             PreviewMode::FauxPerspectiveTerrain => "Faux-perspective 2D debug",
             PreviewMode::AngledTerrain => "Angled 2.5D terrain",
             PreviewMode::ErectedTerrain => "Erected terrain diagnostic",

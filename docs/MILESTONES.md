@@ -226,6 +226,22 @@ Implemented in this drop.
 The generated target image remains a style reference. GroundLab terrain data remains the editable
 source of truth for rendering, pathing, LOS, and debug overlays.
 
+## Milestone 4.10 — Target-derived editable scene
+
+Implemented in this drop.
+
+- `assets/visual_targets/dry_upland_outpost_01/visual_target.png` added as the committed source art
+- `assets/visual_targets/dry_upland_outpost_01/manifest.ron` added for image/grid alignment
+- `VisualTarget` added to load the source image and map preview pixels back to semantic cells
+- `TerrainMap::target_derived(16, 12, seed)` added as the semantic map matching the image composition
+- default perspective preview now draws the source image first and local replacement patches only after edits
+- route, marker, grid, selection, and stamp debug overlays still draw over the target-derived scene
+- export bundle writes `visual_target_source.png`
+- CLI/app export target defaults to `exports/milestone_04_10`
+
+This is the source-art correction: the target image is no longer only a reference, and the renderer
+does not try to recreate the entire scene from placeholder art-kit pieces.
+
 ## Milestone 5 — Custom renderer/runtime
 
 - introduce `ground_render`

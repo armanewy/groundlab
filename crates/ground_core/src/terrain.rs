@@ -75,27 +75,24 @@ impl TerrainMap {
         Self::visual_target(width, height, seed)
     }
 
-    /// Small hand-composed target scene used to judge the actual art direction.
-    /// Unlike `stress_test` and `art_preview`, this is intentionally not a noisy
-    /// generator. It creates a compact outpost/approach composition with broad
-    /// floor regions, a visible road, a raised defended pad, a trench, a berm,
-    /// a mud basin, and a rock outcrop. The simulation grid remains underneath,
-    /// but the visual renderer can derive larger scene forms from it.
-    pub fn visual_target(width: u32, height: u32, _seed: u64) -> Self {
-        let width = width.max(14);
-        let height = height.max(9);
+    /// Semantic terrain grid aligned to `assets/visual_targets/dry_upland_outpost_01`.
+    /// The painted image supplies the base look; this grid supplies gameplay data,
+    /// route/LOS behavior, and local replacement patches after edits.
+    pub fn target_derived(width: u32, height: u32, _seed: u64) -> Self {
+        let width = width.max(16);
+        let height = height.max(12);
         let mut map = TerrainMap::new(width, height, TerrainCell::new(2, GroundMaterial::Grass));
-        map.spawn = (1, height.saturating_sub(2));
-        map.objective = (width.saturating_sub(3), 3);
+        map.spawn = (1, 7.min(height.saturating_sub(1)));
+        map.objective = (
+            12.min(width.saturating_sub(1)),
+            3.min(height.saturating_sub(1)),
+        );
 
-        // Tiny hero scene: three clear shelves, with the debug grid hidden by default.
         for y in 0..height {
             for x in 0..width {
-                let h = if y <= 1 {
-                    4
-                } else if y <= 4 {
+                let h = if y <= 2 {
                     3
-                } else if y >= height.saturating_sub(2) {
+                } else if y >= 8 {
                     1
                 } else {
                     2
@@ -104,73 +101,76 @@ impl TerrainMap {
             }
         }
 
-        // Worn approach road from the lower-left spawn toward the raised pad.
-        fill_rect_cells(
-            &mut map,
-            0,
-            height.saturating_sub(3),
-            4,
-            2,
-            1,
-            GroundMaterial::Dirt,
-        );
-        fill_rect_cells(
-            &mut map,
-            3,
-            height.saturating_sub(4),
-            4,
-            2,
-            2,
-            GroundMaterial::Dirt,
-        );
-        fill_rect_cells(&mut map, 6, height / 2, 4, 2, 2, GroundMaterial::Dirt);
-        fill_rect_cells(
-            &mut map,
-            width.saturating_sub(5),
-            height / 2 - 1,
-            4,
-            2,
-            3,
-            GroundMaterial::Dirt,
-        );
+        // Painted target road: upper center approach, middle crossing, and lower-right exit.
+        for &(x, y) in &[
+            (4, 0),
+            (4, 1),
+            (4, 2),
+            (4, 3),
+            (3, 4),
+            (4, 4),
+            (5, 4),
+            (5, 5),
+            (6, 5),
+            (7, 5),
+            (8, 5),
+            (9, 5),
+            (10, 5),
+            (11, 5),
+            (12, 5),
+            (13, 5),
+            (1, 6),
+            (2, 6),
+            (3, 6),
+            (4, 6),
+            (5, 6),
+            (6, 6),
+            (7, 6),
+            (8, 6),
+            (9, 6),
+            (10, 6),
+            (11, 6),
+            (12, 6),
+            (13, 6),
+            (14, 6),
+            (15, 6),
+            (9, 7),
+            (10, 7),
+            (11, 7),
+            (12, 7),
+            (13, 7),
+            (14, 7),
+        ] {
+            if x < width && y < height {
+                set_map_cell(&mut map, x, y, 2, GroundMaterial::Dirt);
+            }
+        }
 
-        // Raised objective platform with stone center and dirt shoulder.
-        fill_rect_cells(
-            &mut map,
-            width.saturating_sub(5),
-            1,
-            4,
-            3,
-            4,
-            GroundMaterial::Dirt,
-        );
-        fill_rect_cells(
-            &mut map,
-            width.saturating_sub(4),
-            2,
-            3,
-            2,
-            5,
-            GroundMaterial::Rock,
-        );
+        // Stone objective platform in the upper right.
+        fill_rect_cells(&mut map, 11, 2, 3, 2, 4, GroundMaterial::Rock);
+        fill_rect_cells(&mut map, 11, 4, 3, 1, 3, GroundMaterial::Rock);
 
-        // One readable trench, one berm, one mud basin, and one small stone outcrop.
-        fill_trench_cells(&mut map, 4, height / 2, 5, 1, 1);
-        fill_trench_cells(&mut map, 8, height / 2, 1, 2, 1);
-        fill_berm_cells(&mut map, 7, height.saturating_sub(2), 5, 1, 1);
-        fill_berm_cells(&mut map, width.saturating_sub(6), 4, 1, 3, 1);
-        fill_rect_cells(
-            &mut map,
-            4,
-            height.saturating_sub(3),
-            3,
-            2,
-            1,
-            GroundMaterial::Mud,
-        );
-        fill_rect_cells(&mut map, 2, 1, 3, 2, 4, GroundMaterial::Rock);
+        // Trench across the lower middle, recessed below the painted road plane.
+        fill_trench_cells(&mut map, 4, 7, 5, 1, 2);
+        fill_trench_cells(&mut map, 8, 8, 1, 2, 2);
+        fill_trench_cells(&mut map, 7, 9, 2, 1, 2);
+
+        // Berm on the right slope.
+        fill_berm_cells(&mut map, 11, 7, 4, 1, 1);
+        fill_berm_cells(&mut map, 14, 6, 1, 2, 1);
+
+        // Rocks/trees are visual-only in the source image, but rock cells mark
+        // the big outcrops for cover/pathing metadata.
+        fill_rect_cells(&mut map, 2, 4, 1, 1, 2, GroundMaterial::Rock);
+        fill_rect_cells(&mut map, 6, 1, 1, 1, 3, GroundMaterial::Rock);
+        fill_rect_cells(&mut map, 14, 1, 1, 1, 3, GroundMaterial::Rock);
 
         map
+    }
+
+    /// Alias for the current source-image-aligned semantic map.
+    pub fn visual_target(width: u32, height: u32, _seed: u64) -> Self {
+        Self::target_derived(width, height, _seed)
     }
 
     /// Stress-test map kept for validation/debug exports. It deliberately contains many

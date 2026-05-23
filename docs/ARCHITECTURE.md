@@ -19,6 +19,7 @@ for one future game family: terrain-first prepared-ground defense.
 - Experimental angled terrain preview and diagnostic 2.5D erected preview
 - Target-style stamp resolver for editable terrain features
 - Target-look composition renderer for the active perspective scene
+- Target-derived visual source image and grid alignment manifest
 - Hero-scene dressing overlay for visual art-direction passes
 - A* route query
 - Line-of-sight query
@@ -217,3 +218,25 @@ Roads, trenches, berms, mud, grass, and stone platforms each get dedicated compo
 edges, planks, lips, steps, soil/stone detail, shadows, and final scene lighting. Picking routes
 through `target_look_pixel_to_cell`, so brush editing remains tied to the terrain grid while the
 rendered output chases the target image's art grammar.
+
+## Milestone 4.10 target-derived editable scene note
+
+Milestone 4.10 stops asking the renderer to recreate the target image from procedural pieces. The
+target image is now committed as source art:
+
+```txt
+assets/visual_targets/dry_upland_outpost_01/
+  manifest.ron
+  visual_target.png
+```
+
+The active perspective view now follows this flow:
+
+```txt
+visual target image -> aligned semantic terrain grid -> local edit patches -> route/LOS/debug overlays
+```
+
+`TerrainMap::target_derived(16, 12, seed)` creates the semantic terrain map aligned to the source
+image. `VisualTarget` loads the manifest and maps pixels back to grid cells, so terrain brushes still
+edit the simulation map. If the user edits a cell, the renderer draws only a local replacement patch
+over the target image; unchanged cells continue to use the source art directly.

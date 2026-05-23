@@ -18,6 +18,7 @@ pub mod terrain_artkit;
 pub mod tileset;
 pub mod validation;
 pub mod visual_scene;
+pub mod visual_target;
 
 pub use color::*;
 pub use export::*;
@@ -39,3 +40,4 @@ pub use terrain_artkit::*;
 pub use tileset::*;
 pub use validation::*;
 pub use visual_scene::*;
+pub use visual_target::*;
