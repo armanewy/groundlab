@@ -130,3 +130,18 @@ field-engineering dressing. The older faux/angled/flat previews remain as diagno
 ## Milestone 4.4 terrain art-kit note
 
 Milestone 4.4 adds `TerrainArtKit`, `TerrainArtPiece`, and a generated art-kit export. The bundle now includes `terrain_artkit_atlas.png` and `terrain_artkit_manifest.json`. The manifest names pieces such as grass floors, dirt road edges, trench walls, trench lips, berm faces, stone walls, soft shadows, corner caps, and debris props. This is the first step toward replacing internal generated placeholders with imported art-kit atlases.
+
+## Milestone 4.5 external art-kit note
+
+Milestone 4.5 moves the art-kit source contract to `assets/artkits/dry_upland_outpost/`. The
+`manifest.ron` file names each `TerrainArtPiece`, and the `pieces/` folder stores the replaceable
+PNG source images. The renderer loads that folder when available, then packs the active kit into
+`terrain_artkit_atlas.png` and `terrain_artkit_manifest.json` during export.
+
+`TerrainArtPiece` now records `anchor_px`, `footprint_cells`, `repeat_mode`, `orientation`,
+`z_bias`, `opacity`, `occlusion`, and tags. This keeps the simulation/form layer separate from the
+actual art and gives future authored pieces enough metadata to compose long trenches, berms, ledges,
+caps, shadows, and props without treating every piece as a stretched rectangle.
+
+The export bundle also writes `terrain_artkit_validation.json`, which reports missing required
+pieces, duplicate ids, invalid footprints or opacity, and manifest/image size mismatches.

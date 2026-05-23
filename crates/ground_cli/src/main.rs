@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 use ground_core::{
     ensure_default_asset_files, export_tileset_bundle_with_palette, load_workbench_assets,
-    TerrainMap, WorkbenchAssetPaths, DEFAULT_PALETTE_PATH, DEFAULT_RECIPE_PATH,
+    TerrainArtKit, TerrainMap, WorkbenchAssetPaths, DEFAULT_PALETTE_PATH, DEFAULT_RECIPE_PATH,
 };
 
 fn main() -> Result<()> {
@@ -15,7 +15,7 @@ fn main() -> Result<()> {
         "export" => {
             let out_dir = args
                 .next()
-                .unwrap_or_else(|| "exports/milestone_04_4".to_string());
+                .unwrap_or_else(|| "exports/milestone_04_5".to_string());
             let recipe_path = args
                 .next()
                 .unwrap_or_else(|| DEFAULT_RECIPE_PATH.to_string());
@@ -28,15 +28,22 @@ fn main() -> Result<()> {
             };
             ensure_default_asset_files(&paths)?;
             let loaded = load_workbench_assets(&paths)?;
-            let terrain = TerrainMap::visual_target(24, 16, loaded.recipe.seed);
+            let terrain = TerrainMap::visual_target(16, 12, loaded.recipe.seed);
             export_tileset_bundle_with_palette(
                 &loaded.tileset,
                 &loaded.palette,
                 &terrain,
                 out_dir,
             )?;
-            println!("Exported GroundLab Milestone 4.4 bundle.");
+            println!("Exported GroundLab Milestone 4.5 bundle.");
             println!("{}", loaded.validation.summary_line());
+            let artkit_validation =
+                TerrainArtKit::load_default_or_generate(&loaded.tileset).validate();
+            println!(
+                "art kit: {} pieces, {} issue(s)",
+                artkit_validation.present_piece_count,
+                artkit_validation.issues.len()
+            );
         }
         "validate" => {
             let recipe_path = args
@@ -52,6 +59,14 @@ fn main() -> Result<()> {
             ensure_default_asset_files(&paths)?;
             let loaded = load_workbench_assets(&paths)?;
             println!("{}", loaded.validation.summary_line());
+            let artkit_validation =
+                TerrainArtKit::load_default_or_generate(&loaded.tileset).validate();
+            println!(
+                "art kit: {} required, {} present, {} issue(s)",
+                artkit_validation.required_piece_count,
+                artkit_validation.present_piece_count,
+                artkit_validation.issues.len()
+            );
             for issue in loaded.validation.issues.iter().take(32) {
                 println!(
                     "{} · {} · {}{}",

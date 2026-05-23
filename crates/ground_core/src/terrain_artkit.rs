@@ -1,9 +1,17 @@
+use std::collections::HashSet;
+use std::fs;
+use std::path::Path;
+
+use anyhow::{Context, Result};
+use ron::ser::PrettyConfig;
 use serde::{Deserialize, Serialize};
 
 use crate::color::{clamp01, Rgba8};
 use crate::pixel_image::PixelImage;
 use crate::recipe::GroundMaterial;
 use crate::tileset::Tileset;
+
+pub const DEFAULT_ARTKIT_DIR: &str = "assets/artkits/dry_upland_outpost";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum TerrainArtPieceKind {
@@ -61,6 +69,14 @@ pub enum TerrainArtOrientationSupport {
     Any,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TerrainArtOcclusion {
+    None,
+    Soft,
+    Solid,
+    Cutaway,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TerrainArtPiece {
     pub id: String,
@@ -69,8 +85,12 @@ pub struct TerrainArtPiece {
     pub width_px: u32,
     pub height_px: u32,
     pub anchor_px: (i32, i32),
+    pub footprint_cells: (u32, u32),
     pub repeat_mode: TerrainArtRepeatMode,
     pub orientation: TerrainArtOrientationSupport,
+    pub z_bias: i32,
+    pub opacity: f32,
+    pub occlusion: TerrainArtOcclusion,
     pub tags: Vec<String>,
 }
 
@@ -100,6 +120,42 @@ pub struct TerrainArtPieceManifest {
     pub atlas_y: u32,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TerrainArtKitFile {
+    pub id: String,
+    pub pieces: Vec<TerrainArtPieceFile>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TerrainArtPieceFile {
+    pub piece: TerrainArtPiece,
+    pub file: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TerrainArtKitValidation {
+    pub kit_id: String,
+    pub required_piece_count: usize,
+    pub present_piece_count: usize,
+    pub missing_required: Vec<TerrainArtPieceKind>,
+    pub duplicate_ids: Vec<String>,
+    pub issues: Vec<TerrainArtKitIssue>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TerrainArtKitIssue {
+    pub severity: TerrainArtKitIssueSeverity,
+    pub piece_id: Option<String>,
+    pub message: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TerrainArtKitIssueSeverity {
+    Info,
+    Warning,
+    Error,
+}
+
 impl TerrainArtKit {
     pub fn generate(tileset: &Tileset) -> Self {
         let mut pieces = Vec::new();
@@ -112,7 +168,8 @@ impl TerrainArtKit {
                 TerrainArtRepeatMode::Tile,
                 TerrainArtOrientationSupport::Any,
                 &["floor", "grass", "irregular"],
-            ),
+            )
+            .footprint((3, 2)),
             surface_piece(
                 224,
                 160,
@@ -129,7 +186,8 @@ impl TerrainArtKit {
                 TerrainArtRepeatMode::StretchMiddle,
                 TerrainArtOrientationSupport::FourWay,
                 &["edge", "grass"],
-            ),
+            )
+            .z_bias(2),
             edge_piece(
                 224,
                 36,
@@ -145,7 +203,8 @@ impl TerrainArtKit {
                 TerrainArtRepeatMode::Tile,
                 TerrainArtOrientationSupport::Any,
                 &["floor", "road", "worn"],
-            ),
+            )
+            .footprint((3, 2)),
             surface_piece(
                 224,
                 128,
@@ -162,7 +221,8 @@ impl TerrainArtKit {
                 TerrainArtRepeatMode::StretchMiddle,
                 TerrainArtOrientationSupport::FourWay,
                 &["edge", "road"],
-            ),
+            )
+            .z_bias(3),
             edge_piece(
                 224,
                 34,
@@ -178,7 +238,8 @@ impl TerrainArtKit {
                 TerrainArtRepeatMode::Tile,
                 TerrainArtOrientationSupport::Any,
                 &["floor", "mud", "wet"],
-            ),
+            )
+            .footprint((3, 2)),
             surface_piece(
                 192,
                 112,
@@ -195,7 +256,8 @@ impl TerrainArtKit {
                 TerrainArtRepeatMode::Tile,
                 TerrainArtOrientationSupport::Any,
                 &["floor", "stone"],
-            ),
+            )
+            .footprint((3, 2)),
             stone_floor_piece(192, 112, tileset),
         ));
         pieces.push(piece(
@@ -206,7 +268,9 @@ impl TerrainArtKit {
                 TerrainArtRepeatMode::StretchMiddle,
                 TerrainArtOrientationSupport::SouthOnly,
                 &["face", "stone", "front"],
-            ),
+            )
+            .z_bias(18)
+            .occlusion(TerrainArtOcclusion::Solid),
             wall_piece(
                 224,
                 64,
@@ -222,7 +286,9 @@ impl TerrainArtKit {
                 TerrainArtRepeatMode::StretchMiddle,
                 TerrainArtOrientationSupport::SouthOnly,
                 &["trench", "floor", "shadow"],
-            ),
+            )
+            .footprint((3, 1))
+            .z_bias(-6),
             trench_floor_piece(224, 80, tileset),
         ));
         pieces.push(piece(
@@ -233,7 +299,9 @@ impl TerrainArtKit {
                 TerrainArtRepeatMode::StretchMiddle,
                 TerrainArtOrientationSupport::SouthOnly,
                 &["trench", "wall", "front"],
-            ),
+            )
+            .z_bias(20)
+            .occlusion(TerrainArtOcclusion::Cutaway),
             wall_piece(
                 224,
                 56,
@@ -249,7 +317,8 @@ impl TerrainArtKit {
                 TerrainArtRepeatMode::StretchMiddle,
                 TerrainArtOrientationSupport::FourWay,
                 &["trench", "lip"],
-            ),
+            )
+            .z_bias(24),
             edge_piece(
                 224,
                 22,
@@ -265,7 +334,9 @@ impl TerrainArtKit {
                 TerrainArtRepeatMode::StretchMiddle,
                 TerrainArtOrientationSupport::SouthOnly,
                 &["berm", "top"],
-            ),
+            )
+            .footprint((3, 1))
+            .z_bias(10),
             surface_piece(
                 224,
                 72,
@@ -282,7 +353,9 @@ impl TerrainArtKit {
                 TerrainArtRepeatMode::StretchMiddle,
                 TerrainArtOrientationSupport::SouthOnly,
                 &["berm", "face", "front"],
-            ),
+            )
+            .z_bias(22)
+            .occlusion(TerrainArtOcclusion::Soft),
             wall_piece(
                 224,
                 58,
@@ -298,7 +371,8 @@ impl TerrainArtKit {
                 TerrainArtRepeatMode::Stretch,
                 TerrainArtOrientationSupport::Any,
                 &["shadow"],
-            ),
+            )
+            .opacity(0.75),
             soft_shadow_piece(224, 64),
         ));
         pieces.push(piece(
@@ -309,7 +383,9 @@ impl TerrainArtKit {
                 TerrainArtRepeatMode::Stamp,
                 TerrainArtOrientationSupport::FourWay,
                 &["corner", "cap"],
-            ),
+            )
+            .z_bias(26)
+            .occlusion(TerrainArtOcclusion::Soft),
             corner_cap_piece(64, 64, tileset),
         ));
         pieces.push(piece(
@@ -320,7 +396,8 @@ impl TerrainArtKit {
                 TerrainArtRepeatMode::Stamp,
                 TerrainArtOrientationSupport::Any,
                 &["prop", "debris", "tufts"],
-            ),
+            )
+            .z_bias(32),
             debris_piece(96, 80, tileset),
         ));
 
@@ -328,6 +405,64 @@ impl TerrainArtKit {
             id: format!("{}_terrain_artkit", tileset.recipe.id),
             pieces,
         }
+    }
+
+    pub fn load_external(dir: impl AsRef<Path>) -> Result<Self> {
+        let dir = dir.as_ref();
+        let manifest_path = dir.join("manifest.ron");
+        let text = fs::read_to_string(&manifest_path)
+            .with_context(|| format!("reading art-kit manifest {}", manifest_path.display()))?;
+        let file: TerrainArtKitFile = ron::de::from_str(&text)
+            .with_context(|| format!("parsing art-kit manifest {}", manifest_path.display()))?;
+        let mut pieces = Vec::with_capacity(file.pieces.len());
+        for entry in file.pieces {
+            let image_path = dir.join(&entry.file);
+            let image = PixelImage::load_png(&image_path)
+                .with_context(|| format!("loading art-kit piece {}", image_path.display()))?;
+            pieces.push(TerrainArtPieceAsset {
+                definition: entry.piece,
+                image,
+            });
+        }
+        Ok(Self {
+            id: file.id,
+            pieces,
+        })
+    }
+
+    pub fn load_default_or_generate(tileset: &Tileset) -> Self {
+        Self::load_external(DEFAULT_ARTKIT_DIR).unwrap_or_else(|_| Self::generate(tileset))
+    }
+
+    pub fn ensure_external_files(tileset: &Tileset, dir: impl AsRef<Path>) -> Result<()> {
+        let dir = dir.as_ref();
+        if dir.join("manifest.ron").exists() {
+            return Ok(());
+        }
+        let kit = Self::generate(tileset);
+        kit.save_external_files(dir)
+    }
+
+    pub fn save_external_files(&self, dir: impl AsRef<Path>) -> Result<()> {
+        let dir = dir.as_ref();
+        let pieces_dir = dir.join("pieces");
+        fs::create_dir_all(&pieces_dir)?;
+        let mut manifest_pieces = Vec::with_capacity(self.pieces.len());
+        for asset in &self.pieces {
+            let file = format!("pieces/{}.png", asset.definition.id);
+            asset.image.save_png(dir.join(&file))?;
+            manifest_pieces.push(TerrainArtPieceFile {
+                piece: asset.definition.clone(),
+                file,
+            });
+        }
+        let manifest = TerrainArtKitFile {
+            id: self.id.clone(),
+            pieces: manifest_pieces,
+        };
+        let text = ron::ser::to_string_pretty(&manifest, PrettyConfig::new())?;
+        fs::write(dir.join("manifest.ron"), text)?;
+        Ok(())
     }
 
     pub fn piece(&self, kind: TerrainArtPieceKind) -> Option<&TerrainArtPieceAsset> {
@@ -376,6 +511,87 @@ impl TerrainArtKit {
             pieces,
         }
     }
+
+    pub fn validate(&self) -> TerrainArtKitValidation {
+        let mut issues = Vec::new();
+        let mut seen_ids = HashSet::new();
+        let mut duplicate_ids = Vec::new();
+        let present_kinds: HashSet<_> = self
+            .pieces
+            .iter()
+            .map(|piece| piece.definition.kind)
+            .collect();
+
+        for asset in &self.pieces {
+            let def = &asset.definition;
+            if !seen_ids.insert(def.id.clone()) {
+                duplicate_ids.push(def.id.clone());
+                issues.push(TerrainArtKitIssue {
+                    severity: TerrainArtKitIssueSeverity::Error,
+                    piece_id: Some(def.id.clone()),
+                    message: "duplicate art-piece id".to_string(),
+                });
+            }
+            if def.width_px != asset.image.width || def.height_px != asset.image.height {
+                issues.push(TerrainArtKitIssue {
+                    severity: TerrainArtKitIssueSeverity::Warning,
+                    piece_id: Some(def.id.clone()),
+                    message: format!(
+                        "manifest size {}x{} differs from image size {}x{}",
+                        def.width_px, def.height_px, asset.image.width, asset.image.height
+                    ),
+                });
+            }
+            if def.footprint_cells.0 == 0 || def.footprint_cells.1 == 0 {
+                issues.push(TerrainArtKitIssue {
+                    severity: TerrainArtKitIssueSeverity::Error,
+                    piece_id: Some(def.id.clone()),
+                    message: "footprint_cells must be at least 1x1".to_string(),
+                });
+            }
+            if def.opacity <= 0.0 || def.opacity > 1.0 {
+                issues.push(TerrainArtKitIssue {
+                    severity: TerrainArtKitIssueSeverity::Error,
+                    piece_id: Some(def.id.clone()),
+                    message: "opacity must be in the range (0, 1]".to_string(),
+                });
+            }
+            if matches!(
+                def.repeat_mode,
+                TerrainArtRepeatMode::Stretch | TerrainArtRepeatMode::StretchMiddle
+            ) && asset.image.width < 32
+            {
+                issues.push(TerrainArtKitIssue {
+                    severity: TerrainArtKitIssueSeverity::Warning,
+                    piece_id: Some(def.id.clone()),
+                    message: "stretchable piece is narrow enough to show repetition artifacts"
+                        .to_string(),
+                });
+            }
+        }
+
+        let missing_required = required_piece_kinds()
+            .iter()
+            .copied()
+            .filter(|kind| !present_kinds.contains(kind))
+            .collect::<Vec<_>>();
+        for kind in &missing_required {
+            issues.push(TerrainArtKitIssue {
+                severity: TerrainArtKitIssueSeverity::Error,
+                piece_id: None,
+                message: format!("missing required art piece kind {}", kind.id()),
+            });
+        }
+
+        TerrainArtKitValidation {
+            kit_id: self.id.clone(),
+            required_piece_count: required_piece_kinds().len(),
+            present_piece_count: self.pieces.len(),
+            missing_required,
+            duplicate_ids,
+            issues,
+        }
+    }
 }
 
 struct PieceSpec<'a> {
@@ -384,6 +600,10 @@ struct PieceSpec<'a> {
     size_px: (u32, u32),
     repeat_mode: TerrainArtRepeatMode,
     orientation: TerrainArtOrientationSupport,
+    footprint_cells: (u32, u32),
+    z_bias: i32,
+    opacity: f32,
+    occlusion: TerrainArtOcclusion,
     tags: &'a [&'a str],
 }
 
@@ -402,8 +622,32 @@ impl<'a> PieceSpec<'a> {
             size_px,
             repeat_mode,
             orientation,
+            footprint_cells: (1, 1),
+            z_bias: 0,
+            opacity: 1.0,
+            occlusion: TerrainArtOcclusion::None,
             tags,
         }
+    }
+
+    fn footprint(mut self, footprint_cells: (u32, u32)) -> Self {
+        self.footprint_cells = footprint_cells;
+        self
+    }
+
+    fn z_bias(mut self, z_bias: i32) -> Self {
+        self.z_bias = z_bias;
+        self
+    }
+
+    fn opacity(mut self, opacity: f32) -> Self {
+        self.opacity = opacity;
+        self
+    }
+
+    fn occlusion(mut self, occlusion: TerrainArtOcclusion) -> Self {
+        self.occlusion = occlusion;
+        self
     }
 }
 
@@ -417,12 +661,36 @@ fn piece(spec: PieceSpec<'_>, image: PixelImage) -> TerrainArtPieceAsset {
             width_px,
             height_px,
             anchor_px: (0, 0),
+            footprint_cells: spec.footprint_cells,
             repeat_mode: spec.repeat_mode,
             orientation: spec.orientation,
+            z_bias: spec.z_bias,
+            opacity: spec.opacity,
+            occlusion: spec.occlusion,
             tags: spec.tags.iter().map(|tag| (*tag).to_string()).collect(),
         },
         image,
     }
+}
+
+fn required_piece_kinds() -> &'static [TerrainArtPieceKind] {
+    &[
+        TerrainArtPieceKind::GrassFloorLarge,
+        TerrainArtPieceKind::GrassFloorEdge,
+        TerrainArtPieceKind::DirtRoadLarge,
+        TerrainArtPieceKind::DirtRoadEdge,
+        TerrainArtPieceKind::TrenchFloor,
+        TerrainArtPieceKind::TrenchWallFront,
+        TerrainArtPieceKind::TrenchLip,
+        TerrainArtPieceKind::BermTop,
+        TerrainArtPieceKind::BermFaceFront,
+        TerrainArtPieceKind::StoneFloor,
+        TerrainArtPieceKind::StoneWallFront,
+        TerrainArtPieceKind::MudFloor,
+        TerrainArtPieceKind::SoftShadow,
+        TerrainArtPieceKind::CornerCap,
+        TerrainArtPieceKind::PropDebris,
+    ]
 }
 
 fn palette_sample(tileset: &Tileset, material: GroundMaterial, t: f32) -> Rgba8 {

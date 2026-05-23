@@ -1368,7 +1368,7 @@ fn render_perspective_sprite_scene_preview(
 ) -> PixelImage {
     let proj = perspective_scene_projection(map, tileset, options);
     let scene = VisualScene::from_terrain(map);
-    let artkit = TerrainArtKit::generate(tileset);
+    let artkit = TerrainArtKit::load_default_or_generate(tileset);
     let mut image = PixelImage::new(proj.width, proj.height, Rgba8::opaque(11, 12, 15));
 
     // One soft ground plate keeps the scene feeling like a composed illustration instead
@@ -2286,6 +2286,7 @@ fn draw_art_piece_region(
     let Some(piece) = artkit.piece(kind) else {
         return false;
     };
+    let alpha = alpha * piece.definition.opacity;
     match piece.definition.repeat_mode {
         TerrainArtRepeatMode::Tile => {
             draw_tiled_image_region(image, &piece.image, dst, alpha, seed);

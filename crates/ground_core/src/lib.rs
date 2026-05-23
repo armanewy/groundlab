@@ -29,6 +29,7 @@ pub use preview::*;
 pub use recipe::*;
 pub use sim::*;
 pub use terrain::*;
+pub use terrain_artkit::*;
 pub use tileset::*;
 pub use validation::*;
 pub use visual_scene::*;

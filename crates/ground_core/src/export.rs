@@ -14,7 +14,7 @@ use crate::palette::{palette_to_file, Palette};
 use crate::preview::{render_terrain_preview, PreviewMode, PreviewOptions};
 use crate::recipe::ViewOrientation;
 use crate::terrain::TerrainMap;
-use crate::terrain_artkit::TerrainArtKit;
+use crate::terrain_artkit::{TerrainArtKit, TerrainArtKitValidation};
 use crate::tileset::{TileMetadata, Tileset};
 use crate::validation::{build_seam_test_sheet, validate_tileset, ValidationReport};
 use crate::visual_scene::VisualScene;
@@ -63,7 +63,9 @@ pub struct TilesetExportMetadata {
     pub terrain_forms_path: String,
     pub terrain_artkit_atlas_path: String,
     pub terrain_artkit_manifest_path: String,
+    pub terrain_artkit_validation_path: String,
     pub terrain_artkit_piece_count: usize,
+    pub terrain_artkit_validation: TerrainArtKitValidation,
     pub visual_target_form_count: usize,
     pub visual_target_summary: String,
     pub art_preview_structural_edge_count: usize,
@@ -164,7 +166,7 @@ pub fn export_tileset_bundle_with_palette(
     let visual_scene_json = serde_json::to_string_pretty(&visual_scene)?;
     fs::write(out_dir.join("terrain_forms.json"), visual_scene_json)?;
 
-    let artkit = TerrainArtKit::generate(tileset);
+    let artkit = TerrainArtKit::load_default_or_generate(tileset);
     let artkit_atlas = artkit.build_atlas(padding);
     artkit_atlas.save_png(out_dir.join("terrain_artkit_atlas.png"))?;
     let artkit_manifest = artkit.manifest("terrain_artkit_atlas.png", padding);
@@ -172,6 +174,12 @@ pub fn export_tileset_bundle_with_palette(
     fs::write(
         out_dir.join("terrain_artkit_manifest.json"),
         artkit_manifest_json,
+    )?;
+    let artkit_validation = artkit.validate();
+    let artkit_validation_json = serde_json::to_string_pretty(&artkit_validation)?;
+    fs::write(
+        out_dir.join("terrain_artkit_validation.json"),
+        artkit_validation_json,
     )?;
 
     let faux_preview = render_terrain_preview(
@@ -351,13 +359,17 @@ pub fn export_metadata(
         terrain_forms_path: "terrain_forms.json".to_string(),
         terrain_artkit_atlas_path: "terrain_artkit_atlas.png".to_string(),
         terrain_artkit_manifest_path: "terrain_artkit_manifest.json".to_string(),
-        terrain_artkit_piece_count: TerrainArtKit::generate(tileset).pieces.len(),
+        terrain_artkit_validation_path: "terrain_artkit_validation.json".to_string(),
+        terrain_artkit_piece_count: TerrainArtKit::load_default_or_generate(tileset)
+            .pieces
+            .len(),
+        terrain_artkit_validation: TerrainArtKit::load_default_or_generate(tileset).validate(),
         visual_target_form_count: {
-            let visual = TerrainMap::visual_target(24, 16, tileset.recipe.seed);
+            let visual = TerrainMap::visual_target(16, 12, tileset.recipe.seed);
             VisualScene::from_terrain(&visual).forms.len()
         },
         visual_target_summary: {
-            let visual = TerrainMap::visual_target(24, 16, tileset.recipe.seed);
+            let visual = TerrainMap::visual_target(16, 12, tileset.recipe.seed);
             VisualScene::from_terrain(&visual).summary_line()
         },
         art_preview_structural_edge_count: {

@@ -82,20 +82,20 @@ impl TerrainMap {
     /// a mud basin, and a rock outcrop. The simulation grid remains underneath,
     /// but the visual renderer can derive larger scene forms from it.
     pub fn visual_target(width: u32, height: u32, _seed: u64) -> Self {
-        let width = width.max(20);
-        let height = height.max(14);
+        let width = width.max(16);
+        let height = height.max(12);
         let mut map = TerrainMap::new(width, height, TerrainCell::new(2, GroundMaterial::Grass));
-        map.spawn = (2, height.saturating_sub(5));
-        map.objective = (width.saturating_sub(5), height / 2);
+        map.spawn = (1, height.saturating_sub(3));
+        map.objective = (width.saturating_sub(4), 4);
 
-        // Broad readable height shelves, not procedural noise.
+        // Small hero scene: three clear shelves, with the debug grid hidden by default.
         for y in 0..height {
             for x in 0..width {
-                let h = if y < height / 4 {
+                let h = if y <= 2 {
                     4
-                } else if y < height / 2 {
+                } else if y <= 6 {
                     3
-                } else if y > height.saturating_sub(4) {
+                } else if y >= height.saturating_sub(3) {
                     1
                 } else {
                     2
@@ -104,139 +104,71 @@ impl TerrainMap {
             }
         }
 
-        // Lower foreground and a darker central basin.
+        // Worn approach road from the lower-left spawn toward the raised pad.
         fill_rect_cells(
             &mut map,
             0,
             height.saturating_sub(4),
-            width,
-            4,
+            5,
+            3,
             1,
-            GroundMaterial::Grass,
+            GroundMaterial::Dirt,
         );
         fill_rect_cells(
             &mut map,
-            7,
-            height.saturating_sub(6),
+            4,
+            height.saturating_sub(5),
+            4,
+            2,
+            2,
+            GroundMaterial::Dirt,
+        );
+        fill_rect_cells(&mut map, 7, height / 2 + 1, 4, 2, 2, GroundMaterial::Dirt);
+        fill_rect_cells(
+            &mut map,
+            width.saturating_sub(7),
+            height / 2,
             6,
+            2,
             3,
+            GroundMaterial::Dirt,
+        );
+
+        // Raised objective platform with stone center and dirt shoulder.
+        fill_rect_cells(
+            &mut map,
+            width.saturating_sub(7),
+            2,
+            6,
+            4,
+            4,
+            GroundMaterial::Dirt,
+        );
+        fill_rect_cells(
+            &mut map,
+            width.saturating_sub(6),
+            3,
+            4,
+            2,
+            5,
+            GroundMaterial::Rock,
+        );
+
+        // One readable trench, one berm, one mud basin, and one small stone outcrop.
+        fill_trench_cells(&mut map, 4, height / 2 - 1, 6, 1, 1);
+        fill_trench_cells(&mut map, 9, height / 2 - 1, 1, 3, 1);
+        fill_berm_cells(&mut map, 7, height.saturating_sub(3), 6, 1, 1);
+        fill_berm_cells(&mut map, width.saturating_sub(8), 5, 1, 3, 1);
+        fill_rect_cells(
+            &mut map,
+            5,
+            height.saturating_sub(4),
+            4,
+            2,
             1,
             GroundMaterial::Mud,
         );
-
-        // A composed dirt approach road with a few right-angle bends.
-        let spawn_y = map.spawn.1;
-        fill_rect_cells(
-            &mut map,
-            1,
-            spawn_y.saturating_sub(1),
-            6,
-            3,
-            1,
-            GroundMaterial::Dirt,
-        );
-        fill_rect_cells(
-            &mut map,
-            6,
-            spawn_y.saturating_sub(2),
-            6,
-            2,
-            2,
-            GroundMaterial::Dirt,
-        );
-        fill_rect_cells(&mut map, 11, height / 2 + 1, 5, 2, 2, GroundMaterial::Dirt);
-        fill_rect_cells(
-            &mut map,
-            14,
-            height / 2,
-            width.saturating_sub(18),
-            2,
-            3,
-            GroundMaterial::Dirt,
-        );
-        fill_rect_cells(
-            &mut map,
-            width.saturating_sub(7),
-            height / 2 - 1,
-            6,
-            3,
-            3,
-            GroundMaterial::Dirt,
-        );
-
-        // Raised outpost/objective pad.
-        fill_rect_cells(
-            &mut map,
-            width.saturating_sub(8),
-            height / 2 - 3,
-            6,
-            5,
-            4,
-            GroundMaterial::Dirt,
-        );
-        fill_rect_cells(
-            &mut map,
-            width.saturating_sub(7),
-            height / 2 - 2,
-            4,
-            3,
-            5,
-            GroundMaterial::BermTop,
-        );
-
-        // Rock outcrop as a single readable mass.
-        fill_rect_cells(
-            &mut map,
-            width / 2 + 2,
-            height / 4,
-            5,
-            4,
-            4,
-            GroundMaterial::Rock,
-        );
-        fill_rect_cells(
-            &mut map,
-            width / 2 + 4,
-            height / 4 + 2,
-            5,
-            3,
-            5,
-            GroundMaterial::Rock,
-        );
-
-        // Continuous trench and berm runs.
-        fill_trench_cells(&mut map, 5, height / 2 - 2, width / 2, 1, 1);
-        fill_trench_cells(&mut map, width / 2 + 1, height / 2 - 1, 1, 5, 1);
-        fill_berm_cells(
-            &mut map,
-            width / 2 - 2,
-            height / 2 + 3,
-            width.saturating_sub(width / 2 + 1),
-            1,
-            1,
-        );
-        fill_berm_cells(&mut map, 4, height.saturating_sub(4), 8, 1, 1);
-
-        // Small grass breaks so the target scene is not a sterile rectangle.
-        fill_rect_cells(&mut map, 0, 0, 4, 2, 4, GroundMaterial::Grass);
-        fill_rect_cells(
-            &mut map,
-            width.saturating_sub(4),
-            0,
-            4,
-            2,
-            4,
-            GroundMaterial::Grass,
-        );
-        fill_rect_cells(
-            &mut map,
-            width / 4,
-            height / 4,
-            4,
-            3,
-            3,
-            GroundMaterial::Grass,
-        );
+        fill_rect_cells(&mut map, 2, 1, 3, 2, 4, GroundMaterial::Rock);
 
         map
     }

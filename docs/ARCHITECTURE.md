@@ -136,3 +136,19 @@ field-engineering dressing. The older faux/angled/flat previews remain as diagno
 ## Milestone 4.4 terrain art-kit note
 
 Milestone 4.4 adds the first `TerrainArtKit` layer. The perspective sprite scene still derives large visual forms from the simulation grid, but the renderer now composes those forms from named sprite pieces instead of relying only on procedural rectangles. The generated kit exports an atlas and manifest so the same contract can later be backed by hand-authored or external generated art.
+
+## Milestone 4.5 external art-kit note
+
+Milestone 4.5 keeps the layer split intact:
+
+```txt
+simulation grid -> visual forms -> external art-kit pieces -> composed preview/export
+```
+
+The default art kit now lives under `assets/artkits/dry_upland_outpost/` as `manifest.ron` plus
+individual PNG pieces. Generated pieces remain a fallback and bootstrap path, but the perspective
+scene renderer prefers the external kit so authored or AI-assisted sprites can replace placeholders
+without rewriting terrain simulation, visual-form derivation, pathing, LOS, or export code.
+
+The visual benchmark scene is intentionally smaller at 16x12 cells. It is meant to judge composition,
+terrain body, trenches, berms, caps, shadows, and dressing before adding more gameplay systems.

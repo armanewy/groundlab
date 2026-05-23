@@ -164,6 +164,30 @@ impl PixelImage {
         out
     }
 
+    pub fn from_rgba_bytes(width: u32, height: u32, bytes: &[u8]) -> Result<Self> {
+        let expected = width as usize * height as usize * 4;
+        if bytes.len() != expected {
+            return Err(anyhow!(
+                "invalid rgba byte length: expected {expected}, got {}",
+                bytes.len()
+            ));
+        }
+        let mut pixels = Vec::with_capacity(width as usize * height as usize);
+        for chunk in bytes.chunks_exact(4) {
+            pixels.push(Rgba8::new(chunk[0], chunk[1], chunk[2], chunk[3]));
+        }
+        Ok(Self {
+            width,
+            height,
+            pixels,
+        })
+    }
+
+    pub fn load_png(path: impl AsRef<Path>) -> Result<Self> {
+        let rgba = image::open(path.as_ref())?.to_rgba8();
+        Self::from_rgba_bytes(rgba.width(), rgba.height(), rgba.as_raw())
+    }
+
     pub fn save_png(&self, path: impl AsRef<Path>) -> Result<()> {
         let bytes = self.to_rgba_bytes();
         let buffer: ImageBuffer<Rgba<u8>, Vec<u8>> =

@@ -91,7 +91,7 @@ impl GroundLabApp {
                 validation,
             }
         });
-        let terrain = TerrainMap::visual_target(24, 16, loaded.recipe.seed);
+        let terrain = TerrainMap::visual_target(16, 12, loaded.recipe.seed);
         let mut app = Self {
             recipe_path_text: paths.recipe_path.to_string_lossy().to_string(),
             palette_path_text: paths.palette_path.to_string_lossy().to_string(),
@@ -126,7 +126,7 @@ impl GroundLabApp {
             dirty_assets: true,
             dirty_preview: true,
             last_preview_size: [1, 1],
-            status: "Ready. Milestone 4.4 terrain art-kit renderer is active: named sprite pieces are composed over the terrain simulation grid.".to_string(),
+            status: "Ready. Milestone 4.5 external art-kit hero scene is active: named sprite pieces are loaded from the art-kit folder when available.".to_string(),
         };
         app.refresh_if_dirty(&cc.egui_ctx);
         app
@@ -656,7 +656,7 @@ impl GroundLabApp {
         ui.separator();
         ui.strong("Actions");
         if ui.button("Reset visual-target scene").clicked() {
-            self.terrain = TerrainMap::visual_target(24, 16, self.recipe.seed);
+            self.terrain = TerrainMap::visual_target(16, 12, self.recipe.seed);
             self.preview_options.los_source = self.terrain.objective;
             self.preview_mode = PreviewMode::PerspectiveSpriteScene;
             self.dirty_preview = true;
@@ -685,9 +685,9 @@ impl GroundLabApp {
                 &self.tileset,
                 &self.palette,
                 &self.terrain,
-                "exports/milestone_04_4",
+                "exports/milestone_04_5",
             ) {
-                Ok(()) => self.status = "Exported to exports/milestone_04_4".to_string(),
+                Ok(()) => self.status = "Exported to exports/milestone_04_5".to_string(),
                 Err(err) => self.status = format!("Export failed: {err}"),
             }
         }

@@ -7,6 +7,7 @@ use ron::ser::PrettyConfig;
 
 use crate::palette::{load_palette_file, muted_field_32, save_palette_file, Palette};
 use crate::recipe::TilesetRecipe;
+use crate::terrain_artkit::{TerrainArtKit, DEFAULT_ARTKIT_DIR};
 use crate::tileset::Tileset;
 use crate::validation::{validate_tileset, ValidationReport};
 
@@ -106,6 +107,8 @@ pub fn ensure_default_asset_files(paths: &WorkbenchAssetPaths) -> Result<()> {
     if !paths.palette_path.exists() {
         save_palette_file(&paths.palette_path, &muted_field_32())?;
     }
+    let loaded = load_workbench_assets(paths)?;
+    TerrainArtKit::ensure_external_files(&loaded.tileset, DEFAULT_ARTKIT_DIR)?;
     Ok(())
 }
 

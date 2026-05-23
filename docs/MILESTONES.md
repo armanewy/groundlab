@@ -149,9 +149,22 @@ Implemented in this drop.
 - art-kit pieces include irregular alpha edges, textured faces, lips, soft shadows, corner caps, and debris
 - CLI/app export target defaults to `exports/milestone_04_4`
 
-The next pass should make art kits externally loadable from `assets/artkits/...`, then add stronger
-authored slope/ramp pieces, trench and berm corner pieces, prop silhouettes, and missing-piece
-validation.
+## Milestone 4.5 — External art kit + hero scene
+
+Implemented in this drop.
+
+- `assets/artkits/dry_upland_outpost/manifest.ron` added as the external source art-kit contract
+- `assets/artkits/dry_upland_outpost/pieces/*.png` added as replaceable source sprite pieces
+- `TerrainArtPiece` now includes footprint, z-bias, opacity, and occlusion metadata
+- perspective sprite scene prefers the external art kit and falls back to generated placeholders
+- art-kit validation reports missing required pieces, duplicate ids, bad footprints, bad opacity, and manifest/image size mismatches
+- `TerrainMap::visual_target` now defaults to a smaller 16x12 hero scene for visual judgment
+- CLI/app export target defaults to `exports/milestone_04_5`
+- export bundle writes `terrain_artkit_validation.json` in addition to the packed atlas and manifest
+
+The next pass should replace the generated placeholder PNGs with authored or AI-assisted art pieces:
+stronger slope/ramp silhouettes, trench and berm corners/caps, prop silhouettes, cast shadows, and
+scene dressing.
 
 ## Milestone 5 — Custom renderer/runtime
 
