@@ -15,6 +15,9 @@ The generator does not require reference images. It uses:
 - seam/noise validation
 - art-kit-compatible PNG piece export
 
+ArtGen 1.1 adds motif-library placement, edge-mask-based grass/dirt transitions, single-tile and
+variant repeat previews, seam heatmaps, motif heatmaps, and validation for visible repetition.
+
 Run the fast workbench:
 
 ```bash
@@ -24,19 +27,24 @@ cargo run -p ground_sprite_app
 Export the deterministic bundle:
 
 ```bash
-cargo run -p ground_sprite_cli -- export exports/artgen_01
+cargo run -p ground_sprite_cli -- export exports/artgen_01_1
 ```
 
 Export output:
 
 ```txt
-exports/artgen_01/
+exports/artgen_01_1/
   manifest.ron
   recipe.ron
   contact_sheet.png
-  repeat_preview_grass.png
-  repeat_preview_dirt.png
+  repeat_preview_grass_single.png
+  repeat_preview_grass_variants.png
+  repeat_preview_dirt_single.png
+  repeat_preview_dirt_variants.png
   repeat_preview_transition.png
+  repeat_preview_transition_edges.png
+  seam_heatmap.png
+  motif_heatmap.png
   palette_preview.png
   validation.json
   pieces/

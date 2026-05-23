@@ -6,9 +6,11 @@ use ron::ser::PrettyConfig;
 
 use crate::recipe::{GroundMaterial, TransitionEdge};
 use crate::spritegen::{
-    build_palette_preview, build_repeat_preview, build_sprite_contact_sheet,
-    build_transition_repeat_preview, generate_terrain_sprites, validate_terrain_sprites,
-    GeneratedTerrainSprite, TerrainSpriteKind, TerrainSpriteRecipe, DEFAULT_SPRITEGEN_EXPORT_DIR,
+    build_motif_heatmap, build_palette_preview, build_repeat_preview, build_seam_heatmap,
+    build_single_repeat_preview, build_sprite_contact_sheet, build_transition_edges_preview,
+    build_transition_repeat_preview, build_variant_repeat_preview, generate_terrain_sprites,
+    validate_terrain_sprites, GeneratedTerrainSprite, TerrainSpriteKind, TerrainSpriteRecipe,
+    DEFAULT_SPRITEGEN_EXPORT_DIR,
 };
 use crate::terrain_artkit::{
     TerrainArtKitFile, TerrainArtOcclusion, TerrainArtOrientationSupport, TerrainArtPiece,
@@ -58,12 +60,24 @@ pub fn export_terrain_sprite_bundle(
     )?;
 
     build_sprite_contact_sheet(&sprites, &recipe).save_png(out_dir.join("contact_sheet.png"))?;
+    build_single_repeat_preview(&sprites, TerrainSpriteKind::GrassTile, &recipe, 5)
+        .save_png(out_dir.join("repeat_preview_grass_single.png"))?;
+    build_variant_repeat_preview(&sprites, TerrainSpriteKind::GrassTile, &recipe, 5)
+        .save_png(out_dir.join("repeat_preview_grass_variants.png"))?;
+    build_single_repeat_preview(&sprites, TerrainSpriteKind::DirtTile, &recipe, 5)
+        .save_png(out_dir.join("repeat_preview_dirt_single.png"))?;
+    build_variant_repeat_preview(&sprites, TerrainSpriteKind::DirtTile, &recipe, 5)
+        .save_png(out_dir.join("repeat_preview_dirt_variants.png"))?;
+    build_transition_repeat_preview(&sprites, &recipe)
+        .save_png(out_dir.join("repeat_preview_transition.png"))?;
+    build_transition_edges_preview(&sprites, &recipe)
+        .save_png(out_dir.join("repeat_preview_transition_edges.png"))?;
+    build_seam_heatmap(&sprites, &recipe).save_png(out_dir.join("seam_heatmap.png"))?;
+    build_motif_heatmap(&sprites, &recipe).save_png(out_dir.join("motif_heatmap.png"))?;
     build_repeat_preview(&sprites, TerrainSpriteKind::GrassTile, &recipe)
         .save_png(out_dir.join("repeat_preview_grass.png"))?;
     build_repeat_preview(&sprites, TerrainSpriteKind::DirtTile, &recipe)
         .save_png(out_dir.join("repeat_preview_dirt.png"))?;
-    build_transition_repeat_preview(&sprites, &recipe)
-        .save_png(out_dir.join("repeat_preview_transition.png"))?;
     build_palette_preview(&recipe).save_png(out_dir.join("palette_preview.png"))?;
 
     let validation = validate_terrain_sprites(&sprites);

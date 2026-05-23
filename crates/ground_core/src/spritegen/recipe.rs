@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use crate::pixel_image::PixelImage;
 use crate::spritegen::TerrainSpriteStyle;
 
-pub const DEFAULT_SPRITEGEN_EXPORT_DIR: &str = "exports/artgen_01";
+pub const DEFAULT_SPRITEGEN_EXPORT_DIR: &str = "exports/artgen_01_1";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]

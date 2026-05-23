@@ -1,7 +1,8 @@
 use eframe::egui;
 use ground_core::{
-    build_palette_preview, build_repeat_preview, build_sprite_contact_sheet,
-    build_transition_repeat_preview, export_terrain_sprite_bundle, generate_terrain_sprites,
+    build_motif_heatmap, build_palette_preview, build_seam_heatmap, build_single_repeat_preview,
+    build_sprite_contact_sheet, build_transition_edges_preview, build_transition_repeat_preview,
+    build_variant_repeat_preview, export_terrain_sprite_bundle, generate_terrain_sprites,
     scale_nearest, GeneratedTerrainSprite, PixelImage, TerrainSpriteKind, TerrainSpriteRecipe,
     DEFAULT_SPRITEGEN_EXPORT_DIR,
 };
@@ -25,19 +26,29 @@ fn main() -> eframe::Result {
 enum PreviewPanel {
     Selected,
     ContactSheet,
-    GrassRepeat,
-    DirtRepeat,
+    GrassSingleRepeat,
+    GrassVariantRepeat,
+    DirtSingleRepeat,
+    DirtVariantRepeat,
     TransitionRepeat,
+    TransitionEdges,
+    SeamHeatmap,
+    MotifHeatmap,
     Palette,
 }
 
 impl PreviewPanel {
-    const ALL: [PreviewPanel; 6] = [
+    const ALL: [PreviewPanel; 11] = [
         PreviewPanel::Selected,
         PreviewPanel::ContactSheet,
-        PreviewPanel::GrassRepeat,
-        PreviewPanel::DirtRepeat,
+        PreviewPanel::GrassSingleRepeat,
+        PreviewPanel::GrassVariantRepeat,
+        PreviewPanel::DirtSingleRepeat,
+        PreviewPanel::DirtVariantRepeat,
         PreviewPanel::TransitionRepeat,
+        PreviewPanel::TransitionEdges,
+        PreviewPanel::SeamHeatmap,
+        PreviewPanel::MotifHeatmap,
         PreviewPanel::Palette,
     ];
 
@@ -45,9 +56,14 @@ impl PreviewPanel {
         match self {
             PreviewPanel::Selected => "Selected tile",
             PreviewPanel::ContactSheet => "Contact sheet",
-            PreviewPanel::GrassRepeat => "Grass repeat",
-            PreviewPanel::DirtRepeat => "Dirt repeat",
+            PreviewPanel::GrassSingleRepeat => "Grass single repeat",
+            PreviewPanel::GrassVariantRepeat => "Grass variant repeat",
+            PreviewPanel::DirtSingleRepeat => "Dirt single repeat",
+            PreviewPanel::DirtVariantRepeat => "Dirt variant repeat",
             PreviewPanel::TransitionRepeat => "Transition repeat",
+            PreviewPanel::TransitionEdges => "Transition edges",
+            PreviewPanel::SeamHeatmap => "Seam heatmap",
+            PreviewPanel::MotifHeatmap => "Motif heatmap",
             PreviewPanel::Palette => "Palette",
         }
     }
@@ -63,9 +79,14 @@ struct SpriteForgeApp {
     zoom: f32,
     selected_texture: Option<egui::TextureHandle>,
     contact_texture: Option<egui::TextureHandle>,
-    grass_repeat_texture: Option<egui::TextureHandle>,
-    dirt_repeat_texture: Option<egui::TextureHandle>,
+    grass_single_texture: Option<egui::TextureHandle>,
+    grass_variant_texture: Option<egui::TextureHandle>,
+    dirt_single_texture: Option<egui::TextureHandle>,
+    dirt_variant_texture: Option<egui::TextureHandle>,
     transition_repeat_texture: Option<egui::TextureHandle>,
+    transition_edges_texture: Option<egui::TextureHandle>,
+    seam_heatmap_texture: Option<egui::TextureHandle>,
+    motif_heatmap_texture: Option<egui::TextureHandle>,
     palette_texture: Option<egui::TextureHandle>,
     dirty: bool,
     status: String,
@@ -83,9 +104,14 @@ impl SpriteForgeApp {
             zoom: 8.0,
             selected_texture: None,
             contact_texture: None,
-            grass_repeat_texture: None,
-            dirt_repeat_texture: None,
+            grass_single_texture: None,
+            grass_variant_texture: None,
+            dirt_single_texture: None,
+            dirt_variant_texture: None,
             transition_repeat_texture: None,
+            transition_edges_texture: None,
+            seam_heatmap_texture: None,
+            motif_heatmap_texture: None,
             palette_texture: None,
             dirty: true,
             status: "Ready.".to_string(),
@@ -121,16 +147,81 @@ impl SpriteForgeApp {
         }
         let contact = build_sprite_contact_sheet(&self.sprites, &self.recipe);
         put_texture(ctx, &mut self.contact_texture, "sprite_contact", &contact);
-        let grass = build_repeat_preview(&self.sprites, TerrainSpriteKind::GrassTile, &self.recipe);
-        put_texture(ctx, &mut self.grass_repeat_texture, "grass_repeat", &grass);
-        let dirt = build_repeat_preview(&self.sprites, TerrainSpriteKind::DirtTile, &self.recipe);
-        put_texture(ctx, &mut self.dirt_repeat_texture, "dirt_repeat", &dirt);
+        let grass_single = build_single_repeat_preview(
+            &self.sprites,
+            TerrainSpriteKind::GrassTile,
+            &self.recipe,
+            5,
+        );
+        put_texture(
+            ctx,
+            &mut self.grass_single_texture,
+            "grass_single_repeat",
+            &grass_single,
+        );
+        let grass_variant = build_variant_repeat_preview(
+            &self.sprites,
+            TerrainSpriteKind::GrassTile,
+            &self.recipe,
+            5,
+        );
+        put_texture(
+            ctx,
+            &mut self.grass_variant_texture,
+            "grass_variant_repeat",
+            &grass_variant,
+        );
+        let dirt_single = build_single_repeat_preview(
+            &self.sprites,
+            TerrainSpriteKind::DirtTile,
+            &self.recipe,
+            5,
+        );
+        put_texture(
+            ctx,
+            &mut self.dirt_single_texture,
+            "dirt_single_repeat",
+            &dirt_single,
+        );
+        let dirt_variant = build_variant_repeat_preview(
+            &self.sprites,
+            TerrainSpriteKind::DirtTile,
+            &self.recipe,
+            5,
+        );
+        put_texture(
+            ctx,
+            &mut self.dirt_variant_texture,
+            "dirt_variant_repeat",
+            &dirt_variant,
+        );
         let transition = build_transition_repeat_preview(&self.sprites, &self.recipe);
         put_texture(
             ctx,
             &mut self.transition_repeat_texture,
             "transition_repeat",
             &transition,
+        );
+        let transition_edges = build_transition_edges_preview(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.transition_edges_texture,
+            "transition_edges",
+            &transition_edges,
+        );
+        let seam_heatmap = build_seam_heatmap(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.seam_heatmap_texture,
+            "seam_heatmap",
+            &seam_heatmap,
+        );
+        let motif_heatmap = build_motif_heatmap(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.motif_heatmap_texture,
+            "motif_heatmap",
+            &motif_heatmap,
         );
         let palette = build_palette_preview(&self.recipe);
         put_texture(ctx, &mut self.palette_texture, "palette_preview", &palette);
@@ -288,16 +379,37 @@ impl SpriteForgeApp {
             PreviewPanel::ContactSheet => {
                 show_texture(ui, self.contact_texture.as_ref(), 1.0, "No contact sheet");
             }
-            PreviewPanel::GrassRepeat => {
+            PreviewPanel::GrassSingleRepeat => {
                 show_texture(
                     ui,
-                    self.grass_repeat_texture.as_ref(),
+                    self.grass_single_texture.as_ref(),
                     1.0,
-                    "No grass repeat",
+                    "No grass single repeat",
                 );
             }
-            PreviewPanel::DirtRepeat => {
-                show_texture(ui, self.dirt_repeat_texture.as_ref(), 1.0, "No dirt repeat");
+            PreviewPanel::GrassVariantRepeat => {
+                show_texture(
+                    ui,
+                    self.grass_variant_texture.as_ref(),
+                    1.0,
+                    "No grass variant repeat",
+                );
+            }
+            PreviewPanel::DirtSingleRepeat => {
+                show_texture(
+                    ui,
+                    self.dirt_single_texture.as_ref(),
+                    1.0,
+                    "No dirt single repeat",
+                );
+            }
+            PreviewPanel::DirtVariantRepeat => {
+                show_texture(
+                    ui,
+                    self.dirt_variant_texture.as_ref(),
+                    1.0,
+                    "No dirt variant repeat",
+                );
             }
             PreviewPanel::TransitionRepeat => {
                 show_texture(
@@ -305,6 +417,30 @@ impl SpriteForgeApp {
                     self.transition_repeat_texture.as_ref(),
                     1.0,
                     "No transition repeat",
+                );
+            }
+            PreviewPanel::TransitionEdges => {
+                show_texture(
+                    ui,
+                    self.transition_edges_texture.as_ref(),
+                    1.0,
+                    "No transition edge preview",
+                );
+            }
+            PreviewPanel::SeamHeatmap => {
+                show_texture(
+                    ui,
+                    self.seam_heatmap_texture.as_ref(),
+                    1.0,
+                    "No seam heatmap",
+                );
+            }
+            PreviewPanel::MotifHeatmap => {
+                show_texture(
+                    ui,
+                    self.motif_heatmap_texture.as_ref(),
+                    1.0,
+                    "No motif heatmap",
                 );
             }
             PreviewPanel::Palette => {

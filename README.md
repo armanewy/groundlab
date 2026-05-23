@@ -4,14 +4,18 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: ArtGen 1 — cozy grass and dirt sprite generator
+## Current status: ArtGen 1.1 — tile quality pass
 
 GroundLab's active visual work has pivoted away from the large editable scene renderer. The current
 focus is a dedicated, fast terrain sprite generator that produces simple, cozy, top-down pixel
 terrain primitives from built-in recipes, palettes, and art rules. It does not require reference
 images.
 
-ArtGen 1 generates:
+ArtGen 1.1 improves the cozy grass/dirt generator with motif-library placement, edge-mask-based
+transitions, single-tile and variant repeat previews, seam heatmaps, motif heatmaps, and validation
+for motif repetition, diagonal-pattern risk, variant similarity, and edge continuity.
+
+ArtGen 1.1 generates:
 
 - tileable grass variants
 - tileable dirt variants
@@ -31,7 +35,7 @@ cargo run -p ground_sprite_app
 Export the sprite bundle:
 
 ```bash
-cargo run -p ground_sprite_cli -- export exports/artgen_01
+cargo run -p ground_sprite_cli -- export exports/artgen_01_1
 ```
 
 The full-scene terrain renderer remains in the repository as downstream infrastructure for terrain
