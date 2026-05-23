@@ -11,6 +11,7 @@ use crate::mask::{
 };
 use crate::palette::{palette_to_file, Palette};
 use crate::preview::{render_terrain_preview, PreviewMode, PreviewOptions};
+use crate::recipe::ViewOrientation;
 use crate::terrain::TerrainMap;
 use crate::tileset::{TileMetadata, Tileset};
 use crate::validation::{build_seam_test_sheet, validate_tileset, ValidationReport};
@@ -39,6 +40,9 @@ pub struct TilesetExportMetadata {
     pub terrain_preview_path: String,
     pub terrain_preview_2_5d_path: String,
     pub terrain_preview_cutaway_path: String,
+    pub terrain_preview_angled_path: String,
+    pub terrain_preview_angled_cutaway_path: String,
+    pub terrain_preview_angled_orientation_paths: Vec<String>,
     pub columns: u32,
     pub padding: u32,
     pub tiles: Vec<ExportedTile>,
@@ -95,6 +99,7 @@ pub fn export_tileset_bundle_with_palette(
         inspect_cell: None,
         show_projected_route: true,
         show_structure_lips: true,
+        view_orientation: tileset.recipe.projection.default_orientation,
     };
 
     let preview = render_terrain_preview(terrain, tileset, PreviewMode::Material, &preview_options);
@@ -108,6 +113,27 @@ pub fn export_tileset_bundle_with_palette(
     );
     preview_2_5d.save_png(out_dir.join("terrain_preview_2_5d.png"))?;
 
+    let angled_preview = render_terrain_preview(
+        terrain,
+        tileset,
+        PreviewMode::AngledTerrain,
+        &preview_options,
+    );
+    angled_preview.save_png(out_dir.join("terrain_preview_angled.png"))?;
+
+    for orientation in ViewOrientation::ALL {
+        let mut orientation_options = preview_options.clone();
+        orientation_options.view_orientation = orientation;
+        let preview = render_terrain_preview(
+            terrain,
+            tileset,
+            PreviewMode::AngledTerrain,
+            &orientation_options,
+        );
+        preview
+            .save_png(out_dir.join(format!("terrain_preview_angled_{}.png", orientation.id())))?;
+    }
+
     let mut cutaway_options = preview_options.clone();
     cutaway_options.inspect_cell = Some(terrain.objective);
     cutaway_options.fade_raised_faces = false;
@@ -119,6 +145,14 @@ pub fn export_tileset_bundle_with_palette(
         &cutaway_options,
     );
     cutaway_preview.save_png(out_dir.join("terrain_preview_cutaway.png"))?;
+
+    let angled_cutaway_preview = render_terrain_preview(
+        terrain,
+        tileset,
+        PreviewMode::AngledTerrain,
+        &cutaway_options,
+    );
+    angled_cutaway_preview.save_png(out_dir.join("terrain_preview_angled_cutaway.png"))?;
 
     let validation = validate_tileset(tileset);
     let metadata = export_metadata(tileset, columns, padding, validation.clone());
@@ -174,6 +208,12 @@ pub fn export_metadata(
         terrain_preview_path: "terrain_preview.png".to_string(),
         terrain_preview_2_5d_path: "terrain_preview_2_5d.png".to_string(),
         terrain_preview_cutaway_path: "terrain_preview_cutaway.png".to_string(),
+        terrain_preview_angled_path: "terrain_preview_angled.png".to_string(),
+        terrain_preview_angled_cutaway_path: "terrain_preview_angled_cutaway.png".to_string(),
+        terrain_preview_angled_orientation_paths: ViewOrientation::ALL
+            .iter()
+            .map(|orientation| format!("terrain_preview_angled_{}.png", orientation.id()))
+            .collect(),
         columns,
         padding,
         tiles,

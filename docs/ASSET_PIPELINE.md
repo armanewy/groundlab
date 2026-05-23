@@ -75,3 +75,41 @@ report is the machine-readable gate.
 
 The app polls modification timestamps for the active recipe and palette files. It is intentionally
 simple and dependency-free for now. A later editor pass can replace this with a richer file-watcher if needed.
+
+## Angled projection assets
+
+Milestone 4 does not require a second independent angled-art atlas yet. Instead, the preview treats
+existing generated surface tiles as source art and projects them into diamond footprints. This keeps
+the pipeline deterministic and lets us test the camera/projection before committing to more expensive
+angle-specific tile families.
+
+The recipe now includes:
+
+```ron
+projection: (
+    kind: Dimetric,
+    source_tile_px: 64,
+    tile_screen_width_px: 96,
+    tile_screen_height_px: 48,
+    height_step_px: 24,
+    default_orientation: SouthEast,
+    supports_four_way_rotation: true,
+)
+```
+
+The next art-pipeline step should add explicit angled/corner/ramp assets once the projection feels
+right:
+
+```txt
+angled_top_grass
+angled_top_dirt
+cliff_face_front_left_corner
+cliff_face_front_right_corner
+trench_inner_corner
+berm_outer_corner
+ramp_up_u
+ramp_up_v
+```
+
+Rotation is handled by data first: terrain cells do not rotate; only the view projection does. Asset
+coverage validation can later report missing orientation-specific placeables and props.

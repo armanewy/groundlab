@@ -1,7 +1,7 @@
 (
     id: "dry_upland_outpost",
     palette_id: "muted_field_32",
-    tile_size: 32,
+    tile_size: 64,
     seed: 1337,
     variants_per_material: 8,
     detail_density: 0.55,
@@ -18,5 +18,14 @@
     face_lip_strength: 0.45,
     face_detail_density: 0.70,
     cutaway_alpha: 0.42,
-    cutaway_radius_px: 96,
+    cutaway_radius_px: 128,
+    projection: (
+        kind: Dimetric,
+        source_tile_px: 64,
+        tile_screen_width_px: 96,
+        tile_screen_height_px: 48,
+        height_step_px: 24,
+        default_orientation: SouthEast,
+        supports_four_way_rotation: true,
+    ),
 )

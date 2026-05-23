@@ -54,7 +54,7 @@ Implemented.
 
 ## Milestone 3 — Terrain extrusion and occlusion workbench
 
-Implemented in this drop.
+Implemented.
 
 - generated structure-face tiles: front, left, right, and lip
 - structure-face metadata in `TileMetadata`
@@ -66,23 +66,42 @@ Implemented in this drop.
 - projected route overlay draws in erected terrain mode
 - hover-driven local cutaway lens fades occluding faces near the inspected cell
 - global face fade remains as a workbench-only debug option
-- CLI/app export target defaults to `exports/milestone_03`
 
-Milestone 3 is deliberately still CPU/software-preview based. It makes the asset/rendering contract
-stronger before `wgpu` runtime work begins.
+## Milestone 4 — Angled projection pivot
 
-## Milestone 3.1 — Slope/ramp and corner structure pass
+Implemented in this drop.
 
-Recommended if visual readability still feels too blocky.
+- `ProjectionSpec` added to `TilesetRecipe`
+- default tile source size changed to `64 px`
+- default angled screen footprint set to `96x48 px`
+- default angled height step set to `24 px`
+- new `PreviewMode::AngledTerrain`
+- new `ViewOrientation` enum with NE/SE/SW/NW views
+- workbench rotate-left / rotate-right controls
+- orientation-aware inverse picking in the angled preview
+- angled diamond top-surface renderer using existing generated material tiles
+- angled exposed-face renderer using generated structure-face/lip art
+- local cutaway/selection support in angled view
+- flat material view preserved as command/debug map
+- CLI/app export target defaults to `exports/milestone_04`
+- export bundle writes default angled preview, cutaway preview, and all four orientation previews
 
-- diagonal/corner face pieces
+This milestone is a visual-direction pivot, not a gameplay expansion. It preserves the terrain data,
+asset pipeline, pathing, LOS, and validation systems while changing the main visual projection.
+
+## Milestone 4.1 — Art-directed angled terrain pass
+
+Recommended next if the projection feels directionally right.
+
 - ramp/slope top tiles
-- trench corner lips
+- cliff cap/lip variants
+- trench inside corners and outside corners
 - berm corner lips
-- face seam validation by face kind
+- face seam validation by face kind and orientation
+- better region transitions in angled view
 - hidden-object x-ray silhouettes in the software preview
 
-## Milestone 4 — Custom renderer/runtime
+## Milestone 5 — Custom renderer/runtime
 
 - introduce `ground_render`
 - `wgpu` native renderer
@@ -93,7 +112,7 @@ Recommended if visual readability still feels too blocky.
 - debug overlay render passes
 - keep `eframe` either as editor shell or replace it with raw `winit + wgpu + egui`
 
-## Milestone 5 — Terrain gameplay sandbox
+## Milestone 6 — Terrain gameplay sandbox
 
 - fixed-step simulation
 - enemy agents
@@ -103,7 +122,7 @@ Recommended if visual readability still feels too blocky.
 - selected-defense LOS overlay
 - objective and spawn definitions
 
-## Milestone 6 — Rolling hazard sandbox
+## Milestone 7 — Rolling hazard sandbox
 
 - custom rolling-log model based on height gradient
 - controllable release triggers
@@ -111,7 +130,7 @@ Recommended if visual readability still feels too blocky.
 - path trace overlay
 - impact/damage summary
 
-## Milestone 7 — Prepared-ground vertical slice
+## Milestone 8 — Prepared-ground vertical slice
 
 - prep phase
 - assault phase

@@ -83,3 +83,32 @@ Visibility policy for hidden objects should be explicit in the runtime renderer:
 5. keep overlays screen-space readable even when terrain overlaps.
 
 The workbench now supports both global face fading and a local hover-driven cutaway lens. The game should prefer conditional/local fading so terrain still feels solid.
+
+## Milestone 4 angled projection pivot
+
+The main visual preview is now `PreviewMode::AngledTerrain`. It uses the same terrain grid and
+same generated surface/structure assets, but projects cells through `ProjectionSpec`:
+
+```txt
+screen_x = origin_x + (u - v) * tile_screen_width_px / 2
+screen_y = origin_y + (u + v) * tile_screen_height_px / 2 - effective_height * height_step_px
+```
+
+`u,v` are orientation-space coordinates derived from the world grid and `ViewOrientation`. This lets
+one terrain map render from NE/SE/SW/NW without changing simulation data.
+
+The flat `Material` preview is intentionally preserved as a command/debug map. It is useful for
+pathfinding, LOS, movement-cost overlays, and schematic inspection when the angled view naturally
+occludes cells.
+
+Current angled renderer policy:
+
+- render generated square source tiles into diamond top footprints
+- draw exposed faces between height deltas using generated structure-face tiles
+- draw generated lip strips along terrain cuts
+- draw route, markers, and selection above terrain
+- use orientation-aware inverse picking for edit tools
+- expose 90-degree view rotation in the workbench
+
+This remains a software preview. Once the projection and asset contract feel right, the GPU runtime
+should implement the same command model with sprite batching and depth/sort keys.

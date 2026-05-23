@@ -6,8 +6,11 @@ use ground_core::{
     find_path, load_workbench_assets, muted_field_32, preview_pixel_to_cell,
     render_terrain_preview, save_palette_file, save_recipe_file, validate_tileset, Brush,
     BrushKind, FileSnapshot, GroundMaterial, LightDirection, Palette, PixelImage, PreviewMode,
-    PreviewOptions, TerrainMap, Tileset, TilesetRecipe, ValidationReport, WorkbenchAssetPaths,
+    PreviewOptions, ProjectionKind, TerrainMap, Tileset, TilesetRecipe, ValidationReport,
+    ViewOrientation, WorkbenchAssetPaths,
 };
+
+const MAX_UI_TEXTURE_SIDE: usize = 2048;
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
@@ -105,15 +108,16 @@ impl GroundLabApp {
                 inspect_cell: None,
                 show_projected_route: true,
                 show_structure_lips: true,
+                view_orientation: loaded.recipe.projection.default_orientation,
             },
             recipe: loaded.recipe,
             palette: loaded.palette,
             tileset: loaded.tileset,
             validation: loaded.validation,
             terrain,
-            preview_mode: PreviewMode::Material,
+            preview_mode: PreviewMode::AngledTerrain,
             brush: Brush::new(BrushKind::DigTrench, 1, 1),
-            zoom: 1.0,
+            zoom: 0.75,
             canvas_view: CanvasView::TerrainPreview,
             contact_texture: None,
             seam_texture: None,
@@ -121,7 +125,7 @@ impl GroundLabApp {
             dirty_assets: true,
             dirty_preview: true,
             last_preview_size: [1, 1],
-            status: "Ready. Milestone 3 terrain extrusion is active: generated structure faces, lips, projected route, and local cutaway.".to_string(),
+            status: "Ready. Milestone 4 angled projection pivot is active: large tiles, dimetric terrain, rotation, command map, and cutaway tools.".to_string(),
         };
         app.refresh_if_dirty(&cc.egui_ctx);
         app
@@ -150,6 +154,8 @@ impl GroundLabApp {
                     self.tileset = loaded.tileset;
                     self.validation = loaded.validation;
                     self.preview_options.height_step_px = (self.recipe.tile_size / 4).max(4);
+                    self.preview_options.view_orientation =
+                        self.recipe.projection.default_orientation;
                     self.dirty_assets = true;
                     self.dirty_preview = true;
                     self.status = "Hot reloaded recipe/palette files.".to_string();
@@ -203,6 +209,7 @@ impl GroundLabApp {
                 self.tileset = loaded.tileset;
                 self.validation = loaded.validation;
                 self.preview_options.height_step_px = (self.recipe.tile_size / 4).max(4);
+                self.preview_options.view_orientation = self.recipe.projection.default_orientation;
                 self.dirty_assets = true;
                 self.dirty_preview = true;
                 self.status = "Loaded recipe and palette from disk.".to_string();
@@ -274,7 +281,7 @@ impl GroundLabApp {
         egui::ComboBox::from_label("Tile size")
             .selected_text(format!("{} px", self.recipe.tile_size))
             .show_ui(ui, |ui| {
-                for size in [16_u32, 24, 32, 48] {
+                for size in [16_u32, 24, 32, 48, 64, 96] {
                     recipe_changed |= ui
                         .selectable_value(&mut self.recipe.tile_size, size, format!("{size} px"))
                         .changed();
@@ -389,11 +396,50 @@ impl GroundLabApp {
                 .changed();
             recipe_changed |= ui
                 .add(
-                    egui::Slider::new(&mut self.recipe.cutaway_radius_px, 16..=256)
+                    egui::Slider::new(&mut self.recipe.cutaway_radius_px, 16..=384)
                         .text("cutaway radius px"),
                 )
                 .changed();
             ui.small("Structure faces are generated art assets, not flat debug rectangles.");
+        });
+
+        ui.collapsing("Milestone 4 angled projection pivot", |ui| {
+            egui::ComboBox::from_label("Projection kind")
+                .selected_text(self.recipe.projection.kind.label())
+                .show_ui(ui, |ui| {
+                    recipe_changed |= ui
+                        .selectable_value(&mut self.recipe.projection.kind, ProjectionKind::Dimetric, ProjectionKind::Dimetric.label())
+                        .changed();
+                    recipe_changed |= ui
+                        .selectable_value(&mut self.recipe.projection.kind, ProjectionKind::SquareTopDown, ProjectionKind::SquareTopDown.label())
+                        .changed();
+                });
+            recipe_changed |= ui
+                .add(egui::Slider::new(&mut self.recipe.projection.tile_screen_width_px, 48..=192).text("diamond width px"))
+                .changed();
+            recipe_changed |= ui
+                .add(egui::Slider::new(&mut self.recipe.projection.tile_screen_height_px, 24..=128).text("diamond height px"))
+                .changed();
+            recipe_changed |= ui
+                .add(egui::Slider::new(&mut self.recipe.projection.height_step_px, 4..=96).text("angled height step px"))
+                .changed();
+            egui::ComboBox::from_label("Default orientation")
+                .selected_text(self.recipe.projection.default_orientation.label())
+                .show_ui(ui, |ui| {
+                    for orientation in ViewOrientation::ALL {
+                        recipe_changed |= ui
+                            .selectable_value(
+                                &mut self.recipe.projection.default_orientation,
+                                orientation,
+                                orientation.label(),
+                            )
+                            .changed();
+                    }
+                });
+            recipe_changed |= ui
+                .checkbox(&mut self.recipe.projection.supports_four_way_rotation, "Support 90° rotation")
+                .changed();
+            ui.small("Angled previews project square source art into large diamond footprints. The flat material view remains the command/debug map.");
         });
 
         if recipe_changed {
@@ -423,6 +469,37 @@ impl GroundLabApp {
                     }
                 }
             });
+        ui.horizontal(|ui| {
+            if ui.button("⟲ Rotate view").clicked() {
+                self.preview_options.view_orientation =
+                    self.preview_options.view_orientation.rotate_ccw();
+                self.preview_mode = PreviewMode::AngledTerrain;
+                self.dirty_preview = true;
+            }
+            if ui.button("Rotate view ⟳").clicked() {
+                self.preview_options.view_orientation =
+                    self.preview_options.view_orientation.rotate_cw();
+                self.preview_mode = PreviewMode::AngledTerrain;
+                self.dirty_preview = true;
+            }
+        });
+        egui::ComboBox::from_label("View orientation")
+            .selected_text(self.preview_options.view_orientation.label())
+            .show_ui(ui, |ui| {
+                for orientation in ViewOrientation::ALL {
+                    if ui
+                        .selectable_value(
+                            &mut self.preview_options.view_orientation,
+                            orientation,
+                            orientation.label(),
+                        )
+                        .changed()
+                    {
+                        self.preview_mode = PreviewMode::AngledTerrain;
+                        self.dirty_preview = true;
+                    }
+                }
+            });
         if ui
             .checkbox(&mut self.preview_options.show_grid, "Grid")
             .changed()
@@ -438,7 +515,7 @@ impl GroundLabApp {
         if ui
             .add(
                 egui::Slider::new(&mut self.preview_options.height_step_px, 2..=24)
-                    .text("2.5D height px"),
+                    .text("legacy 2.5D height px"),
             )
             .changed()
         {
@@ -542,9 +619,9 @@ impl GroundLabApp {
                 &self.tileset,
                 &self.palette,
                 &self.terrain,
-                "exports/milestone_03",
+                "exports/milestone_04",
             ) {
-                Ok(()) => self.status = "Exported to exports/milestone_03".to_string(),
+                Ok(()) => self.status = "Exported to exports/milestone_04".to_string(),
                 Err(err) => self.status = format!("Export failed: {err}"),
             }
         }
@@ -621,8 +698,15 @@ impl GroundLabApp {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
             ctx.input(|i| i.pointer.hover_pos()).and_then(|pos| {
                 let local = pos - response.rect.min;
-                let px = (local.x / self.zoom).floor().max(0.0) as u32;
-                let py = (local.y / self.zoom).floor().max(0.0) as u32;
+                let texture_size = texture.size();
+                let source_w = self.last_preview_size[0].max(1) as f32;
+                let source_h = self.last_preview_size[1].max(1) as f32;
+                let upload_w = texture_size[0].max(1) as f32;
+                let upload_h = texture_size[1].max(1) as f32;
+                let upload_px = (local.x / self.zoom).floor().max(0.0);
+                let upload_py = (local.y / self.zoom).floor().max(0.0);
+                let px = (upload_px * source_w / upload_w).floor().max(0.0) as u32;
+                let py = (upload_py * source_h / upload_h).floor().max(0.0) as u32;
                 preview_pixel_to_cell(
                     &self.terrain,
                     &self.tileset,
@@ -638,8 +722,10 @@ impl GroundLabApp {
 
         if self.preview_options.inspect_cell != pointer_cell {
             self.preview_options.inspect_cell = pointer_cell;
-            if self.preview_mode == PreviewMode::ErectedTerrain
-                && self.preview_options.enable_local_cutaway
+            if matches!(
+                self.preview_mode,
+                PreviewMode::AngledTerrain | PreviewMode::ErectedTerrain
+            ) && self.preview_options.enable_local_cutaway
             {
                 self.dirty_preview = true;
                 ctx.request_repaint();
@@ -663,7 +749,7 @@ impl GroundLabApp {
             }
         }
 
-        ui.label("Left-drag paints. Right-click sets LOS source. Hovering in 2.5D drives a local cutaway lens. Blue = spawn, yellow = objective.");
+        ui.label("Left-drag paints. Right-click sets LOS source. Hovering in angled/legacy 2.5D drives a local cutaway lens. Blue = spawn, yellow = objective.");
     }
 }
 
@@ -714,12 +800,35 @@ fn put_texture(
     name: &str,
     image: &PixelImage,
 ) {
-    let rgba = image.to_rgba_bytes();
-    let color_image = egui::ColorImage::from_rgba_unmultiplied(image.size(), &rgba);
+    let color_image = color_image_for_upload(image);
     if let Some(texture) = handle {
         texture.set(color_image, egui::TextureOptions::NEAREST);
     } else {
         *handle =
             Some(ctx.load_texture(name.to_string(), color_image, egui::TextureOptions::NEAREST));
     }
+}
+
+fn color_image_for_upload(image: &PixelImage) -> egui::ColorImage {
+    let [width, height] = image.size();
+    let max_side = width.max(height);
+    if max_side <= MAX_UI_TEXTURE_SIDE {
+        let rgba = image.to_rgba_bytes();
+        return egui::ColorImage::from_rgba_unmultiplied([width, height], &rgba);
+    }
+
+    let factor = max_side.div_ceil(MAX_UI_TEXTURE_SIDE);
+    let upload_width = width.div_ceil(factor).max(1);
+    let upload_height = height.div_ceil(factor).max(1);
+    let mut rgba = Vec::with_capacity(upload_width * upload_height * 4);
+
+    for y in 0..upload_height {
+        let source_y = (y * factor).min(height - 1) as u32;
+        for x in 0..upload_width {
+            let source_x = (x * factor).min(width - 1) as u32;
+            rgba.extend_from_slice(&image.get(source_x, source_y).to_array());
+        }
+    }
+
+    egui::ColorImage::from_rgba_unmultiplied([upload_width, upload_height], &rgba)
 }

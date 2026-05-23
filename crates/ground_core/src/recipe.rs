@@ -215,6 +215,129 @@ impl fmt::Display for LightDirection {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ProjectionKind {
+    /// Legacy square-map/debug view. Kept for command maps, masks, and schematic overlays.
+    SquareTopDown,
+    /// Angled tactical 2.5D projection with diamond top footprints and visible terrain body.
+    Dimetric,
+}
+
+impl ProjectionKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            ProjectionKind::SquareTopDown => "square top-down",
+            ProjectionKind::Dimetric => "angled dimetric",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ViewOrientation {
+    NorthEast,
+    SouthEast,
+    SouthWest,
+    NorthWest,
+}
+
+impl ViewOrientation {
+    pub const ALL: [ViewOrientation; 4] = [
+        ViewOrientation::NorthEast,
+        ViewOrientation::SouthEast,
+        ViewOrientation::SouthWest,
+        ViewOrientation::NorthWest,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ViewOrientation::NorthEast => "NE view",
+            ViewOrientation::SouthEast => "SE view",
+            ViewOrientation::SouthWest => "SW view",
+            ViewOrientation::NorthWest => "NW view",
+        }
+    }
+
+    pub fn id(self) -> &'static str {
+        match self {
+            ViewOrientation::NorthEast => "ne",
+            ViewOrientation::SouthEast => "se",
+            ViewOrientation::SouthWest => "sw",
+            ViewOrientation::NorthWest => "nw",
+        }
+    }
+
+    pub fn rotate_cw(self) -> Self {
+        match self {
+            ViewOrientation::NorthEast => ViewOrientation::SouthEast,
+            ViewOrientation::SouthEast => ViewOrientation::SouthWest,
+            ViewOrientation::SouthWest => ViewOrientation::NorthWest,
+            ViewOrientation::NorthWest => ViewOrientation::NorthEast,
+        }
+    }
+
+    pub fn rotate_ccw(self) -> Self {
+        match self {
+            ViewOrientation::NorthEast => ViewOrientation::NorthWest,
+            ViewOrientation::SouthEast => ViewOrientation::NorthEast,
+            ViewOrientation::SouthWest => ViewOrientation::SouthEast,
+            ViewOrientation::NorthWest => ViewOrientation::SouthWest,
+        }
+    }
+}
+
+impl fmt::Display for ViewOrientation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ProjectionSpec {
+    pub kind: ProjectionKind,
+    /// Source art size in pixels. For now this is kept in sync with tile_size so
+    /// generated material tiles can be projected into larger diamond footprints.
+    pub source_tile_px: u32,
+    /// Diamond footprint width on screen in angled previews.
+    pub tile_screen_width_px: u32,
+    /// Diamond footprint height on screen in angled previews.
+    pub tile_screen_height_px: u32,
+    /// Visual lift per effective terrain-height unit in angled previews.
+    pub height_step_px: u32,
+    pub default_orientation: ViewOrientation,
+    pub supports_four_way_rotation: bool,
+}
+
+impl Default for ProjectionSpec {
+    fn default() -> Self {
+        Self {
+            kind: ProjectionKind::Dimetric,
+            source_tile_px: 64,
+            tile_screen_width_px: 96,
+            tile_screen_height_px: 48,
+            height_step_px: 24,
+            default_orientation: ViewOrientation::SouthEast,
+            supports_four_way_rotation: true,
+        }
+    }
+}
+
+impl ProjectionSpec {
+    pub fn sanitize(&mut self, tile_size: u32) {
+        self.source_tile_px = tile_size.max(16);
+        self.tile_screen_width_px = sanitize_screen_dim(self.tile_screen_width_px, 48, 192);
+        self.tile_screen_height_px = sanitize_screen_dim(self.tile_screen_height_px, 24, 128);
+        if self.tile_screen_width_px < self.tile_screen_height_px {
+            self.tile_screen_width_px = (self.tile_screen_height_px * 2).min(192);
+        }
+        self.height_step_px = self.height_step_px.clamp(4, 96);
+    }
+}
+
+fn sanitize_screen_dim(value: u32, min: u32, max: u32) -> u32 {
+    value.clamp(min, max).div_ceil(4) * 4
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct TilesetRecipe {
@@ -238,6 +361,7 @@ pub struct TilesetRecipe {
     pub face_detail_density: f32,
     pub cutaway_alpha: f32,
     pub cutaway_radius_px: u32,
+    pub projection: ProjectionSpec,
 }
 
 impl Default for TilesetRecipe {
@@ -245,7 +369,7 @@ impl Default for TilesetRecipe {
         Self {
             id: "dry_upland_outpost".to_string(),
             palette_id: "muted_field_32".to_string(),
-            tile_size: 32,
+            tile_size: 64,
             seed: 1337,
             variants_per_material: 8,
             detail_density: 0.55,
@@ -262,7 +386,8 @@ impl Default for TilesetRecipe {
             face_lip_strength: 0.45,
             face_detail_density: 0.70,
             cutaway_alpha: 0.42,
-            cutaway_radius_px: 96,
+            cutaway_radius_px: 128,
+            projection: ProjectionSpec::default(),
         }
     }
 }
@@ -274,7 +399,9 @@ impl TilesetRecipe {
             16..=23 => 16,
             24..=31 => 24,
             32..=47 => 32,
-            _ => 48,
+            48..=63 => 48,
+            64..=95 => 64,
+            _ => 96,
         };
         self.variants_per_material = self.variants_per_material.clamp(1, 16);
         self.detail_density = self.detail_density.clamp(0.0, 1.0);
@@ -288,7 +415,8 @@ impl TilesetRecipe {
         self.face_lip_strength = self.face_lip_strength.clamp(0.0, 1.0);
         self.face_detail_density = self.face_detail_density.clamp(0.0, 1.0);
         self.cutaway_alpha = self.cutaway_alpha.clamp(0.15, 1.0);
-        self.cutaway_radius_px = self.cutaway_radius_px.clamp(16, 256);
+        self.cutaway_radius_px = self.cutaway_radius_px.clamp(16, 384);
+        self.projection.sanitize(self.tile_size);
         if self.palette_id.trim().is_empty() {
             self.palette_id = "muted_field_32".to_string();
         }

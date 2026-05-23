@@ -4,14 +4,18 @@ use crate::color::{clamp01, Rgba8};
 use crate::los::{visibility_grid, Visibility};
 use crate::pathfinding::find_path;
 use crate::pixel_image::PixelImage;
-use crate::recipe::{GroundMaterial, StructureFaceKind};
+use crate::recipe::{GroundMaterial, ProjectionKind, StructureFaceKind, ViewOrientation};
 use crate::terrain::TerrainMap;
 use crate::tileset::{stable_tile_variant, Tileset};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PreviewMode {
     Material,
-    /// Software 2.5D visualization pass: top tiles are displaced upward by height,
+    /// New main visual target: large-tile angled/dimetric 2.5D terrain with
+    /// diamond top footprints, visible vertical faces, route overlays, and
+    /// orientation-aware picking.
+    AngledTerrain,
+    /// Legacy software 2.5D visualization pass: top tiles are displaced upward by height,
     /// and exposed height deltas draw actual generated structure-face tiles.
     ErectedTerrain,
     Height,
@@ -22,8 +26,9 @@ pub enum PreviewMode {
 }
 
 impl PreviewMode {
-    pub const ALL: [PreviewMode; 7] = [
+    pub const ALL: [PreviewMode; 8] = [
         PreviewMode::Material,
+        PreviewMode::AngledTerrain,
         PreviewMode::ErectedTerrain,
         PreviewMode::Height,
         PreviewMode::Slope,
@@ -34,8 +39,9 @@ impl PreviewMode {
 
     pub fn label(self) -> &'static str {
         match self {
-            PreviewMode::Material => "Material",
-            PreviewMode::ErectedTerrain => "2.5D erected terrain",
+            PreviewMode::Material => "Command map / flat material",
+            PreviewMode::AngledTerrain => "Angled 2.5D terrain",
+            PreviewMode::ErectedTerrain => "Legacy erected terrain",
             PreviewMode::Height => "Height",
             PreviewMode::Slope => "Slope",
             PreviewMode::MovementCost => "Movement cost",
@@ -65,6 +71,8 @@ pub struct PreviewOptions {
     pub show_projected_route: bool,
     /// Draw thin generated lip strips on exposed terrain cuts.
     pub show_structure_lips: bool,
+    /// Current viewing direction for angled 2.5D projection.
+    pub view_orientation: ViewOrientation,
 }
 
 impl Default for PreviewOptions {
@@ -79,6 +87,7 @@ impl Default for PreviewOptions {
             inspect_cell: None,
             show_projected_route: true,
             show_structure_lips: true,
+            view_orientation: ViewOrientation::SouthEast,
         }
     }
 }
@@ -89,6 +98,9 @@ pub fn render_terrain_preview(
     mode: PreviewMode,
     options: &PreviewOptions,
 ) -> PixelImage {
+    if mode == PreviewMode::AngledTerrain {
+        return render_angled_terrain_preview(map, tileset, options);
+    }
     if mode == PreviewMode::ErectedTerrain {
         return render_erected_terrain_preview(map, tileset, options);
     }
@@ -147,7 +159,9 @@ pub fn render_terrain_preview(
             );
 
             match mode {
-                PreviewMode::Material | PreviewMode::ErectedTerrain => {
+                PreviewMode::Material
+                | PreviewMode::AngledTerrain
+                | PreviewMode::ErectedTerrain => {
                     draw_height_edges(&mut image, map, x, y, tile_px);
                 }
                 PreviewMode::Height => {
@@ -454,6 +468,10 @@ pub fn preview_pixel_to_cell(
     px: u32,
     py: u32,
 ) -> Option<(u32, u32)> {
+    if mode == PreviewMode::AngledTerrain {
+        return angled_preview_pixel_to_cell(map, tileset, options, px, py);
+    }
+
     let tile_px = tileset.recipe.tile_size.max(1);
     if mode != PreviewMode::ErectedTerrain {
         let x = px / tile_px;
@@ -1087,6 +1105,807 @@ fn blend_pixel_i32(image: &mut PixelImage, x: i32, y: i32, color: Rgba8, alpha: 
 
 fn point_in_rect(px: i32, py: i32, x: i32, y: i32, width: u32, height: u32) -> bool {
     px >= x && py >= y && px < x + width as i32 && py < y + height as i32
+}
+
+#[derive(Clone, Copy, Debug)]
+struct AngledProjection {
+    half_w: i32,
+    half_h: i32,
+    tile_w: u32,
+    tile_h: u32,
+    height_step_px: u32,
+    origin_x: i32,
+    origin_y: i32,
+    width: u32,
+    height: u32,
+    orientation: ViewOrientation,
+}
+
+impl AngledProjection {
+    fn cell_center(self, map: &TerrainMap, x: u32, y: u32) -> (i32, i32) {
+        let (u, v) = world_to_oriented(self.orientation, map.width, map.height, x, y);
+        let lift = map
+            .cell(x, y)
+            .map(|cell| (cell.effective_height() * self.height_step_px as f32).round() as i32)
+            .unwrap_or(0);
+        (
+            self.origin_x + (u as i32 - v as i32) * self.half_w,
+            self.origin_y + (u as i32 + v as i32) * self.half_h - lift,
+        )
+    }
+
+    fn diamond(self, map: &TerrainMap, x: u32, y: u32) -> [(i32, i32); 4] {
+        let (cx, cy) = self.cell_center(map, x, y);
+        [
+            (cx, cy - self.half_h),
+            (cx + self.half_w, cy),
+            (cx, cy + self.half_h),
+            (cx - self.half_w, cy),
+        ]
+    }
+
+    fn face_height(self, delta: f32) -> u32 {
+        (delta.max(0.0) * self.height_step_px as f32)
+            .ceil()
+            .max(1.0) as u32
+    }
+
+    fn ordered_cells(self, map: &TerrainMap) -> Vec<(u32, u32, u32, u32)> {
+        let mut cells = Vec::with_capacity((map.width * map.height) as usize);
+        for y in 0..map.height {
+            for x in 0..map.width {
+                let (u, v) = world_to_oriented(self.orientation, map.width, map.height, x, y);
+                cells.push((u + v, u, x, y));
+            }
+        }
+        cells.sort_by_key(|(depth, u, _, _)| (*depth, *u));
+        cells
+    }
+}
+
+fn angled_projection(
+    map: &TerrainMap,
+    tileset: &Tileset,
+    options: &PreviewOptions,
+) -> AngledProjection {
+    let mut spec = tileset.recipe.projection.clone();
+    spec.sanitize(tileset.recipe.tile_size);
+    let orientation = if spec.supports_four_way_rotation {
+        options.view_orientation
+    } else {
+        spec.default_orientation
+    };
+    let (oriented_width, oriented_height) = oriented_dimensions(orientation, map.width, map.height);
+    let half_w = (spec.tile_screen_width_px / 2).max(8) as i32;
+    let half_h = (spec.tile_screen_height_px / 2).max(4) as i32;
+    let max_h = map
+        .cells
+        .iter()
+        .map(|cell| cell.effective_height())
+        .fold(0.0_f32, f32::max);
+    let max_lift = (max_h * spec.height_step_px as f32).ceil() as i32;
+    let margin = spec.tile_screen_width_px as i32 + 16;
+    let width = ((oriented_width + oriented_height) as i32 * half_w + margin * 2 + half_w * 2)
+        .max(1) as u32;
+    let height = ((oriented_width + oriented_height) as i32 * half_h
+        + max_lift
+        + spec.tile_screen_height_px as i32
+        + spec.height_step_px as i32 * 6
+        + margin * 2)
+        .max(1) as u32;
+    let origin_x = margin + oriented_height as i32 * half_w + half_w;
+    let origin_y = margin + max_lift + half_h;
+
+    AngledProjection {
+        half_w,
+        half_h,
+        tile_w: spec.tile_screen_width_px,
+        tile_h: spec.tile_screen_height_px,
+        height_step_px: spec.height_step_px,
+        origin_x,
+        origin_y,
+        width,
+        height,
+        orientation,
+    }
+}
+
+fn render_angled_terrain_preview(
+    map: &TerrainMap,
+    tileset: &Tileset,
+    options: &PreviewOptions,
+) -> PixelImage {
+    if tileset.recipe.projection.kind == ProjectionKind::SquareTopDown {
+        return render_erected_terrain_preview(map, tileset, options);
+    }
+
+    let proj = angled_projection(map, tileset, options);
+    let mut image = PixelImage::new(proj.width, proj.height, Rgba8::opaque(11, 12, 15));
+    let cells = proj.ordered_cells(map);
+
+    for &(_, _, x, y) in &cells {
+        draw_angled_contact_shadow(&mut image, map, x, y, proj, tileset.recipe.shadow_strength);
+    }
+
+    for &(_, _, x, y) in &cells {
+        draw_angled_exposed_faces(&mut image, map, tileset, x, y, proj, options);
+        draw_angled_top_surface(&mut image, map, tileset, x, y, proj);
+    }
+
+    if options.show_projected_route {
+        let path = find_path(map, map.spawn, map.objective);
+        draw_angled_path(
+            &mut image,
+            map,
+            proj,
+            &path.points,
+            if path.reached_goal {
+                Rgba8::opaque(245, 184, 77)
+            } else {
+                Rgba8::opaque(230, 74, 74)
+            },
+        );
+    }
+
+    if options.show_grid {
+        for &(_, _, x, y) in &cells {
+            draw_angled_grid_outline(&mut image, map, proj, x, y, Rgba8::opaque(24, 26, 30));
+        }
+    }
+
+    if let Some(cell) = options.inspect_cell {
+        draw_angled_selection(&mut image, map, proj, cell, Rgba8::opaque(154, 215, 238));
+    }
+
+    draw_angled_marker(
+        &mut image,
+        map,
+        proj,
+        map.spawn,
+        Rgba8::opaque(99, 169, 218),
+    );
+    draw_angled_marker(
+        &mut image,
+        map,
+        proj,
+        map.objective,
+        Rgba8::opaque(225, 196, 91),
+    );
+    draw_angled_marker(
+        &mut image,
+        map,
+        proj,
+        options.los_source,
+        Rgba8::opaque(145, 222, 165),
+    );
+
+    image
+}
+
+fn draw_angled_top_surface(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    tileset: &Tileset,
+    x: u32,
+    y: u32,
+    proj: AngledProjection,
+) {
+    let Some(cell) = map.cell(x, y) else {
+        return;
+    };
+    let material = visual_material_for_cell(cell.ground);
+    let variant = stable_tile_variant(
+        tileset.recipe.seed,
+        x,
+        y,
+        material,
+        tileset.recipe.variants_per_material,
+    );
+    let tile = &tileset.tile(material, variant).image;
+    let (cx, cy) = proj.cell_center(map, x, y);
+    draw_diamond_textured(image, tile, cx, cy, proj, 1.0);
+
+    let height_t = cell.height as f32 / 9.0;
+    let shade = 0.12 * (height_t - 0.45);
+    if shade > 0.001 {
+        draw_diamond_overlay(image, cx, cy, proj, Rgba8::WHITE, shade.min(0.16));
+    } else if shade < -0.001 {
+        draw_diamond_overlay(image, cx, cy, proj, Rgba8::BLACK, (-shade).min(0.18));
+    }
+
+    if cell.trench_depth > 0 {
+        draw_diamond_overlay(
+            image,
+            cx,
+            cy + proj.half_h / 6,
+            proj,
+            Rgba8::opaque(15, 10, 9),
+            0.24,
+        );
+    }
+    if cell.berm_height > 0 {
+        draw_diamond_outline(image, cx, cy, proj, Rgba8::opaque(172, 125, 62));
+    }
+}
+
+fn draw_diamond_textured(
+    image: &mut PixelImage,
+    src: &PixelImage,
+    cx: i32,
+    cy: i32,
+    proj: AngledProjection,
+    alpha: f32,
+) {
+    let left = cx - proj.half_w;
+    let right = cx + proj.half_w;
+    let top = cy - proj.half_h;
+    let bottom = cy + proj.half_h;
+    for py in top..=bottom {
+        for px in left..=right {
+            let dx = (px - cx) as f32 / proj.half_w.max(1) as f32;
+            let dy = (py - cy) as f32 / proj.half_h.max(1) as f32;
+            let u = (dx - dy) * 0.5 + 0.5;
+            let v = (dx + dy) * 0.5 + 0.5;
+            if !(0.0..=1.0).contains(&u) || !(0.0..=1.0).contains(&v) {
+                continue;
+            }
+            let sx = (u * (src.width.saturating_sub(1)) as f32).round() as u32;
+            let sy = (v * (src.height.saturating_sub(1)) as f32).round() as u32;
+            blend_pixel_i32(image, px, py, src.get(sx, sy), alpha);
+        }
+    }
+}
+
+fn draw_diamond_overlay(
+    image: &mut PixelImage,
+    cx: i32,
+    cy: i32,
+    proj: AngledProjection,
+    color: Rgba8,
+    alpha: f32,
+) {
+    if alpha <= 0.001 {
+        return;
+    }
+    let left = cx - proj.half_w;
+    let right = cx + proj.half_w;
+    let top = cy - proj.half_h;
+    let bottom = cy + proj.half_h;
+    for py in top..=bottom {
+        for px in left..=right {
+            if point_in_diamond(px, py, cx, cy, proj) {
+                blend_pixel_i32(image, px, py, color, alpha);
+            }
+        }
+    }
+}
+
+fn draw_angled_contact_shadow(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    x: u32,
+    y: u32,
+    proj: AngledProjection,
+    shadow_strength: f32,
+) {
+    let Some(cell) = map.cell(x, y) else {
+        return;
+    };
+    let current = cell.effective_height();
+    let mut strongest: f32 = 0.0;
+    for (nx, ny) in cardinal_neighbors(x, y, map.width, map.height) {
+        let neighbor = map
+            .cell(nx, ny)
+            .map(|c| c.effective_height())
+            .unwrap_or(current);
+        strongest = strongest.max(current - neighbor);
+    }
+    if strongest <= 0.01 {
+        return;
+    }
+    let (cx, cy) = proj.cell_center(map, x, y);
+    let alpha = (0.06 + strongest * 0.05).min(0.26) * shadow_strength.max(0.1);
+    draw_diamond_overlay(
+        image,
+        cx + proj.half_w / 5,
+        cy + proj.half_h + 2,
+        proj,
+        Rgba8::BLACK,
+        alpha,
+    );
+}
+
+fn draw_angled_exposed_faces(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    tileset: &Tileset,
+    x: u32,
+    y: u32,
+    proj: AngledProjection,
+    options: &PreviewOptions,
+) {
+    let Some(cell) = map.cell(x, y) else {
+        return;
+    };
+    let current = cell.effective_height();
+    for (nx, ny) in cardinal_neighbors(x, y, map.width, map.height) {
+        let neighbor = map
+            .cell(nx, ny)
+            .map(|c| c.effective_height())
+            .unwrap_or(current);
+        if current <= neighbor + 0.01 {
+            continue;
+        }
+        let delta = current - neighbor;
+        let (du, dv) =
+            oriented_delta_between(proj.orientation, map.width, map.height, x, y, nx, ny);
+        let Some((p0, p1, face_kind, near_face)) =
+            angled_edge_points_for_delta(map, proj, x, y, du, dv)
+        else {
+            continue;
+        };
+        let material = face_material_for_cell(cell);
+        let variant = stable_tile_variant(
+            tileset.recipe.seed ^ 0x73cf_519d_21e4_917b,
+            x,
+            y,
+            material,
+            tileset.recipe.variants_per_material,
+        );
+        let face_h = proj.face_height(delta);
+        let alpha = angled_face_alpha(map, proj, options, p0, p1, near_face);
+        draw_angled_face(
+            image,
+            tileset,
+            AngledFaceDraw {
+                material,
+                face: face_kind,
+                variant,
+                p0,
+                p1,
+                height: face_h,
+                alpha,
+            },
+        );
+        if options.show_structure_lips {
+            draw_angled_lip(image, tileset, material, variant, p0, p1, alpha.max(0.72));
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct AngledFaceDraw {
+    material: GroundMaterial,
+    face: StructureFaceKind,
+    variant: u32,
+    p0: (i32, i32),
+    p1: (i32, i32),
+    height: u32,
+    alpha: f32,
+}
+
+fn draw_angled_face(image: &mut PixelImage, tileset: &Tileset, draw: AngledFaceDraw) {
+    let p2 = (draw.p1.0, draw.p1.1 + draw.height as i32);
+    let p3 = (draw.p0.0, draw.p0.1 + draw.height as i32);
+    let min_x = draw.p0.0.min(draw.p1.0).min(p2.0).min(p3.0);
+    let max_x = draw.p0.0.max(draw.p1.0).max(p2.0).max(p3.0);
+    let min_y = draw.p0.1.min(draw.p1.1).min(p2.1).min(p3.1);
+    let max_y = draw.p0.1.max(draw.p1.1).max(p2.1).max(p3.1);
+    let src = tileset
+        .structure_face_tile(draw.material, draw.face, draw.variant)
+        .map(|asset| &asset.image);
+    for py in min_y..=max_y {
+        for px in min_x..=max_x {
+            if !point_in_quad(px, py, draw.p0, draw.p1, p2, p3) {
+                continue;
+            }
+            let u = if max_x == min_x {
+                0.0
+            } else {
+                (px - min_x) as f32 / (max_x - min_x) as f32
+            };
+            let v = if max_y == min_y {
+                0.0
+            } else {
+                (py - min_y) as f32 / (max_y - min_y) as f32
+            };
+            let color = if let Some(src) = src {
+                let sx = (u * (src.width.saturating_sub(1)) as f32).round() as u32;
+                let sy = (v * (src.height.saturating_sub(1)) as f32).round() as u32;
+                src.get(sx, sy)
+            } else {
+                fallback_face_color(tileset, draw.material, draw.face, v)
+            };
+            blend_pixel_i32(image, px, py, color, draw.alpha);
+        }
+    }
+    draw_line_i32(
+        image,
+        draw.p0.0,
+        draw.p0.1,
+        draw.p1.0,
+        draw.p1.1,
+        Rgba8::opaque(34, 27, 24),
+    );
+    draw_line_i32(image, p3.0, p3.1, p2.0, p2.1, Rgba8::opaque(17, 15, 14));
+}
+
+fn draw_angled_lip(
+    image: &mut PixelImage,
+    tileset: &Tileset,
+    material: GroundMaterial,
+    variant: u32,
+    p0: (i32, i32),
+    p1: (i32, i32),
+    alpha: f32,
+) {
+    let src = tileset
+        .structure_face_tile(material, StructureFaceKind::Lip, variant)
+        .map(|asset| &asset.image);
+    let lip_h = (tileset.recipe.projection.height_step_px / 5).max(2) as i32;
+    let min_x = p0.0.min(p1.0) - 1;
+    let max_x = p0.0.max(p1.0) + 1;
+    let min_y = p0.1.min(p1.1) - lip_h;
+    let max_y = p0.1.max(p1.1) + 1;
+    for py in min_y..=max_y {
+        for px in min_x..=max_x {
+            let dist = distance_to_segment(px as f32, py as f32, p0, p1);
+            if dist > lip_h as f32 {
+                continue;
+            }
+            let along = segment_t(px as f32, py as f32, p0, p1);
+            let color = if let Some(src) = src {
+                let sx = (along * (src.width.saturating_sub(1)) as f32).round() as u32;
+                let sy =
+                    ((dist / lip_h as f32) * (src.height.saturating_sub(1)) as f32).round() as u32;
+                src.get(sx, sy)
+            } else {
+                tileset.palette.sample(material.ramp(), 0.62).lighten(0.06)
+            };
+            blend_pixel_i32(
+                image,
+                px,
+                py,
+                color,
+                alpha * (1.0 - dist / lip_h as f32 * 0.5),
+            );
+        }
+    }
+}
+
+fn fallback_face_color(
+    tileset: &Tileset,
+    material: GroundMaterial,
+    face: StructureFaceKind,
+    v: f32,
+) -> Rgba8 {
+    let base = tileset.palette.sample(material.ramp(), 0.45);
+    match face {
+        StructureFaceKind::Front => base.darken(0.20 + v * 0.12),
+        StructureFaceKind::Left => base.darken(0.30 + v * 0.12),
+        StructureFaceKind::Right => base.darken(0.12 + v * 0.08),
+        StructureFaceKind::Lip => base.lighten(0.06),
+    }
+}
+
+fn angled_face_alpha(
+    map: &TerrainMap,
+    proj: AngledProjection,
+    options: &PreviewOptions,
+    p0: (i32, i32),
+    p1: (i32, i32),
+    near_face: bool,
+) -> f32 {
+    let mut alpha: f32 = if options.fade_raised_faces { 0.80 } else { 1.0 };
+    if !near_face {
+        alpha = alpha.min(0.88);
+    }
+    if options.enable_local_cutaway {
+        if let Some((cx, cy)) = options.inspect_cell {
+            if cx < map.width && cy < map.height {
+                let (fx, fy) = proj.cell_center(map, cx, cy);
+                let mx = (p0.0 + p1.0) / 2;
+                let my = (p0.1 + p1.1) / 2;
+                let dx = (mx - fx) as f32;
+                let dy = (my - fy) as f32;
+                let dist = (dx * dx + dy * dy).sqrt();
+                let radius = 160.0_f32.max((proj.tile_w + proj.tile_h) as f32 * 0.7);
+                if dist < radius {
+                    let t = clamp01(dist / radius);
+                    alpha = alpha.min(0.30 + 0.70 * t);
+                }
+            }
+        }
+    }
+    alpha.clamp(0.18, 1.0)
+}
+
+fn angled_preview_pixel_to_cell(
+    map: &TerrainMap,
+    tileset: &Tileset,
+    options: &PreviewOptions,
+    px: u32,
+    py: u32,
+) -> Option<(u32, u32)> {
+    let proj = angled_projection(map, tileset, options);
+    let px = px as i32;
+    let py = py as i32;
+    let cells = proj.ordered_cells(map);
+    for &(_, _, x, y) in cells.iter().rev() {
+        let (cx, cy) = proj.cell_center(map, x, y);
+        if point_in_diamond(px, py, cx, cy, proj) {
+            return Some((x, y));
+        }
+        if point_in_angled_any_face(map, x, y, px, py, proj) {
+            return Some((x, y));
+        }
+    }
+    None
+}
+
+fn point_in_angled_any_face(
+    map: &TerrainMap,
+    x: u32,
+    y: u32,
+    px: i32,
+    py: i32,
+    proj: AngledProjection,
+) -> bool {
+    let Some(cell) = map.cell(x, y) else {
+        return false;
+    };
+    let current = cell.effective_height();
+    for (nx, ny) in cardinal_neighbors(x, y, map.width, map.height) {
+        let neighbor = map
+            .cell(nx, ny)
+            .map(|c| c.effective_height())
+            .unwrap_or(current);
+        if current <= neighbor + 0.01 {
+            continue;
+        }
+        let (du, dv) =
+            oriented_delta_between(proj.orientation, map.width, map.height, x, y, nx, ny);
+        let Some((p0, p1, _, _)) = angled_edge_points_for_delta(map, proj, x, y, du, dv) else {
+            continue;
+        };
+        let p2 = (p1.0, p1.1 + proj.face_height(current - neighbor) as i32);
+        let p3 = (p0.0, p0.1 + proj.face_height(current - neighbor) as i32);
+        if point_in_quad(px, py, p0, p1, p2, p3) {
+            return true;
+        }
+    }
+    false
+}
+
+type AngledEdgePoints = ((i32, i32), (i32, i32), StructureFaceKind, bool);
+
+fn angled_edge_points_for_delta(
+    map: &TerrainMap,
+    proj: AngledProjection,
+    x: u32,
+    y: u32,
+    du: i32,
+    dv: i32,
+) -> Option<AngledEdgePoints> {
+    let [top, right, bottom, left] = proj.diamond(map, x, y);
+    match (du, dv) {
+        (1, 0) => Some((right, bottom, StructureFaceKind::Right, true)),
+        (0, 1) => Some((bottom, left, StructureFaceKind::Front, true)),
+        (-1, 0) => Some((left, top, StructureFaceKind::Left, false)),
+        (0, -1) => Some((top, right, StructureFaceKind::Right, false)),
+        _ => None,
+    }
+}
+
+fn draw_angled_grid_outline(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    proj: AngledProjection,
+    x: u32,
+    y: u32,
+    color: Rgba8,
+) {
+    let [top, right, bottom, left] = proj.diamond(map, x, y);
+    draw_line_i32(image, top.0, top.1, right.0, right.1, color);
+    draw_line_i32(image, right.0, right.1, bottom.0, bottom.1, color);
+    draw_line_i32(image, bottom.0, bottom.1, left.0, left.1, color);
+    draw_line_i32(image, left.0, left.1, top.0, top.1, color);
+}
+
+fn draw_diamond_outline(
+    image: &mut PixelImage,
+    cx: i32,
+    cy: i32,
+    proj: AngledProjection,
+    color: Rgba8,
+) {
+    let top = (cx, cy - proj.half_h);
+    let right = (cx + proj.half_w, cy);
+    let bottom = (cx, cy + proj.half_h);
+    let left = (cx - proj.half_w, cy);
+    draw_line_i32(image, top.0, top.1, right.0, right.1, color);
+    draw_line_i32(image, right.0, right.1, bottom.0, bottom.1, color);
+    draw_line_i32(image, bottom.0, bottom.1, left.0, left.1, color);
+    draw_line_i32(image, left.0, left.1, top.0, top.1, color);
+}
+
+fn draw_angled_selection(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    proj: AngledProjection,
+    cell: (u32, u32),
+    color: Rgba8,
+) {
+    if cell.0 >= map.width || cell.1 >= map.height {
+        return;
+    }
+    let (cx, cy) = proj.cell_center(map, cell.0, cell.1);
+    draw_diamond_outline(image, cx, cy, proj, color);
+    draw_diamond_overlay(image, cx, cy, proj, color, 0.12);
+}
+
+fn draw_angled_marker(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    proj: AngledProjection,
+    cell: (u32, u32),
+    color: Rgba8,
+) {
+    if cell.0 >= map.width || cell.1 >= map.height {
+        return;
+    }
+    let (cx, cy) = proj.cell_center(map, cell.0, cell.1);
+    let r = (proj.half_h / 2).max(4);
+    for dy in -r..=r {
+        for dx in -r..=r {
+            if dx * dx + dy * dy <= r * r {
+                blend_pixel_i32(image, cx + dx, cy + dy, color, 0.94);
+            }
+        }
+    }
+    draw_diamond_outline(image, cx, cy, proj, Rgba8::opaque(8, 9, 10));
+}
+
+fn draw_angled_path(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    proj: AngledProjection,
+    points: &[(u32, u32)],
+    color: Rgba8,
+) {
+    for window in points.windows(2) {
+        let a = window[0];
+        let b = window[1];
+        if a.0 >= map.width || a.1 >= map.height || b.0 >= map.width || b.1 >= map.height {
+            continue;
+        }
+        let (ax, ay) = proj.cell_center(map, a.0, a.1);
+        let (bx, by) = proj.cell_center(map, b.0, b.1);
+        draw_line_i32(image, ax, ay, bx, by, Rgba8::opaque(9, 8, 7));
+        draw_line_i32(image, ax + 1, ay, bx + 1, by, Rgba8::opaque(9, 8, 7));
+        draw_line_i32(image, ax, ay - 2, bx, by - 2, color);
+        draw_line_i32(image, ax + 1, ay - 2, bx + 1, by - 2, color);
+    }
+}
+
+fn oriented_dimensions(orientation: ViewOrientation, width: u32, height: u32) -> (u32, u32) {
+    match orientation {
+        ViewOrientation::SouthEast | ViewOrientation::NorthWest => (width, height),
+        ViewOrientation::NorthEast | ViewOrientation::SouthWest => (height, width),
+    }
+}
+
+fn world_to_oriented(
+    orientation: ViewOrientation,
+    width: u32,
+    height: u32,
+    x: u32,
+    y: u32,
+) -> (u32, u32) {
+    match orientation {
+        ViewOrientation::SouthEast => (x, y),
+        ViewOrientation::SouthWest => (height.saturating_sub(1).saturating_sub(y), x),
+        ViewOrientation::NorthWest => (
+            width.saturating_sub(1).saturating_sub(x),
+            height.saturating_sub(1).saturating_sub(y),
+        ),
+        ViewOrientation::NorthEast => (y, width.saturating_sub(1).saturating_sub(x)),
+    }
+}
+
+fn oriented_delta_between(
+    orientation: ViewOrientation,
+    width: u32,
+    height: u32,
+    x: u32,
+    y: u32,
+    nx: u32,
+    ny: u32,
+) -> (i32, i32) {
+    let (u0, v0) = world_to_oriented(orientation, width, height, x, y);
+    let (u1, v1) = world_to_oriented(orientation, width, height, nx, ny);
+    (u1 as i32 - u0 as i32, v1 as i32 - v0 as i32)
+}
+
+fn cardinal_neighbors(x: u32, y: u32, width: u32, height: u32) -> Vec<(u32, u32)> {
+    let mut out = Vec::with_capacity(4);
+    if x > 0 {
+        out.push((x - 1, y));
+    }
+    if x + 1 < width {
+        out.push((x + 1, y));
+    }
+    if y > 0 {
+        out.push((x, y - 1));
+    }
+    if y + 1 < height {
+        out.push((x, y + 1));
+    }
+    out
+}
+
+fn point_in_diamond(px: i32, py: i32, cx: i32, cy: i32, proj: AngledProjection) -> bool {
+    let dx = (px - cx).abs() as f32 / proj.half_w.max(1) as f32;
+    let dy = (py - cy).abs() as f32 / proj.half_h.max(1) as f32;
+    dx + dy <= 1.0
+}
+
+fn point_in_quad(
+    px: i32,
+    py: i32,
+    a: (i32, i32),
+    b: (i32, i32),
+    c: (i32, i32),
+    d: (i32, i32),
+) -> bool {
+    let p = (px as f32, py as f32);
+    point_in_triangle(p, a, b, c) || point_in_triangle(p, a, c, d)
+}
+
+fn point_in_triangle(p: (f32, f32), a: (i32, i32), b: (i32, i32), c: (i32, i32)) -> bool {
+    let a = (a.0 as f32, a.1 as f32);
+    let b = (b.0 as f32, b.1 as f32);
+    let c = (c.0 as f32, c.1 as f32);
+    let area = signed_area(a, b, c);
+    if area.abs() < 0.001 {
+        return false;
+    }
+    let s = signed_area(p, b, c) / area;
+    let t = signed_area(a, p, c) / area;
+    let u = signed_area(a, b, p) / area;
+    s >= -0.001 && t >= -0.001 && u >= -0.001
+}
+
+fn signed_area(a: (f32, f32), b: (f32, f32), c: (f32, f32)) -> f32 {
+    (b.0 - a.0) * (c.1 - a.1) - (b.1 - a.1) * (c.0 - a.0)
+}
+
+fn distance_to_segment(px: f32, py: f32, a: (i32, i32), b: (i32, i32)) -> f32 {
+    let t = segment_t(px, py, a, b);
+    let ax = a.0 as f32;
+    let ay = a.1 as f32;
+    let bx = b.0 as f32;
+    let by = b.1 as f32;
+    let qx = ax + (bx - ax) * t;
+    let qy = ay + (by - ay) * t;
+    let dx = px - qx;
+    let dy = py - qy;
+    (dx * dx + dy * dy).sqrt()
+}
+
+fn segment_t(px: f32, py: f32, a: (i32, i32), b: (i32, i32)) -> f32 {
+    let ax = a.0 as f32;
+    let ay = a.1 as f32;
+    let bx = b.0 as f32;
+    let by = b.1 as f32;
+    let dx = bx - ax;
+    let dy = by - ay;
+    let denom = dx * dx + dy * dy;
+    if denom <= 0.001 {
+        0.0
+    } else {
+        (((px - ax) * dx + (py - ay) * dy) / denom).clamp(0.0, 1.0)
+    }
 }
 
 fn visual_material_for_cell(material: GroundMaterial) -> GroundMaterial {
