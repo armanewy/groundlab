@@ -7,6 +7,7 @@ use crate::los::{visibility_grid, Visibility};
 use crate::pathfinding::find_path;
 use crate::pixel_image::PixelImage;
 use crate::recipe::{GroundMaterial, StructureFaceKind, TransitionEdge, ViewOrientation};
+use crate::target_style::{TerrainStampDefinition, TerrainStampKind, TerrainStampResolver};
 use crate::terrain::TerrainMap;
 use crate::terrain_artkit::{TerrainArtKit, TerrainArtPieceKind, TerrainArtRepeatMode};
 use crate::tileset::{stable_tile_variant, Tileset};
@@ -53,7 +54,7 @@ impl PreviewMode {
     pub fn label(self) -> &'static str {
         match self {
             PreviewMode::Material => "Command map / flat material",
-            PreviewMode::PerspectiveSpriteScene => "Perspective sprite scene",
+            PreviewMode::PerspectiveSpriteScene => "Target-style editable scene",
             PreviewMode::FauxPerspectiveTerrain => "Faux-perspective 2D debug",
             PreviewMode::AngledTerrain => "Angled 2.5D terrain",
             PreviewMode::ErectedTerrain => "Legacy erected terrain",
@@ -1372,50 +1373,11 @@ fn render_perspective_sprite_scene_preview(
 ) -> PixelImage {
     let proj = perspective_scene_projection(map, tileset, options);
     let scene = VisualScene::from_terrain(map);
+    let target_stamps = TerrainStampResolver::resolve(map);
     let artkit = TerrainArtKit::load_default_or_generate(tileset);
     let mut image = PixelImage::new(proj.width, proj.height, Rgba8::opaque(11, 12, 15));
 
-    // One soft ground plate keeps the scene feeling like a composed illustration instead
-    // of isolated terrain tiles floating on a black editor background.
-    draw_scene_base_plate(&mut image, map, tileset, &artkit, proj);
-
-    for form in scene.forms.iter().filter(|form| form.kind.is_floor_like()) {
-        draw_scene_floor_form(&mut image, map, tileset, &artkit, proj, form);
-    }
-
-    for form in scene.forms.iter().filter(|form| {
-        matches!(
-            form.kind,
-            VisualTerrainFormKind::CliffFace
-                | VisualTerrainFormKind::TrenchRun
-                | VisualTerrainFormKind::BermRun
-                | VisualTerrainFormKind::ShadowPatch
-        )
-    }) {
-        match form.kind {
-            VisualTerrainFormKind::CliffFace => {
-                draw_scene_cliff_form(&mut image, map, tileset, &artkit, proj, form, options)
-            }
-            VisualTerrainFormKind::TrenchRun => {
-                draw_scene_trench_form(&mut image, map, tileset, &artkit, proj, form)
-            }
-            VisualTerrainFormKind::BermRun => {
-                draw_scene_berm_form(&mut image, map, tileset, &artkit, proj, form, options)
-            }
-            VisualTerrainFormKind::ShadowPatch => {
-                draw_scene_shadow_form(&mut image, map, &artkit, proj, form)
-            }
-            _ => {}
-        }
-    }
-
-    for form in scene
-        .forms
-        .iter()
-        .filter(|form| form.kind == VisualTerrainFormKind::Dressing)
-    {
-        draw_scene_dressing_form(&mut image, map, tileset, &artkit, proj, form);
-    }
+    draw_target_style_scene(&mut image, map, tileset, &artkit, proj, &target_stamps);
 
     let hero_scene = HeroScene::load_default_or_builtin();
     draw_hero_scene_placements(&mut image, map, &artkit, proj, &hero_scene);
@@ -1438,6 +1400,9 @@ fn render_perspective_sprite_scene_preview(
     if options.show_feature_overlay {
         for form in &scene.forms {
             draw_scene_form_debug(&mut image, map, proj, form);
+        }
+        for stamp in &target_stamps {
+            draw_target_stamp_debug(&mut image, map, proj, stamp);
         }
     }
     if options.show_grid {
@@ -1489,6 +1454,784 @@ fn perspective_scene_preview_pixel_to_cell(
     None
 }
 
+fn draw_target_style_scene(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    tileset: &Tileset,
+    artkit: &TerrainArtKit,
+    proj: FauxProjection,
+    stamps: &[TerrainStampDefinition],
+) {
+    draw_target_ground_wash(image, map, tileset, proj);
+    for stamp in stamps {
+        match stamp.kind {
+            TerrainStampKind::GrassFieldPatch => {
+                draw_target_grass_stamp(image, map, tileset, artkit, proj, stamp)
+            }
+            TerrainStampKind::DirtRoadSegment | TerrainStampKind::DirtRoadJunction => {
+                draw_target_road_stamp(image, map, tileset, artkit, proj, stamp)
+            }
+            TerrainStampKind::MudPatch => {
+                draw_target_mud_stamp(image, map, tileset, artkit, proj, stamp)
+            }
+            TerrainStampKind::StonePlatform => {
+                draw_target_stone_stamp(image, map, tileset, artkit, proj, stamp)
+            }
+            TerrainStampKind::TrenchStraight
+            | TerrainStampKind::TrenchCorner
+            | TerrainStampKind::TrenchEndCap => {
+                draw_target_trench_stamp(image, map, tileset, artkit, proj, stamp)
+            }
+            TerrainStampKind::BermStraight | TerrainStampKind::BermCorner => {
+                draw_target_berm_stamp(image, map, tileset, artkit, proj, stamp)
+            }
+            TerrainStampKind::GrassTuftCluster
+            | TerrainStampKind::RockScatter
+            | TerrainStampKind::CastShadow => {
+                draw_target_stamp_pieces(image, map, artkit, proj, stamp)
+            }
+        }
+    }
+}
+
+fn draw_target_ground_wash(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    tileset: &Tileset,
+    proj: FauxProjection,
+) {
+    let Some((min_x, min_y, width, height)) = target_map_screen_bounds(map, proj) else {
+        return;
+    };
+    let grass = tileset.palette.sample(GroundMaterial::Grass.ramp(), 0.45);
+    draw_soft_pixel_shadow(
+        image,
+        min_x - 24,
+        min_y + height as i32 - (proj.cell_h / 3) as i32,
+        width + 48,
+        (proj.cell_h / 2).max(24),
+        0.26,
+    );
+    draw_organic_blob(
+        image,
+        ImageRect {
+            x: min_x - 22,
+            y: min_y - 20,
+            width: width + 44,
+            height: height + 40,
+        },
+        grass,
+        0x1101,
+        0.98,
+        0.16,
+    );
+    for i in 0..220 {
+        let x = min_x + (target_hash(i, width, 0x1102) % width.max(1)) as i32;
+        let y = min_y + (target_hash(i, height, 0x1103) % height.max(1)) as i32;
+        let tone = target_noise(0x1104, i, width + height);
+        let color = if tone > 0.55 {
+            grass.lighten(0.10)
+        } else {
+            grass.darken(0.12)
+        };
+        blend_pixel_i32(image, x, y, color, 0.22);
+        if i.is_multiple_of(9) {
+            draw_line_i32(image, x, y + 5, x - 2, y, color.lighten(0.04));
+        }
+    }
+    for (x, y) in faux_draw_order(map, proj.orientation) {
+        let Some(cell) = map.cell(x, y) else {
+            continue;
+        };
+        if y + 1 >= map.height {
+            continue;
+        }
+        let Some(south) = map.cell(x, y + 1) else {
+            continue;
+        };
+        if cell.effective_height() <= south.effective_height() + 0.2 {
+            continue;
+        }
+        let (sx, sy) = proj.cell_top_left(map, x, y);
+        draw_soft_pixel_shadow(
+            image,
+            sx - 10,
+            sy + proj.cell_h as i32 - 8,
+            proj.cell_w + 20,
+            (proj.height_step_px / 2).max(10),
+            0.11,
+        );
+    }
+}
+
+fn draw_target_grass_stamp(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    tileset: &Tileset,
+    artkit: &TerrainArtKit,
+    proj: FauxProjection,
+    stamp: &TerrainStampDefinition,
+) {
+    let _ = artkit;
+    let light = tileset.palette.sample(GroundMaterial::Grass.ramp(), 0.60);
+    for &(x, y) in stamp
+        .cells
+        .iter()
+        .filter(|(x, y)| target_hash(*x, *y, 0x1201).is_multiple_of(5))
+    {
+        let (cx, cy) = proj.cell_center(map, x, y);
+        draw_grass_sprigs(
+            image,
+            cx - proj.cell_w as i32 / 3,
+            cy - proj.cell_h as i32 / 4,
+            (proj.cell_w / 2).max(24),
+            (proj.cell_h / 2).max(20),
+            light,
+            target_hash(x, y, 0x1202),
+        );
+    }
+}
+
+fn draw_target_road_stamp(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    tileset: &Tileset,
+    artkit: &TerrainArtKit,
+    proj: FauxProjection,
+    stamp: &TerrainStampDefinition,
+) {
+    let dirt = tileset.palette.sample(GroundMaterial::Dirt.ramp(), 0.56);
+    for &(x, y) in &stamp.cells {
+        let (cx, cy) = proj.cell_center(map, x, y);
+        for (dx, dy) in [(1_i32, 0_i32), (0, 1)] {
+            let nx = x as i32 + dx;
+            let ny = y as i32 + dy;
+            if nx < 0
+                || ny < 0
+                || nx >= map.width as i32
+                || ny >= map.height as i32
+                || !stamp.cells.contains(&(nx as u32, ny as u32))
+            {
+                continue;
+            }
+            let (ncx, ncy) = proj.cell_center(map, nx as u32, ny as u32);
+            let rect = ImageRect {
+                x: cx.min(ncx) - (proj.cell_w / 2) as i32,
+                y: cy.min(ncy) - (proj.cell_h / 2) as i32,
+                width: (cx - ncx).unsigned_abs() + proj.cell_w.max(32),
+                height: (cy - ncy).unsigned_abs() + proj.cell_h.max(32),
+            };
+            draw_noisy_ellipse(
+                image,
+                rect,
+                dirt.darken(0.02),
+                0.78,
+                target_hash(x, y, 0x2200),
+            );
+        }
+    }
+    for &(x, y) in &stamp.cells {
+        let (cx, cy) = proj.cell_center(map, x, y);
+        let rx = (proj.cell_w / 2).max(28);
+        let ry = (proj.cell_h / 2).max(24);
+        draw_noisy_ellipse(
+            image,
+            ImageRect {
+                x: cx - rx as i32,
+                y: cy + (proj.cell_h / 14) as i32 - ry as i32,
+                width: rx * 2,
+                height: ry * 2,
+            },
+            dirt,
+            0.88,
+            target_hash(x, y, 0x2201),
+        );
+        let rect = ImageRect {
+            x: cx - (proj.cell_w / 2) as i32,
+            y: cy - (proj.cell_h / 2) as i32,
+            width: proj.cell_w,
+            height: proj.cell_h,
+        };
+        draw_road_pebbles(image, rect, tileset, target_hash(x, y, 0x2202));
+    }
+    let _ = artkit;
+    draw_component_boundary_dust(
+        image,
+        map,
+        tileset,
+        proj,
+        stamp,
+        GroundMaterial::Dirt,
+        0x2203,
+    );
+}
+
+fn draw_target_mud_stamp(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    tileset: &Tileset,
+    artkit: &TerrainArtKit,
+    proj: FauxProjection,
+    stamp: &TerrainStampDefinition,
+) {
+    let mud = tileset.palette.sample(GroundMaterial::Mud.ramp(), 0.36);
+    for &(x, y) in &stamp.cells {
+        let (cx, cy) = proj.cell_center(map, x, y);
+        let rx = (proj.cell_w / 2).max(30);
+        let ry = (proj.cell_h / 2).max(26);
+        draw_noisy_ellipse(
+            image,
+            ImageRect {
+                x: cx - rx as i32,
+                y: cy - ry as i32,
+                width: rx * 2,
+                height: ry * 2,
+            },
+            mud,
+            0.82,
+            target_hash(x, y, 0x3301),
+        );
+        let rect = ImageRect {
+            x: cx - (proj.cell_w / 3) as i32,
+            y: cy,
+            width: proj.cell_w * 2 / 3,
+            height: (proj.cell_h / 3).max(14),
+        };
+        draw_soft_pixel_shadow(image, rect.x, rect.y, rect.width, rect.height, 0.08);
+    }
+    let _ = artkit;
+}
+
+fn draw_target_stone_stamp(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    tileset: &Tileset,
+    artkit: &TerrainArtKit,
+    proj: FauxProjection,
+    stamp: &TerrainStampDefinition,
+) {
+    let (x0, y0, width_cells, height_cells) = target_stamp_bounds(&stamp.cells);
+    let (sx, sy, width, height) =
+        target_stamp_screen_rect(map, proj, x0, y0, width_cells, height_cells);
+    let top = tileset.palette.sample(GroundMaterial::Rock.ramp(), 0.58);
+    let side = tileset.palette.sample(GroundMaterial::Rock.ramp(), 0.36);
+    draw_soft_pixel_shadow(
+        image,
+        sx + 10,
+        sy + height as i32 + 6,
+        width,
+        (height / 2).max(18),
+        0.20,
+    );
+    draw_organic_blob(
+        image,
+        ImageRect {
+            x: sx - 8,
+            y: sy - 8,
+            width: width + 16,
+            height: height + 12,
+        },
+        top,
+        target_hash(x0, y0, 0x4401),
+        0.92,
+        0.18,
+    );
+    let face_h = (proj.height_step_px / 2).max(14);
+    blend_rect_i32(image, sx, sy + height as i32 - 4, width, face_h, side, 0.82);
+    draw_stone_block_lines(image, sx, sy, width, height + face_h, top.darken(0.24));
+    draw_target_stamp_pieces(image, map, artkit, proj, stamp);
+}
+
+fn draw_target_trench_stamp(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    tileset: &Tileset,
+    artkit: &TerrainArtKit,
+    proj: FauxProjection,
+    stamp: &TerrainStampDefinition,
+) {
+    let floor = tileset
+        .palette
+        .sample(GroundMaterial::TrenchFloor.ramp(), 0.20);
+    let wall = tileset
+        .palette
+        .sample(GroundMaterial::TrenchWall.ramp(), 0.44);
+    for &(x, y) in &stamp.cells {
+        let (sx, sy) = proj.cell_top_left(map, x, y);
+        let rect = ImageRect {
+            x: sx - 6,
+            y: sy - 4,
+            width: proj.cell_w + 12,
+            height: proj.cell_h + 10,
+        };
+        draw_soft_pixel_shadow(image, rect.x + 4, rect.y + 8, rect.width, rect.height, 0.26);
+        draw_organic_blob(image, rect, wall, target_hash(x, y, 0x5501), 0.90, 0.30);
+        let inner = ImageRect {
+            x: rect.x + (proj.cell_w / 8) as i32,
+            y: rect.y + (proj.cell_h / 5) as i32,
+            width: rect.width.saturating_sub(proj.cell_w / 4),
+            height: rect.height.saturating_sub(proj.cell_h / 3),
+        };
+        draw_organic_blob(image, inner, floor, target_hash(x, y, 0x5502), 0.96, 0.20);
+        draw_wood_wall_lines(image, inner, wall.darken(0.45), target_hash(x, y, 0x5503));
+        draw_trench_boundaries(image, map, tileset, proj, stamp, x, y);
+    }
+    draw_target_stamp_pieces(image, map, artkit, proj, stamp);
+}
+
+fn draw_target_berm_stamp(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    tileset: &Tileset,
+    artkit: &TerrainArtKit,
+    proj: FauxProjection,
+    stamp: &TerrainStampDefinition,
+) {
+    let mound = tileset
+        .palette
+        .sample(GroundMaterial::BermFace.ramp(), 0.50);
+    for &(x, y) in &stamp.cells {
+        let (cx, cy) = proj.cell_center(map, x, y);
+        let rect = ImageRect {
+            x: cx - (proj.cell_w / 2) as i32,
+            y: cy - (proj.cell_h / 3) as i32,
+            width: proj.cell_w,
+            height: (proj.cell_h * 2 / 3).max(36),
+        };
+        draw_soft_pixel_shadow(
+            image,
+            rect.x + 6,
+            rect.y + rect.height as i32 - 8,
+            rect.width,
+            rect.height / 2,
+            0.16,
+        );
+        let rx = (proj.cell_w / 2).max(30);
+        let ry = (proj.cell_h / 3).max(22);
+        draw_noisy_ellipse(
+            image,
+            ImageRect {
+                x: cx - rx as i32,
+                y: cy - ry as i32,
+                width: rx * 2,
+                height: ry * 2,
+            },
+            mound,
+            0.88,
+            target_hash(x, y, 0x6601),
+        );
+        draw_berm_rocks(image, rect, mound.darken(0.30), target_hash(x, y, 0x6602));
+    }
+    let _ = artkit;
+}
+
+fn draw_target_stamp_pieces(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    artkit: &TerrainArtKit,
+    proj: FauxProjection,
+    stamp: &TerrainStampDefinition,
+) {
+    for piece in &stamp.pieces {
+        draw_target_stamp_piece(image, map, artkit, proj, stamp, piece);
+    }
+}
+
+fn draw_target_stamp_piece(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    artkit: &TerrainArtKit,
+    proj: FauxProjection,
+    stamp: &TerrainStampDefinition,
+    piece: &crate::target_style::StampPiece,
+) {
+    let (x0, y0, width_cells, height_cells) = target_stamp_bounds(&stamp.cells);
+    let (sx, sy, width, height) =
+        target_stamp_screen_rect(map, proj, x0, y0, width_cells, height_cells);
+    let dst = ImageRect {
+        x: sx + piece.offset_px.0,
+        y: sy + piece.offset_px.1,
+        width: piece.size_px.0.min(width + proj.cell_w).max(1),
+        height: piece.size_px.1.min(height + proj.cell_h).max(1),
+    };
+    draw_art_piece_region(
+        image,
+        artkit,
+        piece.piece_kind,
+        dst,
+        piece.opacity,
+        piece.seed,
+    );
+}
+
+fn target_stamp_bounds(cells: &[(u32, u32)]) -> (u32, u32, u32, u32) {
+    let min_x = cells.iter().map(|(x, _)| *x).min().unwrap_or(0);
+    let min_y = cells.iter().map(|(_, y)| *y).min().unwrap_or(0);
+    let max_x = cells.iter().map(|(x, _)| *x).max().unwrap_or(min_x);
+    let max_y = cells.iter().map(|(_, y)| *y).max().unwrap_or(min_y);
+    (min_x, min_y, max_x - min_x + 1, max_y - min_y + 1)
+}
+
+fn target_stamp_screen_rect(
+    map: &TerrainMap,
+    proj: FauxProjection,
+    x0: u32,
+    y0: u32,
+    width_cells: u32,
+    height_cells: u32,
+) -> (i32, i32, u32, u32) {
+    let x1 = (x0 + width_cells.saturating_sub(1)).min(map.width.saturating_sub(1));
+    let y1 = (y0 + height_cells.saturating_sub(1)).min(map.height.saturating_sub(1));
+    let mut min_x = i32::MAX;
+    let mut min_y = i32::MAX;
+    let mut max_x = i32::MIN;
+    let mut max_y = i32::MIN;
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            let (sx, sy) = proj.cell_top_left(map, x, y);
+            min_x = min_x.min(sx);
+            min_y = min_y.min(sy);
+            max_x = max_x.max(sx + proj.cell_w as i32);
+            max_y = max_y.max(sy + proj.cell_h as i32);
+        }
+    }
+    (
+        min_x,
+        min_y,
+        (max_x - min_x).max(1) as u32,
+        (max_y - min_y).max(1) as u32,
+    )
+}
+
+fn target_map_screen_bounds(
+    map: &TerrainMap,
+    proj: FauxProjection,
+) -> Option<(i32, i32, u32, u32)> {
+    if map.width == 0 || map.height == 0 {
+        return None;
+    }
+    let mut min_x = i32::MAX;
+    let mut min_y = i32::MAX;
+    let mut max_x = i32::MIN;
+    let mut max_y = i32::MIN;
+    for y in 0..map.height {
+        for x in 0..map.width {
+            let (sx, sy) = proj.cell_top_left(map, x, y);
+            min_x = min_x.min(sx);
+            min_y = min_y.min(sy);
+            max_x = max_x.max(sx + proj.cell_w as i32);
+            max_y = max_y.max(sy + proj.cell_h as i32);
+        }
+    }
+    Some((
+        min_x,
+        min_y,
+        (max_x - min_x).max(1) as u32,
+        (max_y - min_y).max(1) as u32,
+    ))
+}
+
+fn draw_organic_blob(
+    image: &mut PixelImage,
+    rect: ImageRect,
+    base: Rgba8,
+    seed: u32,
+    alpha: f32,
+    raggedness: f32,
+) {
+    if rect.width == 0 || rect.height == 0 {
+        return;
+    }
+    let rx = rect.width.max(1) as f32;
+    let ry = rect.height.max(1) as f32;
+    for yy in 0..rect.height {
+        for xx in 0..rect.width {
+            let x = rect.x + xx as i32;
+            let y = rect.y + yy as i32;
+            if !image.in_bounds(x, y) {
+                continue;
+            }
+            let nx = xx as f32 / rx;
+            let ny = yy as f32 / ry;
+            let edge = nx.min(1.0 - nx).min(ny).min(1.0 - ny).max(0.0);
+            let n = target_noise(seed, xx / 5, yy / 5);
+            let threshold = raggedness * (0.10 + n * 0.16);
+            let edge_alpha = ((edge - threshold) / 0.10).clamp(0.0, 1.0);
+            if edge_alpha <= 0.0 {
+                continue;
+            }
+            let detail = target_noise(seed ^ 0x51f0, xx / 3, yy / 3) - 0.5;
+            let color = if detail > 0.0 {
+                base.lighten(detail * 0.12)
+            } else {
+                base.darken(-detail * 0.12)
+            };
+            blend_pixel_i32(image, x, y, color, alpha * edge_alpha);
+        }
+    }
+}
+
+fn draw_noisy_ellipse(image: &mut PixelImage, rect: ImageRect, base: Rgba8, alpha: f32, seed: u32) {
+    let radius_x = rect.width / 2;
+    let radius_y = rect.height / 2;
+    if radius_x == 0 || radius_y == 0 {
+        return;
+    }
+    let center_x = rect.x + radius_x as i32;
+    let center_y = rect.y + radius_y as i32;
+    let rx = radius_x as i32;
+    let ry = radius_y as i32;
+    let rx_f = radius_x as f32;
+    let ry_f = radius_y as f32;
+    for yy in -ry..=ry {
+        for xx in -rx..=rx {
+            let nx = xx as f32 / rx_f;
+            let ny = yy as f32 / ry_f;
+            let dist = nx * nx + ny * ny;
+            let noise = target_noise(seed, (xx + rx) as u32 / 4, (yy + ry) as u32 / 4);
+            let edge = 1.0 + (noise - 0.5) * 0.30;
+            if dist > edge {
+                continue;
+            }
+            let fade = ((edge - dist) / 0.22).clamp(0.0, 1.0);
+            let detail =
+                target_noise(seed ^ 0x6c8e, (xx + rx) as u32 / 3, (yy + ry) as u32 / 3) - 0.5;
+            let color = if detail > 0.0 {
+                base.lighten(detail * 0.14)
+            } else {
+                base.darken(-detail * 0.14)
+            };
+            blend_pixel_i32(image, center_x + xx, center_y + yy, color, alpha * fade);
+        }
+    }
+}
+
+fn draw_road_pebbles(image: &mut PixelImage, rect: ImageRect, tileset: &Tileset, seed: u32) {
+    let pebble = tileset.palette.sample(GroundMaterial::Rock.ramp(), 0.58);
+    for i in 0..18 {
+        let x = rect.x + (target_hash(i, seed, 0x2211) % rect.width.max(1)) as i32;
+        let y = rect.y + (target_hash(i, seed, 0x2212) % rect.height.max(1)) as i32;
+        let w = 2 + target_hash(i, seed, 0x2213) % 5;
+        let h = 1 + target_hash(i, seed, 0x2214) % 3;
+        blend_rect_i32(image, x, y, w, h, pebble.darken(0.12), 0.42);
+    }
+}
+
+fn draw_component_boundary_dust(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    tileset: &Tileset,
+    proj: FauxProjection,
+    stamp: &TerrainStampDefinition,
+    material: GroundMaterial,
+    seed: u32,
+) {
+    let color = tileset.palette.sample(material.ramp(), 0.64).lighten(0.05);
+    for &(x, y) in &stamp.cells {
+        for (dx, dy) in [(0_i32, -1_i32), (1, 0), (0, 1), (-1, 0)] {
+            let nx = x as i32 + dx;
+            let ny = y as i32 + dy;
+            if nx >= 0
+                && ny >= 0
+                && nx < map.width as i32
+                && ny < map.height as i32
+                && stamp.cells.contains(&(nx as u32, ny as u32))
+            {
+                continue;
+            }
+            let (sx, sy) = proj.cell_top_left(map, x, y);
+            let (px, py, w, h) = match (dx, dy) {
+                (0, -1) => (sx, sy - 4, proj.cell_w, 10),
+                (0, 1) => (sx, sy + proj.cell_h as i32 - 6, proj.cell_w, 12),
+                (-1, 0) => (sx - 4, sy, 10, proj.cell_h),
+                (1, 0) => (sx + proj.cell_w as i32 - 6, sy, 12, proj.cell_h),
+                _ => (sx, sy, proj.cell_w, proj.cell_h),
+            };
+            draw_organic_blob(
+                image,
+                ImageRect {
+                    x: px,
+                    y: py,
+                    width: w,
+                    height: h,
+                },
+                color,
+                target_hash(x, y, seed),
+                0.26,
+                0.50,
+            );
+        }
+    }
+}
+
+fn draw_grass_sprigs(
+    image: &mut PixelImage,
+    x0: i32,
+    y0: i32,
+    width: u32,
+    height: u32,
+    color: Rgba8,
+    seed: u32,
+) {
+    for i in 0..9 {
+        let x = x0 + (target_hash(i, seed, 0x1203) % width.max(1)) as i32;
+        let y = y0 + (target_hash(i, seed, 0x1204) % height.max(1)) as i32;
+        draw_line_i32(image, x, y + 8, x - 3, y, color.darken(0.12));
+        draw_line_i32(image, x, y + 8, x + 3, y + 1, color);
+    }
+}
+
+fn draw_stone_block_lines(
+    image: &mut PixelImage,
+    sx: i32,
+    sy: i32,
+    width: u32,
+    height: u32,
+    color: Rgba8,
+) {
+    let row_h = 18_i32;
+    let col_w = 38_i32;
+    let max_y = sy + height as i32;
+    let max_x = sx + width as i32;
+    let mut y = sy + row_h;
+    while y < max_y {
+        draw_line_i32(image, sx + 4, y, max_x - 5, y + ((y / row_h) % 2), color);
+        y += row_h;
+    }
+    let mut x = sx + col_w;
+    while x < max_x {
+        draw_line_i32(image, x, sy + 4, x - 2, max_y - 5, color.darken(0.05));
+        x += col_w;
+    }
+}
+
+fn draw_wood_wall_lines(image: &mut PixelImage, rect: ImageRect, color: Rgba8, seed: u32) {
+    let plank_h = (rect.height / 5).max(5);
+    let mut y = rect.y + plank_h as i32;
+    while y < rect.y + rect.height as i32 {
+        draw_line_i32(
+            image,
+            rect.x + 4,
+            y,
+            rect.x + rect.width as i32 - 6,
+            y - 1,
+            color,
+        );
+        y += plank_h as i32;
+    }
+    for i in 0..4 {
+        let x = rect.x + (target_hash(i, seed, 0x5504) % rect.width.max(1)) as i32;
+        draw_line_i32(
+            image,
+            x,
+            rect.y + 4,
+            x - 2,
+            rect.y + rect.height as i32 - 5,
+            color,
+        );
+    }
+}
+
+fn draw_trench_boundaries(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    tileset: &Tileset,
+    proj: FauxProjection,
+    stamp: &TerrainStampDefinition,
+    x: u32,
+    y: u32,
+) {
+    let lip = tileset
+        .palette
+        .sample(GroundMaterial::TrenchWall.ramp(), 0.58);
+    for (dx, dy) in [(0_i32, -1_i32), (1, 0), (0, 1), (-1, 0)] {
+        let nx = x as i32 + dx;
+        let ny = y as i32 + dy;
+        if nx >= 0
+            && ny >= 0
+            && nx < map.width as i32
+            && ny < map.height as i32
+            && stamp.cells.contains(&(nx as u32, ny as u32))
+        {
+            continue;
+        }
+        let (sx, sy) = proj.cell_top_left(map, x, y);
+        let (px, py, w, h) = match (dx, dy) {
+            (0, -1) => (sx, sy - 2, proj.cell_w, 9),
+            (0, 1) => (sx, sy + proj.cell_h as i32 - 7, proj.cell_w, 11),
+            (-1, 0) => (sx - 2, sy, 8, proj.cell_h),
+            (1, 0) => (sx + proj.cell_w as i32 - 6, sy, 8, proj.cell_h),
+            _ => (sx, sy, proj.cell_w, proj.cell_h),
+        };
+        draw_organic_blob(
+            image,
+            ImageRect {
+                x: px,
+                y: py,
+                width: w,
+                height: h,
+            },
+            lip,
+            target_hash(x, y, 0x5511),
+            0.78,
+            0.45,
+        );
+    }
+}
+
+fn draw_berm_rocks(image: &mut PixelImage, rect: ImageRect, color: Rgba8, seed: u32) {
+    for i in 0..16 {
+        let x = rect.x + (target_hash(i, seed, 0x6611) % rect.width.max(1)) as i32;
+        let y = rect.y + (target_hash(i, seed, 0x6612) % rect.height.max(1)) as i32;
+        let w = 2 + target_hash(i, seed, 0x6613) % 6;
+        blend_rect_i32(image, x, y, w, 2, color, 0.45);
+    }
+}
+
+fn draw_target_stamp_debug(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    proj: FauxProjection,
+    stamp: &TerrainStampDefinition,
+) {
+    let (x0, y0, width_cells, height_cells) = target_stamp_bounds(&stamp.cells);
+    let (sx, sy, width, height) =
+        target_stamp_screen_rect(map, proj, x0, y0, width_cells, height_cells);
+    let color = match stamp.kind {
+        TerrainStampKind::GrassFieldPatch => Rgba8::opaque(72, 156, 86),
+        TerrainStampKind::DirtRoadSegment | TerrainStampKind::DirtRoadJunction => {
+            Rgba8::opaque(216, 161, 88)
+        }
+        TerrainStampKind::TrenchStraight
+        | TerrainStampKind::TrenchCorner
+        | TerrainStampKind::TrenchEndCap => Rgba8::opaque(72, 178, 222),
+        TerrainStampKind::BermStraight | TerrainStampKind::BermCorner => {
+            Rgba8::opaque(238, 196, 83)
+        }
+        TerrainStampKind::StonePlatform => Rgba8::opaque(157, 178, 196),
+        TerrainStampKind::MudPatch => Rgba8::opaque(88, 78, 65),
+        TerrainStampKind::GrassTuftCluster
+        | TerrainStampKind::RockScatter
+        | TerrainStampKind::CastShadow => Rgba8::opaque(210, 178, 112),
+    };
+    outline_rect_i32(image, sx, sy, width, height, color);
+    blend_rect_i32(image, sx, sy, width, height, color, 0.025);
+}
+
+fn target_hash(x: u32, y: u32, salt: u32) -> u32 {
+    let mut v = salt ^ x.wrapping_mul(0x9e37_79b1) ^ y.wrapping_mul(0x85eb_ca6b);
+    v ^= v >> 16;
+    v = v.wrapping_mul(0x7feb_352d);
+    v ^= v >> 15;
+    v = v.wrapping_mul(0x846c_a68b);
+    v ^ (v >> 16)
+}
+
+fn target_noise(seed: u32, x: u32, y: u32) -> f32 {
+    target_hash(x, y, seed) as f32 / u32::MAX as f32
+}
+
+#[allow(dead_code)]
 fn draw_scene_base_plate(
     image: &mut PixelImage,
     map: &TerrainMap,
@@ -1541,6 +2284,7 @@ fn draw_scene_base_plate(
     }
 }
 
+#[allow(dead_code)]
 fn draw_scene_floor_form(
     image: &mut PixelImage,
     map: &TerrainMap,
@@ -1625,6 +2369,7 @@ fn draw_scene_floor_form(
     }
 }
 
+#[allow(dead_code)]
 fn draw_scene_cliff_form(
     image: &mut PixelImage,
     map: &TerrainMap,
@@ -1744,6 +2489,7 @@ fn draw_scene_cliff_form(
     }
 }
 
+#[allow(dead_code)]
 fn draw_scene_trench_form(
     image: &mut PixelImage,
     map: &TerrainMap,
@@ -1862,6 +2608,7 @@ fn draw_scene_trench_form(
     );
 }
 
+#[allow(dead_code)]
 fn draw_scene_berm_form(
     image: &mut PixelImage,
     map: &TerrainMap,
@@ -1963,6 +2710,7 @@ fn draw_scene_berm_form(
     );
 }
 
+#[allow(dead_code)]
 fn draw_scene_shadow_form(
     image: &mut PixelImage,
     map: &TerrainMap,
@@ -1988,6 +2736,7 @@ fn draw_scene_shadow_form(
     }
 }
 
+#[allow(dead_code)]
 fn draw_scene_dressing_form(
     image: &mut PixelImage,
     map: &TerrainMap,
@@ -2078,6 +2827,7 @@ fn draw_hero_scene_placement(
     );
 }
 
+#[allow(dead_code)]
 fn draw_engineering_pad(
     image: &mut PixelImage,
     tileset: &Tileset,
@@ -2153,6 +2903,7 @@ fn draw_engineering_pad(
     }
 }
 
+#[allow(dead_code)]
 fn draw_scene_road_edges(
     image: &mut PixelImage,
     tileset: &Tileset,
@@ -2207,6 +2958,7 @@ fn draw_scene_road_edges(
     }
 }
 
+#[allow(dead_code)]
 fn draw_scene_mud_basin(
     image: &mut PixelImage,
     tileset: &Tileset,
@@ -2238,6 +2990,7 @@ fn draw_scene_mud_basin(
     );
 }
 
+#[allow(dead_code)]
 fn draw_scene_rock_mass(
     image: &mut PixelImage,
     tileset: &Tileset,
@@ -2266,6 +3019,7 @@ fn draw_scene_rock_mass(
     );
 }
 
+#[allow(dead_code)]
 fn draw_scene_platform_cap(
     image: &mut PixelImage,
     tileset: &Tileset,
@@ -2404,6 +3158,7 @@ fn draw_tiled_image_region(
     }
 }
 
+#[allow(dead_code)]
 fn scene_cutaway_alpha(
     map: &TerrainMap,
     proj: FauxProjection,

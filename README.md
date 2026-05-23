@@ -4,16 +4,18 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: Milestone 4.7 — hero scene art direction lock
+## Current status: Milestone 4.8R — target-look editable scene renderer
 
-Milestone 4.7 keeps the external art-kit architecture and adds a hero-scene overlay manifest for
-hand-placed dressing. The renderer still derives larger visual forms from the terrain simulation
-grid, but the art direction pass can now place props, caps, cast shadows, spoil piles, logs, stakes,
-sandbags, broken ledges, and worn-road patches over that procedural base. The default benchmark is
-a smaller 14x9 hero scene.
+Milestone 4.8R keeps editable terrain as the source of truth and changes the default visual renderer
+from row-merged rectangles to target-style stamps. The renderer resolves connected terrain features
+into art-directed stamp definitions, then draws organic grass, dirt-road, trench, berm, stone, mud,
+shadow, and dressing passes from the existing terrain grid, art kit, and hero scene.
 
 New in this milestone:
 
+- `TerrainStampResolver` derives target-style stamps from `TerrainMap` + `TerrainFeatureMap`
+- `TerrainStampDefinition` / `StampPiece` bridge editable terrain to art-directed sprite groups
+- `terrain_stamps.json` exports the resolved stamp list for debugging/decomposition
 - `assets/artkits/dry_upland_outpost/manifest.ron` now describes 50 source art pieces
 - `assets/artkits/dry_upland_outpost/pieces/*.png` contains authored-looking variants, props, caps, and shadows
 - `assets/heroscenes/dry_upland_outpost_hero_01.ron` places hero-scene dressing over the terrain forms
@@ -23,11 +25,11 @@ New in this milestone:
 - art-kit validation reports missing pieces, duplicate ids, bad footprints, and size mismatches
 - `terrain_artkit_atlas.png`, `terrain_artkit_manifest.json`, and `terrain_artkit_validation.json` are exported with the bundle
 - `terrain_preview_visual_target_no_overlay.png` is exported for judging art without route/marker overlays
-- perspective scene rendering consumes named art pieces instead of only raw rectangles
-- floor regions, roads, trench runs, berm runs, cliff faces, shadows, and dressing use the art kit
-- `PreviewMode::PerspectiveSpriteScene` remains the default view
+- perspective scene rendering now uses the target-style stamp pass instead of big visual rectangles
+- roads, trenches, berms, grass, stone, and mud draw with organic software masks and stamp groups
+- `PreviewMode::PerspectiveSpriteScene` remains the default view, now labeled target-style editable scene
 - `VisualScene` and `VisualTerrainForm` still export larger forms derived from the terrain grid
-- CLI/app export target defaults to `exports/milestone_04_7`
+- CLI/app export target defaults to `exports/milestone_04_8r`
 
 The prior faux, angled, erected, and flat previews remain available as debug views. The design goal
 remains terrain-first: trenches, berms, elevation, line of sight, route shaping, movement cost, and
@@ -55,13 +57,13 @@ between runs.
 ## CLI export
 
 ```bash
-cargo run -p ground_cli -- export exports/milestone_04_7
+cargo run -p ground_cli -- export exports/milestone_04_8r
 ```
 
 Optional explicit files:
 
 ```bash
-cargo run -p ground_cli -- export exports/milestone_04_7 recipes/dry_upland_outpost.ron palettes/muted_field_32.ron
+cargo run -p ground_cli -- export exports/milestone_04_8r recipes/dry_upland_outpost.ron palettes/muted_field_32.ron
 ```
 
 Validation only:
@@ -72,7 +74,7 @@ cargo run -p ground_cli -- validate
 
 ## Export bundle
 
-Milestone 4.7 writes:
+Milestone 4.8R writes:
 
 ```txt
 terrain_atlas.png
@@ -89,6 +91,7 @@ terrain_preview_visual_target.png
 terrain_preview_visual_target_no_overlay.png
 terrain_preview_visual_target_debug.png
 terrain_forms.json
+terrain_stamps.json
 terrain_artkit_atlas.png
 terrain_artkit_manifest.json
 terrain_artkit_validation.json
@@ -125,6 +128,5 @@ crates/
 
 ## Important scope note
 
-This is still not the final game runtime. Milestone 4.7 is an art-direction lock pass, not a renderer
-rewrite. It deliberately allows hand-placed hero-scene dressing so the visual target can improve
-before moving on to GPU/runtime work.
+This is still not the final game runtime. Milestone 4.8R is a renderer/art-kit correction: the target
+image remains a reference, while the editable GroundLab terrain remains the source of truth.

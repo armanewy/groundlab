@@ -17,6 +17,8 @@ for one future game family: terrain-first prepared-ground defense.
 - Software preview renderer
 - Faux-perspective 2D terrain preview with sprite-stacked faces/lips/shadows
 - Experimental angled terrain preview and legacy 2.5D erected preview
+- Target-style stamp resolver for editable terrain features
+- Hero-scene dressing overlay for visual art-direction passes
 - A* route query
 - Line-of-sight query
 - Export bundle format
@@ -176,3 +178,26 @@ simulation grid -> visual forms -> art-kit pieces -> hero-scene placements -> de
 `HeroScene` is intentionally allowed to be hand-authored. It gives the workbench a way to prove a
 small art-directed battlefield with props, caps, broken edges, vertical silhouettes, and cast shadows
 while preserving the underlying terrain simulation, route preview, LOS, and form export contracts.
+
+## Milestone 4.8R target-look editable scene note
+
+Milestone 4.8R keeps editable terrain as the source of truth and changes the default perspective
+scene from row-merged visual rectangles to target-style terrain stamps:
+
+```txt
+simulation grid -> feature map -> target-style stamps -> art-kit pieces -> hero-scene placements -> debug overlays
+```
+
+`TerrainStampResolver` derives connected grass, road, mud, stone, trench, and berm components from
+`TerrainMap` plus `TerrainFeatureMap`. Each component becomes a `TerrainStampDefinition` with
+`StampPiece` entries describing the art-kit pieces, offsets, opacity, and z-bias needed to draw that
+feature as an art-directed group.
+
+This is a renderer/art-kit correction, not a new backdrop system. The target reference image is used
+as an art-direction guide only. When a brush edits terrain, the terrain data changes first; the stamp
+resolver can then rebuild the affected visual feature groups while pathing, LOS, cover, and debug
+overlays continue to query the same terrain map.
+
+The export bundle now writes both `terrain_forms.json` and `terrain_stamps.json`. Forms remain useful
+for high-level inspection, while stamps are the bridge toward target-look assets such as organic road
+patches, trench bodies, berm mounds, stone platforms, prop clusters, and cast shadows.

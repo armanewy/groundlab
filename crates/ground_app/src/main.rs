@@ -127,7 +127,7 @@ impl GroundLabApp {
             dirty_assets: true,
             dirty_preview: true,
             last_preview_size: [1, 1],
-            status: "Ready. Milestone 4.7 art-direction lock is active: hero-scene placements add props, caps, shadows, and dressing over the terrain forms.".to_string(),
+            status: "Ready. Milestone 4.8R target-look renderer is active: editable terrain resolves into art-directed stamps before overlays.".to_string(),
         };
         app.refresh_if_dirty(&cc.egui_ctx);
         app
@@ -686,9 +686,9 @@ impl GroundLabApp {
                 &self.tileset,
                 &self.palette,
                 &self.terrain,
-                "exports/milestone_04_7",
+                "exports/milestone_04_8r",
             ) {
-                Ok(()) => self.status = "Exported to exports/milestone_04_7".to_string(),
+                Ok(()) => self.status = "Exported to exports/milestone_04_8r".to_string(),
                 Err(err) => self.status = format!("Export failed: {err}"),
             }
         }

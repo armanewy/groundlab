@@ -197,6 +197,21 @@ This milestone is allowed to cheat visually. The simulation grid and visual form
 the art-direction pass can place non-rectangular props, caps, silhouettes, and shadows to prove the
 look before the renderer becomes more procedural.
 
+## Milestone 4.8R — Target-look editable scene renderer
+
+Implemented in this drop.
+
+- `TerrainStampResolver` added to derive target-style stamps from `TerrainMap` and `TerrainFeatureMap`
+- `TerrainStampDefinition` and `StampPiece` added as the feature-to-art bridge
+- default perspective preview now renders connected terrain features as organic stamp groups instead of row-merged rectangles
+- grass, road, mud, stone, trench, and berm components draw from editable terrain with software masks, lip/edge passes, shadows, pebbles, planks, and deterministic dressing
+- hero-scene placements still draw on top, while route/LOS/debug overlays remain functional
+- export bundle writes `terrain_stamps.json`
+- CLI/app export target defaults to `exports/milestone_04_8r`
+
+The target image is now treated as a style reference, not a backdrop. Editable GroundLab terrain
+remains the source of truth.
+
 ## Milestone 5 — Custom renderer/runtime
 
 - introduce `ground_render`

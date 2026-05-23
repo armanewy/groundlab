@@ -13,6 +13,7 @@ use crate::mask::{
 use crate::palette::{palette_to_file, Palette};
 use crate::preview::{render_terrain_preview, PreviewMode, PreviewOptions};
 use crate::recipe::ViewOrientation;
+use crate::target_style::TerrainStampResolver;
 use crate::terrain::TerrainMap;
 use crate::terrain_artkit::{TerrainArtKit, TerrainArtKitValidation};
 use crate::tileset::{TileMetadata, Tileset};
@@ -62,6 +63,8 @@ pub struct TilesetExportMetadata {
     pub terrain_preview_visual_target_no_overlay_path: String,
     pub terrain_preview_visual_target_debug_path: String,
     pub terrain_forms_path: String,
+    pub terrain_stamps_path: String,
+    pub terrain_stamp_count: usize,
     pub terrain_artkit_atlas_path: String,
     pub terrain_artkit_manifest_path: String,
     pub terrain_artkit_validation_path: String,
@@ -182,6 +185,9 @@ pub fn export_tileset_bundle_with_palette(
     let visual_scene = VisualScene::from_terrain(terrain);
     let visual_scene_json = serde_json::to_string_pretty(&visual_scene)?;
     fs::write(out_dir.join("terrain_forms.json"), visual_scene_json)?;
+    let target_stamps = TerrainStampResolver::resolve(terrain);
+    let target_stamps_json = serde_json::to_string_pretty(&target_stamps)?;
+    fs::write(out_dir.join("terrain_stamps.json"), target_stamps_json)?;
 
     let artkit = TerrainArtKit::load_default_or_generate(tileset);
     let artkit_atlas = artkit.build_atlas(padding);
@@ -376,6 +382,11 @@ pub fn export_metadata(
         terrain_preview_visual_target_debug_path: "terrain_preview_visual_target_debug.png"
             .to_string(),
         terrain_forms_path: "terrain_forms.json".to_string(),
+        terrain_stamps_path: "terrain_stamps.json".to_string(),
+        terrain_stamp_count: {
+            let visual = TerrainMap::visual_target(14, 9, tileset.recipe.seed);
+            TerrainStampResolver::resolve(&visual).len()
+        },
         terrain_artkit_atlas_path: "terrain_artkit_atlas.png".to_string(),
         terrain_artkit_manifest_path: "terrain_artkit_manifest.json".to_string(),
         terrain_artkit_validation_path: "terrain_artkit_validation.json".to_string(),

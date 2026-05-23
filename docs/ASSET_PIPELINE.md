@@ -164,3 +164,15 @@ terrain forms.
 The art kit now includes 50 source pieces. The new categories are meant to break the rectangular
 strip look without requiring a renderer rewrite: `HeroScene` decides where the cinematic dressing
 goes, `TerrainArtKit` supplies the sprites, and debug overlays can still reveal the hidden grid.
+
+## Milestone 4.8R target-style stamp note
+
+Milestone 4.8R adds `TerrainStampResolver`. It keeps editable terrain as source data, derives
+connected feature components from `TerrainMap` + `TerrainFeatureMap`, and resolves those components
+into `TerrainStampDefinition` records. The perspective preview then draws those stamps with organic
+software masks and art-kit pieces instead of stretching visual forms into long rectangles.
+
+The export bundle writes `terrain_stamps.json` so the stamp decomposition can be inspected alongside
+`terrain_forms.json`. This is the bridge toward target-look assets such as road segments, trench
+bodies, berm mounds, stone platforms, shadows, and dressing while preserving terrain brushes, pathing,
+LOS, and debug overlays.
