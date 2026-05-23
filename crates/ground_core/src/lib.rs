@@ -1,6 +1,7 @@
 pub mod color;
 pub mod export;
 pub mod feature;
+pub mod hero_scene;
 pub mod los;
 pub mod mask;
 pub mod palette;
@@ -19,6 +20,7 @@ pub mod visual_scene;
 pub use color::*;
 pub use export::*;
 pub use feature::*;
+pub use hero_scene::*;
 pub use los::*;
 pub use mask::*;
 pub use palette::*;

@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::color::{clamp01, Rgba8};
 use crate::feature::{CardinalDir, EdgeMask, TerrainFeatureKind, TerrainFeatureMap};
+use crate::hero_scene::{HeroPlacement, HeroScene};
 use crate::los::{visibility_grid, Visibility};
 use crate::pathfinding::find_path;
 use crate::pixel_image::PixelImage;
@@ -83,6 +84,8 @@ pub struct PreviewOptions {
     /// Draw a projected route over the 2.5D terrain. Planning overlays should win
     /// over occluders so pathing remains inspectable.
     pub show_projected_route: bool,
+    /// Draw spawn/objective markers. Visual judgement exports can disable these.
+    pub show_scene_markers: bool,
     /// Draw thin generated lip strips on exposed terrain cuts.
     pub show_structure_lips: bool,
     /// Workbench debug overlay for derived feature masks and coherent terrain runs.
@@ -102,6 +105,7 @@ impl Default for PreviewOptions {
             enable_local_cutaway: true,
             inspect_cell: None,
             show_projected_route: true,
+            show_scene_markers: true,
             show_structure_lips: true,
             show_feature_overlay: false,
             view_orientation: ViewOrientation::SouthEast,
@@ -1413,6 +1417,9 @@ fn render_perspective_sprite_scene_preview(
         draw_scene_dressing_form(&mut image, map, tileset, &artkit, proj, form);
     }
 
+    let hero_scene = HeroScene::load_default_or_builtin();
+    draw_hero_scene_placements(&mut image, map, &artkit, proj, &hero_scene);
+
     if options.show_projected_route {
         let path = find_path(map, map.spawn, map.objective);
         draw_faux_path(
@@ -1441,20 +1448,22 @@ fn render_perspective_sprite_scene_preview(
     if let Some(cell) = options.inspect_cell {
         draw_faux_selection(&mut image, map, proj, cell, Rgba8::opaque(154, 215, 238));
     }
-    draw_faux_marker(
-        &mut image,
-        map,
-        proj,
-        map.spawn,
-        Rgba8::opaque(99, 169, 218),
-    );
-    draw_faux_marker(
-        &mut image,
-        map,
-        proj,
-        map.objective,
-        Rgba8::opaque(225, 196, 91),
-    );
+    if options.show_scene_markers {
+        draw_faux_marker(
+            &mut image,
+            map,
+            proj,
+            map.spawn,
+            Rgba8::opaque(99, 169, 218),
+        );
+        draw_faux_marker(
+            &mut image,
+            map,
+            proj,
+            map.objective,
+            Rgba8::opaque(225, 196, 91),
+        );
+    }
     image
 }
 
@@ -2018,6 +2027,54 @@ fn draw_scene_dressing_form(
         },
         0.62,
         form.rect.y,
+    );
+}
+
+fn draw_hero_scene_placements(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    artkit: &TerrainArtKit,
+    proj: FauxProjection,
+    scene: &HeroScene,
+) {
+    let mut placements = scene.placements.iter().collect::<Vec<_>>();
+    placements.sort_by_key(|placement| {
+        (
+            placement.z_bias,
+            placement.cell.1,
+            placement.cell.0,
+            placement.id.as_str(),
+        )
+    });
+    for placement in placements {
+        draw_hero_scene_placement(image, map, artkit, proj, placement);
+    }
+}
+
+fn draw_hero_scene_placement(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    artkit: &TerrainArtKit,
+    proj: FauxProjection,
+    placement: &HeroPlacement,
+) {
+    if placement.cell.0 >= map.width || placement.cell.1 >= map.height {
+        return;
+    }
+    let (cx, cy) = proj.cell_center(map, placement.cell.0, placement.cell.1);
+    let dst = ImageRect {
+        x: cx - placement.size_px.0 as i32 / 2 + placement.offset_px.0,
+        y: cy - placement.size_px.1 as i32 / 2 + placement.offset_px.1,
+        width: placement.size_px.0.max(1),
+        height: placement.size_px.1.max(1),
+    };
+    draw_art_piece_region(
+        image,
+        artkit,
+        placement.piece_kind,
+        dst,
+        placement.opacity,
+        placement.seed,
     );
 }
 

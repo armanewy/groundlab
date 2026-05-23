@@ -59,6 +59,7 @@ pub struct TilesetExportMetadata {
     pub terrain_preview_faux_features_path: String,
     pub terrain_preview_faux_orientation_paths: Vec<String>,
     pub terrain_preview_visual_target_path: String,
+    pub terrain_preview_visual_target_no_overlay_path: String,
     pub terrain_preview_visual_target_debug_path: String,
     pub terrain_forms_path: String,
     pub terrain_artkit_atlas_path: String,
@@ -128,6 +129,7 @@ pub fn export_tileset_bundle_with_palette(
         enable_local_cutaway: true,
         inspect_cell: None,
         show_projected_route: true,
+        show_scene_markers: true,
         show_structure_lips: true,
         show_feature_overlay: false,
         view_orientation: tileset.recipe.projection.default_orientation,
@@ -151,6 +153,21 @@ pub fn export_tileset_bundle_with_palette(
         &preview_options,
     );
     visual_target_preview.save_png(out_dir.join("terrain_preview_visual_target.png"))?;
+
+    let mut visual_no_overlay_options = preview_options.clone();
+    visual_no_overlay_options.show_projected_route = false;
+    visual_no_overlay_options.show_scene_markers = false;
+    visual_no_overlay_options.inspect_cell = None;
+    visual_no_overlay_options.show_feature_overlay = false;
+    visual_no_overlay_options.show_grid = false;
+    let visual_target_no_overlay = render_terrain_preview(
+        terrain,
+        tileset,
+        PreviewMode::PerspectiveSpriteScene,
+        &visual_no_overlay_options,
+    );
+    visual_target_no_overlay
+        .save_png(out_dir.join("terrain_preview_visual_target_no_overlay.png"))?;
 
     let mut visual_debug_options = preview_options.clone();
     visual_debug_options.show_feature_overlay = true;
@@ -354,6 +371,8 @@ pub fn export_metadata(
             .map(|orientation| format!("terrain_preview_faux_{}.png", orientation.id()))
             .collect(),
         terrain_preview_visual_target_path: "terrain_preview_visual_target.png".to_string(),
+        terrain_preview_visual_target_no_overlay_path:
+            "terrain_preview_visual_target_no_overlay.png".to_string(),
         terrain_preview_visual_target_debug_path: "terrain_preview_visual_target_debug.png"
             .to_string(),
         terrain_forms_path: "terrain_forms.json".to_string(),
@@ -365,11 +384,11 @@ pub fn export_metadata(
             .len(),
         terrain_artkit_validation: TerrainArtKit::load_default_or_generate(tileset).validate(),
         visual_target_form_count: {
-            let visual = TerrainMap::visual_target(16, 12, tileset.recipe.seed);
+            let visual = TerrainMap::visual_target(14, 9, tileset.recipe.seed);
             VisualScene::from_terrain(&visual).forms.len()
         },
         visual_target_summary: {
-            let visual = TerrainMap::visual_target(16, 12, tileset.recipe.seed);
+            let visual = TerrainMap::visual_target(14, 9, tileset.recipe.seed);
             VisualScene::from_terrain(&visual).summary_line()
         },
         art_preview_structural_edge_count: {

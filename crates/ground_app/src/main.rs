@@ -91,7 +91,7 @@ impl GroundLabApp {
                 validation,
             }
         });
-        let terrain = TerrainMap::visual_target(16, 12, loaded.recipe.seed);
+        let terrain = TerrainMap::visual_target(14, 9, loaded.recipe.seed);
         let mut app = Self {
             recipe_path_text: paths.recipe_path.to_string_lossy().to_string(),
             palette_path_text: paths.palette_path.to_string_lossy().to_string(),
@@ -107,6 +107,7 @@ impl GroundLabApp {
                 enable_local_cutaway: true,
                 inspect_cell: None,
                 show_projected_route: true,
+                show_scene_markers: true,
                 show_structure_lips: true,
                 show_feature_overlay: false,
                 view_orientation: loaded.recipe.projection.default_orientation,
@@ -126,7 +127,7 @@ impl GroundLabApp {
             dirty_assets: true,
             dirty_preview: true,
             last_preview_size: [1, 1],
-            status: "Ready. Milestone 4.6 hero art pass is active: external pieces now provide art-directed variants for floors, roads, trench/berm walls, caps, shadows, and dressing.".to_string(),
+            status: "Ready. Milestone 4.7 art-direction lock is active: hero-scene placements add props, caps, shadows, and dressing over the terrain forms.".to_string(),
         };
         app.refresh_if_dirty(&cc.egui_ctx);
         app
@@ -656,7 +657,7 @@ impl GroundLabApp {
         ui.separator();
         ui.strong("Actions");
         if ui.button("Reset visual-target scene").clicked() {
-            self.terrain = TerrainMap::visual_target(16, 12, self.recipe.seed);
+            self.terrain = TerrainMap::visual_target(14, 9, self.recipe.seed);
             self.preview_options.los_source = self.terrain.objective;
             self.preview_mode = PreviewMode::PerspectiveSpriteScene;
             self.dirty_preview = true;
@@ -685,9 +686,9 @@ impl GroundLabApp {
                 &self.tileset,
                 &self.palette,
                 &self.terrain,
-                "exports/milestone_04_6",
+                "exports/milestone_04_7",
             ) {
-                Ok(()) => self.status = "Exported to exports/milestone_04_6".to_string(),
+                Ok(()) => self.status = "Exported to exports/milestone_04_7".to_string(),
                 Err(err) => self.status = format!("Export failed: {err}"),
             }
         }

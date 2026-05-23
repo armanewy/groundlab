@@ -153,3 +153,14 @@ source PNG pieces. The manifest can now contain multiple entries with the same `
 such as several grass floors or trench walls. `TerrainArtKit::piece_variant(kind, seed)` selects a
 stable variant from those duplicate kinds, so the scene renderer can add visual variety without
 changing the simulation grid or visual-form derivation.
+
+## Milestone 4.7 hero-scene overlay note
+
+Milestone 4.7 adds `assets/heroscenes/dry_upland_outpost_hero_01.ron`. This manifest is deliberately
+not simulation data. It places visual-only pieces such as fallen logs, stake clusters, sandbags,
+trench spoil, broken ledge corners, road-edge patches, and large cast shadows over the derived
+terrain forms.
+
+The art kit now includes 50 source pieces. The new categories are meant to break the rectangular
+strip look without requiring a renderer rewrite: `HeroScene` decides where the cinematic dressing
+goes, `TerrainArtKit` supplies the sprites, and debug overlays can still reveal the hidden grid.

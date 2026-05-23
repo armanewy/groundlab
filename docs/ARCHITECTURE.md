@@ -164,3 +164,15 @@ simulation grid -> visual forms -> variant art-kit pieces -> composed preview/ex
 The renderer now uses deterministic art-piece variant selection when the manifest contains multiple
 pieces of the same kind. This keeps the art-pass work isolated in the art-kit manifest and PNGs
 instead of leaking visual variation rules into terrain simulation or gameplay systems.
+
+## Milestone 4.7 hero-scene overlay note
+
+Milestone 4.7 adds one more visual-only layer:
+
+```txt
+simulation grid -> visual forms -> art-kit pieces -> hero-scene placements -> debug overlays
+```
+
+`HeroScene` is intentionally allowed to be hand-authored. It gives the workbench a way to prove a
+small art-directed battlefield with props, caps, broken edges, vertical silhouettes, and cast shadows
+while preserving the underlying terrain simulation, route preview, LOS, and form export contracts.

@@ -5,6 +5,7 @@ use std::time::SystemTime;
 use anyhow::Result;
 use ron::ser::PrettyConfig;
 
+use crate::hero_scene::{HeroScene, DEFAULT_HERO_SCENE_PATH};
 use crate::palette::{load_palette_file, muted_field_32, save_palette_file, Palette};
 use crate::recipe::TilesetRecipe;
 use crate::terrain_artkit::{TerrainArtKit, DEFAULT_ARTKIT_DIR};
@@ -109,6 +110,7 @@ pub fn ensure_default_asset_files(paths: &WorkbenchAssetPaths) -> Result<()> {
     }
     let loaded = load_workbench_assets(paths)?;
     TerrainArtKit::ensure_external_files(&loaded.tileset, DEFAULT_ARTKIT_DIR)?;
+    HeroScene::ensure_default_file(DEFAULT_HERO_SCENE_PATH)?;
     Ok(())
 }
 

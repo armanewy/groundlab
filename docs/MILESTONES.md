@@ -180,6 +180,23 @@ This milestone intentionally leaves the renderer architecture alone. It tests wh
 art-kit contract can absorb a stronger source-art pass without touching simulation, visual-form
 derivation, pathing, LOS, or export structure.
 
+## Milestone 4.7 — Hero scene art direction lock
+
+Implemented in this drop.
+
+- `HeroScene` and `HeroPlacement` added as a hand-placed visual overlay layer
+- default hero-scene manifest added at `assets/heroscenes/dry_upland_outpost_hero_01.ron`
+- dry-upland art kit expanded from 34 pieces to 50 source pieces
+- added prop/decal/cap/shadow kinds: grass tufts, loose rocks, dirt scrapes, trench spoil, broken berm edge, fallen log, stakes, sandbags, tool marks, large cast shadow, trench end caps, berm corners, broken ledge corner, and worn road edge patch
+- perspective sprite scene draws hero placements after terrain forms and before debug/route overlays
+- visual target reduced to a 14x9 scene for art-direction judgment
+- export bundle writes `terrain_preview_visual_target_no_overlay.png`
+- CLI/app export target defaults to `exports/milestone_04_7`
+
+This milestone is allowed to cheat visually. The simulation grid and visual forms remain intact, but
+the art-direction pass can place non-rectangular props, caps, silhouettes, and shadows to prove the
+look before the renderer becomes more procedural.
+
 ## Milestone 5 — Custom renderer/runtime
 
 - introduce `ground_render`
