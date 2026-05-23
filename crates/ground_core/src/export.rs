@@ -16,6 +16,7 @@ use crate::recipe::ViewOrientation;
 use crate::terrain::TerrainMap;
 use crate::tileset::{TileMetadata, Tileset};
 use crate::validation::{build_seam_test_sheet, validate_tileset, ValidationReport};
+use crate::visual_scene::VisualScene;
 
 #[derive(Debug, Serialize)]
 pub struct ExportedTile {
@@ -56,6 +57,11 @@ pub struct TilesetExportMetadata {
     pub terrain_preview_faux_art_path: String,
     pub terrain_preview_faux_features_path: String,
     pub terrain_preview_faux_orientation_paths: Vec<String>,
+    pub terrain_preview_visual_target_path: String,
+    pub terrain_preview_visual_target_debug_path: String,
+    pub terrain_forms_path: String,
+    pub visual_target_form_count: usize,
+    pub visual_target_summary: String,
     pub art_preview_structural_edge_count: usize,
     pub art_preview_material_edge_count: usize,
     pub terrain_preview_angled_path: String,
@@ -131,6 +137,28 @@ pub fn export_tileset_bundle_with_palette(
         &preview_options,
     );
     preview_2_5d.save_png(out_dir.join("terrain_preview_2_5d.png"))?;
+
+    let visual_target_preview = render_terrain_preview(
+        terrain,
+        tileset,
+        PreviewMode::PerspectiveSpriteScene,
+        &preview_options,
+    );
+    visual_target_preview.save_png(out_dir.join("terrain_preview_visual_target.png"))?;
+
+    let mut visual_debug_options = preview_options.clone();
+    visual_debug_options.show_feature_overlay = true;
+    let visual_target_debug = render_terrain_preview(
+        terrain,
+        tileset,
+        PreviewMode::PerspectiveSpriteScene,
+        &visual_debug_options,
+    );
+    visual_target_debug.save_png(out_dir.join("terrain_preview_visual_target_debug.png"))?;
+
+    let visual_scene = VisualScene::from_terrain(terrain);
+    let visual_scene_json = serde_json::to_string_pretty(&visual_scene)?;
+    fs::write(out_dir.join("terrain_forms.json"), visual_scene_json)?;
 
     let faux_preview = render_terrain_preview(
         terrain,
@@ -303,6 +331,18 @@ pub fn export_metadata(
             .iter()
             .map(|orientation| format!("terrain_preview_faux_{}.png", orientation.id()))
             .collect(),
+        terrain_preview_visual_target_path: "terrain_preview_visual_target.png".to_string(),
+        terrain_preview_visual_target_debug_path: "terrain_preview_visual_target_debug.png"
+            .to_string(),
+        terrain_forms_path: "terrain_forms.json".to_string(),
+        visual_target_form_count: {
+            let visual = TerrainMap::visual_target(24, 16, tileset.recipe.seed);
+            VisualScene::from_terrain(&visual).forms.len()
+        },
+        visual_target_summary: {
+            let visual = TerrainMap::visual_target(24, 16, tileset.recipe.seed);
+            VisualScene::from_terrain(&visual).summary_line()
+        },
         art_preview_structural_edge_count: {
             let art = TerrainMap::art_preview(32, 24, tileset.recipe.seed);
             TerrainFeatureMap::from_terrain(&art).structural_edge_count()

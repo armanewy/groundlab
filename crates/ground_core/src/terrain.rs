@@ -72,7 +72,173 @@ impl TerrainMap {
     /// broad readable material regions, coherent ledges, and obvious trench/berm test
     /// features. Use `stress_test` when the renderer needs noisy edge-case coverage.
     pub fn demo(width: u32, height: u32, seed: u64) -> Self {
-        Self::art_preview(width, height, seed)
+        Self::visual_target(width, height, seed)
+    }
+
+    /// Small hand-composed target scene used to judge the actual art direction.
+    /// Unlike `stress_test` and `art_preview`, this is intentionally not a noisy
+    /// generator. It creates a compact outpost/approach composition with broad
+    /// floor regions, a visible road, a raised defended pad, a trench, a berm,
+    /// a mud basin, and a rock outcrop. The simulation grid remains underneath,
+    /// but the visual renderer can derive larger scene forms from it.
+    pub fn visual_target(width: u32, height: u32, _seed: u64) -> Self {
+        let width = width.max(20);
+        let height = height.max(14);
+        let mut map = TerrainMap::new(width, height, TerrainCell::new(2, GroundMaterial::Grass));
+        map.spawn = (2, height.saturating_sub(5));
+        map.objective = (width.saturating_sub(5), height / 2);
+
+        // Broad readable height shelves, not procedural noise.
+        for y in 0..height {
+            for x in 0..width {
+                let h = if y < height / 4 {
+                    4
+                } else if y < height / 2 {
+                    3
+                } else if y > height.saturating_sub(4) {
+                    1
+                } else {
+                    2
+                };
+                set_map_cell(&mut map, x, y, h, GroundMaterial::Grass);
+            }
+        }
+
+        // Lower foreground and a darker central basin.
+        fill_rect_cells(
+            &mut map,
+            0,
+            height.saturating_sub(4),
+            width,
+            4,
+            1,
+            GroundMaterial::Grass,
+        );
+        fill_rect_cells(
+            &mut map,
+            7,
+            height.saturating_sub(6),
+            6,
+            3,
+            1,
+            GroundMaterial::Mud,
+        );
+
+        // A composed dirt approach road with a few right-angle bends.
+        let spawn_y = map.spawn.1;
+        fill_rect_cells(
+            &mut map,
+            1,
+            spawn_y.saturating_sub(1),
+            6,
+            3,
+            1,
+            GroundMaterial::Dirt,
+        );
+        fill_rect_cells(
+            &mut map,
+            6,
+            spawn_y.saturating_sub(2),
+            6,
+            2,
+            2,
+            GroundMaterial::Dirt,
+        );
+        fill_rect_cells(&mut map, 11, height / 2 + 1, 5, 2, 2, GroundMaterial::Dirt);
+        fill_rect_cells(
+            &mut map,
+            14,
+            height / 2,
+            width.saturating_sub(18),
+            2,
+            3,
+            GroundMaterial::Dirt,
+        );
+        fill_rect_cells(
+            &mut map,
+            width.saturating_sub(7),
+            height / 2 - 1,
+            6,
+            3,
+            3,
+            GroundMaterial::Dirt,
+        );
+
+        // Raised outpost/objective pad.
+        fill_rect_cells(
+            &mut map,
+            width.saturating_sub(8),
+            height / 2 - 3,
+            6,
+            5,
+            4,
+            GroundMaterial::Dirt,
+        );
+        fill_rect_cells(
+            &mut map,
+            width.saturating_sub(7),
+            height / 2 - 2,
+            4,
+            3,
+            5,
+            GroundMaterial::BermTop,
+        );
+
+        // Rock outcrop as a single readable mass.
+        fill_rect_cells(
+            &mut map,
+            width / 2 + 2,
+            height / 4,
+            5,
+            4,
+            4,
+            GroundMaterial::Rock,
+        );
+        fill_rect_cells(
+            &mut map,
+            width / 2 + 4,
+            height / 4 + 2,
+            5,
+            3,
+            5,
+            GroundMaterial::Rock,
+        );
+
+        // Continuous trench and berm runs.
+        fill_trench_cells(&mut map, 5, height / 2 - 2, width / 2, 1, 1);
+        fill_trench_cells(&mut map, width / 2 + 1, height / 2 - 1, 1, 5, 1);
+        fill_berm_cells(
+            &mut map,
+            width / 2 - 2,
+            height / 2 + 3,
+            width.saturating_sub(width / 2 + 1),
+            1,
+            1,
+        );
+        fill_berm_cells(&mut map, 4, height.saturating_sub(4), 8, 1, 1);
+
+        // Small grass breaks so the target scene is not a sterile rectangle.
+        fill_rect_cells(&mut map, 0, 0, 4, 2, 4, GroundMaterial::Grass);
+        fill_rect_cells(
+            &mut map,
+            width.saturating_sub(4),
+            0,
+            4,
+            2,
+            4,
+            GroundMaterial::Grass,
+        );
+        fill_rect_cells(
+            &mut map,
+            width / 4,
+            height / 4,
+            4,
+            3,
+            3,
+            GroundMaterial::Grass,
+        );
+
+        map
     }
 
     /// Stress-test map kept for validation/debug exports. It deliberately contains many
@@ -449,6 +615,68 @@ impl TerrainMap {
             count += 1;
         }
         (total as f32 / count as f32).round().clamp(0.0, 9.0) as i8
+    }
+}
+
+fn fill_rect_cells(
+    map: &mut TerrainMap,
+    x0: u32,
+    y0: u32,
+    width: u32,
+    height: u32,
+    terrain_height: i8,
+    material: GroundMaterial,
+) {
+    for y in y0..(y0 + height).min(map.height) {
+        for x in x0..(x0 + width).min(map.width) {
+            set_map_cell(map, x, y, terrain_height, material);
+        }
+    }
+}
+
+fn fill_trench_cells(map: &mut TerrainMap, x0: u32, y0: u32, width: u32, height: u32, depth: u8) {
+    for y in y0..(y0 + height).min(map.height) {
+        for x in x0..(x0 + width).min(map.width) {
+            if let Some(cell) = map.cell_mut(x, y) {
+                cell.height = (cell.height - depth as i8).clamp(0, 9);
+                cell.ground = GroundMaterial::TrenchFloor;
+                cell.trench_depth = depth.clamp(1, 4);
+                cell.berm_height = 0;
+                cell.cover = CoverKind::Strong;
+                cell.blocks_sight = false;
+            }
+        }
+    }
+}
+
+fn fill_berm_cells(map: &mut TerrainMap, x0: u32, y0: u32, width: u32, height: u32, lift: u8) {
+    for y in y0..(y0 + height).min(map.height) {
+        for x in x0..(x0 + width).min(map.width) {
+            if let Some(cell) = map.cell_mut(x, y) {
+                cell.height = (cell.height + lift as i8).clamp(0, 9);
+                cell.ground = GroundMaterial::BermTop;
+                cell.trench_depth = 0;
+                cell.berm_height = lift.clamp(1, 4);
+                cell.cover = CoverKind::Partial;
+                cell.blocks_sight = cell.berm_height >= 2;
+            }
+        }
+    }
+}
+
+fn set_map_cell(
+    map: &mut TerrainMap,
+    x: u32,
+    y: u32,
+    terrain_height: i8,
+    material: GroundMaterial,
+) {
+    if let Some(cell) = map.cell_mut(x, y) {
+        cell.height = terrain_height.clamp(0, 9);
+        cell.ground = material;
+        cell.trench_depth = 0;
+        cell.berm_height = 0;
+        recompute_semantics(cell);
     }
 }
 

@@ -121,7 +121,25 @@ Implemented in this drop.
 This milestone is still software-preview rendering, but it moves the visual model from cell-by-cell
 height strips toward coherent terrain features.
 
-## Milestone 4.3 — Feature run and corner art
+## Milestone 4.3 — Perspective sprite scene prototype
+
+Implemented in this drop.
+
+- `PreviewMode::PerspectiveSpriteScene` added and made the default workbench view
+- `TerrainMap::visual_target` adds a small hand-composed outpost/approach scene
+- `VisualScene` and `VisualTerrainForm` derive larger visual scene forms from the terrain grid
+- renderer draws broad floor regions rather than one obvious square per cell
+- continuous cliff-face, trench-run, berm-run, shadow, and dressing passes
+- larger visual footprint defaults: `96x80 px` cells and `32 px` faux height steps
+- debug overlay can outline exported visual forms
+- CLI/app export target defaults to `exports/milestone_04_3`
+- export bundle writes `terrain_preview_visual_target.png`, `terrain_preview_visual_target_debug.png`, and `terrain_forms.json`
+
+This milestone intentionally demotes the previous cell-feature renderer to a diagnostic view. The
+new target is an illustrated 2D scene whose sprites imply physical terrain while the simulation grid
+remains hidden underneath.
+
+## Milestone 4.4 — Authored terrain-form art pass
 
 Recommended next.
 
@@ -129,7 +147,8 @@ Recommended next.
 - cliff cap/lip variants
 - trench inside corners and outside corners
 - berm corner lips
-- continuous feature-run rendering rather than per-cell feature accents
+- prop silhouettes and object shadows
+- stronger field-engineering dressing: sandbags, timber, stakes, crates, logs
 - face seam validation by face kind and orientation
 - hidden-object x-ray silhouettes in the software preview
 

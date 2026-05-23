@@ -15,7 +15,7 @@ fn main() -> Result<()> {
         "export" => {
             let out_dir = args
                 .next()
-                .unwrap_or_else(|| "exports/milestone_04_2".to_string());
+                .unwrap_or_else(|| "exports/milestone_04_3".to_string());
             let recipe_path = args
                 .next()
                 .unwrap_or_else(|| DEFAULT_RECIPE_PATH.to_string());
@@ -28,14 +28,14 @@ fn main() -> Result<()> {
             };
             ensure_default_asset_files(&paths)?;
             let loaded = load_workbench_assets(&paths)?;
-            let terrain = TerrainMap::art_preview(32, 24, loaded.recipe.seed);
+            let terrain = TerrainMap::visual_target(24, 16, loaded.recipe.seed);
             export_tileset_bundle_with_palette(
                 &loaded.tileset,
                 &loaded.palette,
                 &terrain,
                 out_dir,
             )?;
-            println!("Exported GroundLab Milestone 4.2 bundle.");
+            println!("Exported GroundLab Milestone 4.3 bundle.");
             println!("{}", loaded.validation.summary_line());
         }
         "validate" => {

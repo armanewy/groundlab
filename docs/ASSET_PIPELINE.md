@@ -118,3 +118,11 @@ contact_shadow_front
 
 Rotation is handled by data first: terrain cells do not rotate; only the view projection does. Asset
 coverage validation can later report missing orientation-specific placeables and props.
+
+
+## Milestone 4.3 visual-target scene note
+
+Milestone 4.3 separates the hidden simulation grid from the intended visual composition. The new
+`PerspectiveSpriteScene` preview derives `VisualScene` / `VisualTerrainForm` records from the terrain
+map and draws larger forms such as floor regions, cliff faces, trench runs, berm runs, shadows, and
+field-engineering dressing. The older faux/angled/flat previews remain as diagnostic tools.

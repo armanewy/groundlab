@@ -8,12 +8,17 @@ use crate::pixel_image::PixelImage;
 use crate::recipe::{GroundMaterial, StructureFaceKind, TransitionEdge, ViewOrientation};
 use crate::terrain::TerrainMap;
 use crate::tileset::{stable_tile_variant, Tileset};
+use crate::visual_scene::{VisualScene, VisualTerrainForm, VisualTerrainFormKind};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PreviewMode {
     Material,
-    /// New main visual target: screen-aligned 2D terrain whose sprite stack
-    /// implies 3D height, lips, shadows, trenches, berms, and physical faces.
+    /// New visual target: a composed 2D sprite scene. The terrain grid remains
+    /// the simulation layer, but the renderer draws larger visual forms instead
+    /// of one obvious square sprite per cell.
+    PerspectiveSpriteScene,
+    /// Debug/legacy faux-perspective terrain: screen-aligned cells whose sprite
+    /// stack implies 3D height, lips, shadows, trenches, berms, and physical faces.
     FauxPerspectiveTerrain,
     /// Alternate/debug view: large-tile angled/dimetric 2.5D terrain with
     /// diamond top footprints, visible vertical faces, route overlays, and
@@ -30,8 +35,9 @@ pub enum PreviewMode {
 }
 
 impl PreviewMode {
-    pub const ALL: [PreviewMode; 9] = [
+    pub const ALL: [PreviewMode; 10] = [
         PreviewMode::Material,
+        PreviewMode::PerspectiveSpriteScene,
         PreviewMode::FauxPerspectiveTerrain,
         PreviewMode::AngledTerrain,
         PreviewMode::ErectedTerrain,
@@ -45,7 +51,8 @@ impl PreviewMode {
     pub fn label(self) -> &'static str {
         match self {
             PreviewMode::Material => "Command map / flat material",
-            PreviewMode::FauxPerspectiveTerrain => "Faux-perspective 2D terrain",
+            PreviewMode::PerspectiveSpriteScene => "Perspective sprite scene",
+            PreviewMode::FauxPerspectiveTerrain => "Faux-perspective 2D debug",
             PreviewMode::AngledTerrain => "Angled 2.5D terrain",
             PreviewMode::ErectedTerrain => "Legacy erected terrain",
             PreviewMode::Height => "Height",
@@ -107,6 +114,9 @@ pub fn render_terrain_preview(
     mode: PreviewMode,
     options: &PreviewOptions,
 ) -> PixelImage {
+    if mode == PreviewMode::PerspectiveSpriteScene {
+        return render_perspective_sprite_scene_preview(map, tileset, options);
+    }
     if mode == PreviewMode::FauxPerspectiveTerrain {
         return render_faux_perspective_terrain_preview(map, tileset, options);
     }
@@ -172,6 +182,7 @@ pub fn render_terrain_preview(
 
             match mode {
                 PreviewMode::Material
+                | PreviewMode::PerspectiveSpriteScene
                 | PreviewMode::FauxPerspectiveTerrain
                 | PreviewMode::AngledTerrain
                 | PreviewMode::ErectedTerrain => {
@@ -481,6 +492,9 @@ pub fn preview_pixel_to_cell(
     px: u32,
     py: u32,
 ) -> Option<(u32, u32)> {
+    if mode == PreviewMode::PerspectiveSpriteScene {
+        return perspective_scene_preview_pixel_to_cell(map, tileset, options, px, py);
+    }
     if mode == PreviewMode::FauxPerspectiveTerrain {
         return faux_preview_pixel_to_cell(map, tileset, options, px, py);
     }
@@ -1293,6 +1307,816 @@ impl FauxProjection {
     }
 }
 
+fn perspective_scene_projection(
+    map: &TerrainMap,
+    tileset: &Tileset,
+    options: &PreviewOptions,
+) -> FauxProjection {
+    let mut projection = tileset.recipe.projection.clone();
+    projection.sanitize(tileset.recipe.tile_size);
+    let cell_w = projection.faux_cell_width_px.clamp(96, 192);
+    let cell_h = projection.faux_cell_height_px.clamp(80, 160);
+    let height_step_px = options.height_step_px.clamp(28, 96);
+    let side_face_w = projection
+        .faux_side_face_width_px
+        .max(18)
+        .min(cell_w / 2)
+        .max(2);
+    let orientation = options.view_orientation;
+
+    let mut min_x = i32::MAX;
+    let mut min_y = i32::MAX;
+    let mut max_x = i32::MIN;
+    let mut max_y = i32::MIN;
+
+    for y in 0..map.height {
+        for x in 0..map.width {
+            let h = map
+                .cell(x, y)
+                .map(|cell| cell.effective_height())
+                .unwrap_or(0.0);
+            let (vx, vy) = world_to_faux_view(orientation, map, x, y);
+            let sx = vx * cell_w as i32;
+            let sy = vy * cell_h as i32 - (h * height_step_px as f32).round() as i32;
+            let face_extra = ((h.max(0.0) + 2.5) * height_step_px as f32).ceil() as i32;
+            min_x = min_x.min(sx - side_face_w as i32 - 8);
+            min_y = min_y.min(sy - 8);
+            max_x = max_x.max(sx + cell_w as i32 + side_face_w as i32 + 8);
+            max_y = max_y.max(sy + cell_h as i32 + face_extra + 8);
+        }
+    }
+
+    let padding = 72_i32;
+    FauxProjection {
+        cell_w,
+        cell_h,
+        height_step_px,
+        side_face_w,
+        offset_x: -min_x + padding,
+        offset_y: -min_y + padding,
+        width: (max_x - min_x + padding * 2).max(cell_w as i32) as u32,
+        height: (max_y - min_y + padding * 2).max(cell_h as i32) as u32,
+        orientation,
+    }
+}
+
+fn render_perspective_sprite_scene_preview(
+    map: &TerrainMap,
+    tileset: &Tileset,
+    options: &PreviewOptions,
+) -> PixelImage {
+    let proj = perspective_scene_projection(map, tileset, options);
+    let scene = VisualScene::from_terrain(map);
+    let mut image = PixelImage::new(proj.width, proj.height, Rgba8::opaque(11, 12, 15));
+
+    // One soft ground plate keeps the scene feeling like a composed illustration instead
+    // of isolated terrain tiles floating on a black editor background.
+    draw_scene_base_plate(&mut image, map, tileset, proj);
+
+    for form in scene.forms.iter().filter(|form| form.kind.is_floor_like()) {
+        draw_scene_floor_form(&mut image, map, tileset, proj, form);
+    }
+
+    for form in scene.forms.iter().filter(|form| {
+        matches!(
+            form.kind,
+            VisualTerrainFormKind::CliffFace
+                | VisualTerrainFormKind::TrenchRun
+                | VisualTerrainFormKind::BermRun
+                | VisualTerrainFormKind::ShadowPatch
+        )
+    }) {
+        match form.kind {
+            VisualTerrainFormKind::CliffFace => {
+                draw_scene_cliff_form(&mut image, map, tileset, proj, form, options)
+            }
+            VisualTerrainFormKind::TrenchRun => {
+                draw_scene_trench_form(&mut image, map, tileset, proj, form)
+            }
+            VisualTerrainFormKind::BermRun => {
+                draw_scene_berm_form(&mut image, map, tileset, proj, form, options)
+            }
+            VisualTerrainFormKind::ShadowPatch => {
+                draw_scene_shadow_form(&mut image, map, proj, form)
+            }
+            _ => {}
+        }
+    }
+
+    for form in scene
+        .forms
+        .iter()
+        .filter(|form| form.kind == VisualTerrainFormKind::Dressing)
+    {
+        draw_scene_dressing_form(&mut image, map, tileset, proj, form);
+    }
+
+    if options.show_projected_route {
+        let path = find_path(map, map.spawn, map.objective);
+        draw_faux_path(
+            &mut image,
+            map,
+            proj,
+            &path.points,
+            if path.reached_goal {
+                Rgba8::opaque(235, 174, 77)
+            } else {
+                Rgba8::opaque(230, 74, 74)
+            },
+        );
+    }
+
+    if options.show_feature_overlay {
+        for form in &scene.forms {
+            draw_scene_form_debug(&mut image, map, proj, form);
+        }
+    }
+    if options.show_grid {
+        for (x, y) in faux_draw_order(map, proj.orientation) {
+            draw_faux_grid_cell(&mut image, map, proj, x, y, Rgba8::opaque(24, 26, 31));
+        }
+    }
+    if let Some(cell) = options.inspect_cell {
+        draw_faux_selection(&mut image, map, proj, cell, Rgba8::opaque(154, 215, 238));
+    }
+    draw_faux_marker(
+        &mut image,
+        map,
+        proj,
+        map.spawn,
+        Rgba8::opaque(99, 169, 218),
+    );
+    draw_faux_marker(
+        &mut image,
+        map,
+        proj,
+        map.objective,
+        Rgba8::opaque(225, 196, 91),
+    );
+    image
+}
+
+fn perspective_scene_preview_pixel_to_cell(
+    map: &TerrainMap,
+    tileset: &Tileset,
+    options: &PreviewOptions,
+    px: u32,
+    py: u32,
+) -> Option<(u32, u32)> {
+    let proj = perspective_scene_projection(map, tileset, options);
+    let px = px as i32;
+    let py = py as i32;
+    let mut cells = faux_draw_order(map, proj.orientation);
+    cells.reverse();
+    for (x, y) in cells {
+        if point_in_faux_top(map, proj, x, y, px, py)
+            || point_in_faux_faces(map, proj, x, y, px, py)
+        {
+            return Some((x, y));
+        }
+    }
+    None
+}
+
+fn draw_scene_base_plate(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    tileset: &Tileset,
+    proj: FauxProjection,
+) {
+    let grass = tileset
+        .palette
+        .sample(GroundMaterial::Grass.ramp(), 0.42)
+        .darken(0.22);
+    let mut min_x = i32::MAX;
+    let mut min_y = i32::MAX;
+    let mut max_x = i32::MIN;
+    let mut max_y = i32::MIN;
+    for y in 0..map.height {
+        for x in 0..map.width {
+            let (sx, sy) = proj.cell_top_left(map, x, y);
+            min_x = min_x.min(sx);
+            min_y = min_y.min(sy);
+            max_x = max_x.max(sx + proj.cell_w as i32);
+            max_y = max_y.max(sy + proj.cell_h as i32);
+        }
+    }
+    if min_x < max_x && min_y < max_y {
+        draw_soft_pixel_shadow(
+            image,
+            min_x - 16,
+            max_y - (proj.cell_h / 3) as i32,
+            (max_x - min_x) as u32 + 32,
+            (proj.cell_h / 2).max(18),
+            0.20,
+        );
+        blend_rect_i32(
+            image,
+            min_x,
+            min_y,
+            (max_x - min_x) as u32,
+            (max_y - min_y) as u32,
+            grass,
+            0.18,
+        );
+    }
+}
+
+fn draw_scene_floor_form(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    tileset: &Tileset,
+    proj: FauxProjection,
+    form: &VisualTerrainForm,
+) {
+    let (sx, sy, width, height) = scene_form_screen_rect(map, proj, form);
+    let material = visual_material_for_cell(form.material);
+    let variant = stable_tile_variant(
+        tileset.recipe.seed ^ 0x71d1_9b2d_47a5_c3ef,
+        form.rect.x,
+        form.rect.y,
+        material,
+        tileset.recipe.variants_per_material,
+    );
+    let tile = &tileset.tile(material, variant).image;
+    draw_tiled_image_region(
+        image,
+        tile,
+        ImageRect {
+            x: sx,
+            y: sy,
+            width,
+            height,
+        },
+        1.0,
+        form.rect.x ^ (form.rect.y << 8),
+    );
+
+    let height_shade = 0.045 * (form.base_height - 2.0);
+    if height_shade > 0.0 {
+        blend_rect_i32(
+            image,
+            sx,
+            sy,
+            width,
+            height,
+            Rgba8::WHITE,
+            height_shade.min(0.16),
+        );
+    } else {
+        blend_rect_i32(
+            image,
+            sx,
+            sy,
+            width,
+            height,
+            Rgba8::BLACK,
+            (-height_shade).min(0.16),
+        );
+    }
+
+    match form.kind {
+        VisualTerrainFormKind::RoadPatch => {
+            draw_scene_road_edges(image, tileset, sx, sy, width, height)
+        }
+        VisualTerrainFormKind::MudBasin => {
+            draw_scene_mud_basin(image, tileset, sx, sy, width, height)
+        }
+        VisualTerrainFormKind::RockOutcrop => {
+            draw_scene_rock_mass(image, tileset, sx, sy, width, height)
+        }
+        VisualTerrainFormKind::RaisedPlatform => {
+            draw_scene_platform_cap(image, tileset, sx, sy, width, height)
+        }
+        _ => {}
+    }
+}
+
+fn draw_scene_cliff_form(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    tileset: &Tileset,
+    proj: FauxProjection,
+    form: &VisualTerrainForm,
+    options: &PreviewOptions,
+) {
+    let (sx, sy, width, height) = scene_form_screen_rect(map, proj, form);
+    let face_h = ((form.height_delta.max(0.5) * proj.height_step_px as f32 * 1.18).ceil() as u32)
+        .max((proj.height_step_px / 2).max(8));
+    let face_y = sy + height as i32;
+    draw_soft_pixel_shadow(
+        image,
+        sx + 6,
+        face_y + face_h as i32 / 2,
+        width,
+        (proj.cell_h / 3).max(12),
+        0.18,
+    );
+    let variant = stable_tile_variant(
+        tileset.recipe.seed ^ 0x93a2_bccd_51f0_aa19,
+        form.rect.x,
+        form.rect.y,
+        form.material,
+        tileset.recipe.variants_per_material,
+    );
+    let alpha = scene_cutaway_alpha(
+        map,
+        proj,
+        ImageRect {
+            x: sx,
+            y: face_y,
+            width,
+            height: face_h,
+        },
+        tileset.recipe.cutaway_radius_px,
+        tileset.recipe.cutaway_alpha,
+        options,
+    );
+    if let Some(asset) =
+        tileset.structure_face_tile(form.material, StructureFaceKind::Front, variant)
+    {
+        draw_scaled_image_rect(image, &asset.image, sx, face_y, width, face_h, alpha);
+    } else {
+        draw_faux_face_fallback(
+            image,
+            tileset,
+            form.material,
+            StructureFaceKind::Front,
+            ImageRect {
+                x: sx,
+                y: face_y,
+                width,
+                height: face_h,
+            },
+            alpha,
+        );
+    }
+    if options.show_structure_lips {
+        let lip_h = (proj.cell_h / 10).max(4).min(face_h.max(4));
+        let lip_y = face_y - lip_h as i32 / 2;
+        if let Some(asset) =
+            tileset.structure_face_tile(form.material, StructureFaceKind::Lip, variant)
+        {
+            draw_scaled_image_rect(
+                image,
+                &asset.image,
+                sx,
+                lip_y,
+                width,
+                lip_h,
+                alpha.max(0.82),
+            );
+        } else {
+            let lip = tileset
+                .palette
+                .sample(form.material.ramp(), 0.62)
+                .lighten(0.05);
+            blend_rect_i32(image, sx, lip_y, width, lip_h, lip, alpha.max(0.82));
+        }
+    }
+}
+
+fn draw_scene_trench_form(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    tileset: &Tileset,
+    proj: FauxProjection,
+    form: &VisualTerrainForm,
+) {
+    let (sx, sy, width, height) = scene_form_screen_rect(map, proj, form);
+    let floor = tileset
+        .palette
+        .sample(GroundMaterial::TrenchFloor.ramp(), 0.30);
+    let wall = tileset
+        .palette
+        .sample(GroundMaterial::TrenchWall.ramp(), 0.46);
+    let inset_x = (proj.cell_w / 8).max(6).min(width / 3).max(1);
+    let inset_y = (proj.cell_h / 8).max(6).min(height / 3).max(1);
+    draw_soft_pixel_shadow(
+        image,
+        sx + inset_x as i32,
+        sy + inset_y as i32,
+        width.saturating_sub(inset_x * 2),
+        height.saturating_sub(inset_y),
+        0.24,
+    );
+    blend_rect_i32(
+        image,
+        sx + inset_x as i32,
+        sy + inset_y as i32,
+        width.saturating_sub(inset_x * 2),
+        height.saturating_sub(inset_y * 2),
+        floor,
+        0.82,
+    );
+    let lip_h = (proj.cell_h / 10).max(4);
+    blend_rect_i32(image, sx, sy, width, lip_h, wall.lighten(0.04), 0.82);
+    blend_rect_i32(
+        image,
+        sx,
+        sy + height as i32 - lip_h as i32,
+        width,
+        lip_h,
+        wall.darken(0.12),
+        0.90,
+    );
+    blend_rect_i32(
+        image,
+        sx,
+        sy,
+        (proj.cell_w / 10).max(4),
+        height,
+        wall.darken(0.10),
+        0.58,
+    );
+    blend_rect_i32(
+        image,
+        sx + width as i32 - (proj.cell_w / 10).max(4) as i32,
+        sy,
+        (proj.cell_w / 10).max(4),
+        height,
+        wall.darken(0.02),
+        0.52,
+    );
+}
+
+fn draw_scene_berm_form(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    tileset: &Tileset,
+    proj: FauxProjection,
+    form: &VisualTerrainForm,
+    options: &PreviewOptions,
+) {
+    let (sx, sy, width, height) = scene_form_screen_rect(map, proj, form);
+    let crown = tileset.palette.sample(GroundMaterial::BermTop.ramp(), 0.68);
+    let face = tileset
+        .palette
+        .sample(GroundMaterial::BermFace.ramp(), 0.46);
+    let pad = (proj.cell_w.min(proj.cell_h) / 8)
+        .max(6)
+        .min(width.min(height) / 3)
+        .max(1);
+    draw_soft_pixel_shadow(
+        image,
+        sx + 4,
+        sy + height as i32,
+        width,
+        (proj.cell_h / 3).max(12),
+        0.16,
+    );
+    blend_rect_i32(
+        image,
+        sx + pad as i32,
+        sy + pad as i32,
+        width.saturating_sub(pad * 2),
+        height.saturating_sub(pad),
+        crown,
+        0.34,
+    );
+    let face_h = (proj.height_step_px / 2).max(10);
+    let face_y = sy + height as i32 - face_h as i32 / 2;
+    let alpha = scene_cutaway_alpha(
+        map,
+        proj,
+        ImageRect {
+            x: sx,
+            y: face_y,
+            width,
+            height: face_h,
+        },
+        tileset.recipe.cutaway_radius_px,
+        tileset.recipe.cutaway_alpha,
+        options,
+    );
+    blend_rect_i32(
+        image,
+        sx,
+        face_y,
+        width,
+        face_h,
+        face.darken(0.10),
+        alpha * 0.86,
+    );
+    let lip = crown.lighten(0.08);
+    blend_rect_i32(
+        image,
+        sx,
+        face_y - (face_h / 5).max(2) as i32,
+        width,
+        (face_h / 5).max(2),
+        lip,
+        alpha * 0.88,
+    );
+}
+
+fn draw_scene_shadow_form(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    proj: FauxProjection,
+    form: &VisualTerrainForm,
+) {
+    let (sx, sy, width, height) = scene_form_screen_rect(map, proj, form);
+    draw_soft_pixel_shadow(image, sx, sy, width, height, 0.20);
+}
+
+fn draw_scene_dressing_form(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    tileset: &Tileset,
+    proj: FauxProjection,
+    form: &VisualTerrainForm,
+) {
+    let (sx, sy, width, height) = scene_form_screen_rect(map, proj, form);
+    if form.id.contains("objective") {
+        draw_engineering_pad(image, tileset, sx, sy, width, height, true);
+    } else {
+        draw_engineering_pad(image, tileset, sx, sy, width, height, false);
+    }
+}
+
+fn draw_engineering_pad(
+    image: &mut PixelImage,
+    tileset: &Tileset,
+    sx: i32,
+    sy: i32,
+    width: u32,
+    height: u32,
+    defended: bool,
+) {
+    let timber = tileset
+        .palette
+        .sample(GroundMaterial::BermFace.ramp(), 0.52);
+    let dark = timber.darken(0.34);
+    let top = tileset
+        .palette
+        .sample(GroundMaterial::Dirt.ramp(), 0.58)
+        .lighten(0.04);
+    draw_soft_pixel_shadow(
+        image,
+        sx + 4,
+        sy + height as i32 - 4,
+        width,
+        (height / 2).max(12),
+        0.18,
+    );
+    blend_rect_i32(
+        image,
+        sx,
+        sy,
+        width,
+        height,
+        top,
+        if defended { 0.22 } else { 0.12 },
+    );
+    let rail_h = (height / 8).max(4);
+    blend_rect_i32(image, sx, sy, width, rail_h, timber.lighten(0.08), 0.84);
+    blend_rect_i32(
+        image,
+        sx,
+        sy + height as i32 - rail_h as i32,
+        width,
+        rail_h,
+        dark,
+        0.88,
+    );
+    let post_w = (width / 12).max(4);
+    for px in [0, width.saturating_sub(post_w), width / 2] {
+        blend_rect_i32(image, sx + px as i32, sy, post_w, height, dark, 0.58);
+    }
+    if defended {
+        let sand = tileset
+            .palette
+            .sample(GroundMaterial::BermTop.ramp(), 0.70)
+            .lighten(0.05);
+        let bag_h = (height / 5).max(6);
+        blend_rect_i32(
+            image,
+            sx + post_w as i32,
+            sy + (height / 5) as i32,
+            width.saturating_sub(post_w * 2),
+            bag_h,
+            sand,
+            0.72,
+        );
+        outline_rect_i32(
+            image,
+            sx + post_w as i32,
+            sy + (height / 5) as i32,
+            width.saturating_sub(post_w * 2),
+            bag_h,
+            sand.darken(0.28),
+        );
+    }
+}
+
+fn draw_scene_road_edges(
+    image: &mut PixelImage,
+    tileset: &Tileset,
+    sx: i32,
+    sy: i32,
+    width: u32,
+    height: u32,
+) {
+    let edge = tileset
+        .palette
+        .sample(GroundMaterial::Grass.ramp(), 0.42)
+        .darken(0.06);
+    let band = (height.min(width) / 12).max(4);
+    blend_rect_i32(image, sx, sy, width, band, edge, 0.16);
+    blend_rect_i32(
+        image,
+        sx,
+        sy + height as i32 - band as i32,
+        width,
+        band,
+        edge.darken(0.08),
+        0.18,
+    );
+}
+
+fn draw_scene_mud_basin(
+    image: &mut PixelImage,
+    tileset: &Tileset,
+    sx: i32,
+    sy: i32,
+    width: u32,
+    height: u32,
+) {
+    let wet = tileset
+        .palette
+        .sample(GroundMaterial::Mud.ramp(), 0.30)
+        .darken(0.10);
+    draw_soft_pixel_shadow(
+        image,
+        sx + 8,
+        sy + 8,
+        width.saturating_sub(16),
+        height.saturating_sub(16),
+        0.18,
+    );
+    blend_rect_i32(
+        image,
+        sx + 6,
+        sy + 6,
+        width.saturating_sub(12),
+        height.saturating_sub(12),
+        wet,
+        0.20,
+    );
+}
+
+fn draw_scene_rock_mass(
+    image: &mut PixelImage,
+    tileset: &Tileset,
+    sx: i32,
+    sy: i32,
+    width: u32,
+    height: u32,
+) {
+    let high = tileset
+        .palette
+        .sample(GroundMaterial::Rock.ramp(), 0.70)
+        .lighten(0.04);
+    let shadow = tileset
+        .palette
+        .sample(GroundMaterial::Rock.ramp(), 0.32)
+        .darken(0.08);
+    blend_rect_i32(image, sx, sy, width, (height / 5).max(5), high, 0.18);
+    blend_rect_i32(
+        image,
+        sx,
+        sy + height as i32 - (height / 4).max(6) as i32,
+        width,
+        (height / 4).max(6),
+        shadow,
+        0.16,
+    );
+}
+
+fn draw_scene_platform_cap(
+    image: &mut PixelImage,
+    tileset: &Tileset,
+    sx: i32,
+    sy: i32,
+    width: u32,
+    height: u32,
+) {
+    let lip = tileset
+        .palette
+        .sample(GroundMaterial::Dirt.ramp(), 0.60)
+        .lighten(0.08);
+    blend_rect_i32(image, sx, sy, width, (height / 12).max(4), lip, 0.20);
+}
+
+fn draw_scene_form_debug(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    proj: FauxProjection,
+    form: &VisualTerrainForm,
+) {
+    let (sx, sy, width, height) = scene_form_screen_rect(map, proj, form);
+    let color = match form.kind {
+        VisualTerrainFormKind::FloorRegion => Rgba8::opaque(85, 162, 95),
+        VisualTerrainFormKind::RaisedPlatform => Rgba8::opaque(121, 199, 116),
+        VisualTerrainFormKind::RoadPatch => Rgba8::opaque(224, 167, 88),
+        VisualTerrainFormKind::MudBasin => Rgba8::opaque(83, 112, 151),
+        VisualTerrainFormKind::RockOutcrop => Rgba8::opaque(157, 178, 196),
+        VisualTerrainFormKind::CliffFace => Rgba8::opaque(235, 97, 72),
+        VisualTerrainFormKind::TrenchRun => Rgba8::opaque(73, 178, 222),
+        VisualTerrainFormKind::BermRun => Rgba8::opaque(238, 196, 83),
+        VisualTerrainFormKind::ShadowPatch => Rgba8::opaque(35, 38, 46),
+        VisualTerrainFormKind::Dressing => Rgba8::opaque(210, 178, 112),
+    };
+    outline_rect_i32(image, sx, sy, width, height, color);
+    blend_rect_i32(image, sx, sy, width, height, color, 0.035);
+}
+
+fn scene_form_screen_rect(
+    map: &TerrainMap,
+    proj: FauxProjection,
+    form: &VisualTerrainForm,
+) -> (i32, i32, u32, u32) {
+    let x0 = form.rect.x.min(map.width.saturating_sub(1));
+    let y0 = form.rect.y.min(map.height.saturating_sub(1));
+    let x1 = (form.rect.x + form.rect.width.saturating_sub(1)).min(map.width.saturating_sub(1));
+    let y1 = (form.rect.y + form.rect.height.saturating_sub(1)).min(map.height.saturating_sub(1));
+    let mut min_vx = i32::MAX;
+    let mut min_vy = i32::MAX;
+    let mut max_vx = i32::MIN;
+    let mut max_vy = i32::MIN;
+    for (x, y) in [(x0, y0), (x1, y0), (x0, y1), (x1, y1)] {
+        let (vx, vy) = world_to_faux_view(proj.orientation, map, x, y);
+        min_vx = min_vx.min(vx);
+        min_vy = min_vy.min(vy);
+        max_vx = max_vx.max(vx);
+        max_vy = max_vy.max(vy);
+    }
+    let sx = min_vx * proj.cell_w as i32 + proj.offset_x;
+    let sy = min_vy * proj.cell_h as i32 + proj.offset_y
+        - (form.base_height * proj.height_step_px as f32).round() as i32;
+    let width = ((max_vx - min_vx + 1).max(1) as u32) * proj.cell_w;
+    let height = ((max_vy - min_vy + 1).max(1) as u32) * proj.cell_h;
+    (sx, sy, width, height)
+}
+
+fn draw_tiled_image_region(
+    image: &mut PixelImage,
+    src: &PixelImage,
+    dst: ImageRect,
+    alpha: f32,
+    seed: u32,
+) {
+    if dst.width == 0 || dst.height == 0 || src.width == 0 || src.height == 0 {
+        return;
+    }
+    let ox = seed % src.width;
+    let oy = (seed / 17) % src.height;
+    for yy in 0..dst.height {
+        for xx in 0..dst.width {
+            let src_x = (xx + ox) % src.width;
+            let src_y = (yy + oy) % src.height;
+            let color = src.get(src_x, src_y);
+            blend_pixel_i32(
+                image,
+                dst.x + xx as i32,
+                dst.y + yy as i32,
+                color,
+                alpha * (color.a as f32 / 255.0),
+            );
+        }
+    }
+}
+
+fn scene_cutaway_alpha(
+    map: &TerrainMap,
+    proj: FauxProjection,
+    rect: ImageRect,
+    cutaway_radius_px: u32,
+    cutaway_alpha: f32,
+    options: &PreviewOptions,
+) -> f32 {
+    let mut alpha: f32 = if options.fade_raised_faces { 0.84 } else { 1.0 };
+    if options.enable_local_cutaway {
+        if let Some((cx, cy)) = options.inspect_cell {
+            if cx < map.width && cy < map.height {
+                let (focus_x, focus_y) = proj.cell_center(map, cx, cy);
+                let center_x = rect.x + rect.width as i32 / 2;
+                let center_y = rect.y + rect.height as i32 / 2;
+                let dx = (center_x - focus_x) as f32;
+                let dy = (center_y - focus_y) as f32;
+                let dist = (dx * dx + dy * dy).sqrt();
+                let radius = cutaway_radius_px.max(1) as f32;
+                if dist < radius {
+                    let t = clamp01(dist / radius);
+                    alpha = alpha.min(cutaway_alpha + (1.0 - cutaway_alpha) * t);
+                }
+            }
+        }
+    }
+    alpha.clamp(0.16, 1.0)
+}
+
 fn faux_projection(
     map: &TerrainMap,
     tileset: &Tileset,
@@ -1929,14 +2753,6 @@ struct FauxFaceDraw {
     height: u32,
 }
 
-#[derive(Clone, Copy, Debug)]
-struct FauxFaceRect {
-    x: i32,
-    y: i32,
-    width: u32,
-    height: u32,
-}
-
 fn draw_faux_structure_face(
     image: &mut PixelImage,
     map: &TerrainMap,
@@ -1951,7 +2767,7 @@ fn draw_faux_structure_face(
     let (sx, sy) = proj.cell_top_left(map, draw.x, draw.y);
     let face_x = sx + draw.screen_x_offset;
     let face_y = sy + draw.screen_y_offset;
-    let face_rect = FauxFaceRect {
+    let face_rect = ImageRect {
         x: face_x,
         y: face_y,
         width: draw.width,
@@ -1976,7 +2792,7 @@ fn draw_faux_structure_face(
             alpha,
         );
     } else {
-        draw_faux_face_fallback(image, tileset, draw, face_rect, alpha);
+        draw_faux_face_fallback(image, tileset, draw.material, draw.face, face_rect, alpha);
     }
 
     if options.show_structure_lips && draw.face == StructureFaceKind::Front {
@@ -2015,12 +2831,13 @@ fn draw_faux_structure_face(
 fn draw_faux_face_fallback(
     image: &mut PixelImage,
     tileset: &Tileset,
-    draw: FauxFaceDraw,
-    rect: FauxFaceRect,
+    material: GroundMaterial,
+    face: StructureFaceKind,
+    rect: ImageRect,
     alpha: f32,
 ) {
-    let base = tileset.palette.sample(draw.material.ramp(), 0.42);
-    let color = match draw.face {
+    let base = tileset.palette.sample(material.ramp(), 0.42);
+    let color = match face {
         StructureFaceKind::Front => base.darken(0.24),
         StructureFaceKind::Left => base.darken(0.34),
         StructureFaceKind::Right => base.darken(0.14),
@@ -2092,7 +2909,7 @@ fn draw_faux_contact_shadow(
 fn faux_face_alpha(
     map: &TerrainMap,
     proj: FauxProjection,
-    rect: FauxFaceRect,
+    rect: ImageRect,
     cutaway_radius_px: u32,
     cutaway_alpha: f32,
     options: &PreviewOptions,

@@ -91,7 +91,7 @@ impl GroundLabApp {
                 validation,
             }
         });
-        let terrain = TerrainMap::art_preview(32, 24, loaded.recipe.seed);
+        let terrain = TerrainMap::visual_target(24, 16, loaded.recipe.seed);
         let mut app = Self {
             recipe_path_text: paths.recipe_path.to_string_lossy().to_string(),
             palette_path_text: paths.palette_path.to_string_lossy().to_string(),
@@ -116,9 +116,9 @@ impl GroundLabApp {
             tileset: loaded.tileset,
             validation: loaded.validation,
             terrain,
-            preview_mode: PreviewMode::FauxPerspectiveTerrain,
+            preview_mode: PreviewMode::PerspectiveSpriteScene,
             brush: Brush::new(BrushKind::DigTrench, 1, 1),
-            zoom: 0.75,
+            zoom: 0.80,
             canvas_view: CanvasView::TerrainPreview,
             contact_texture: None,
             seam_texture: None,
@@ -126,7 +126,7 @@ impl GroundLabApp {
             dirty_assets: true,
             dirty_preview: true,
             last_preview_size: [1, 1],
-            status: "Ready. Milestone 4.2 feature-aware faux-perspective is active: rectangular large tiles, sprite-stacked terrain body, rotation, and cutaway tools.".to_string(),
+            status: "Ready. Milestone 4.3 visual target scene is active: larger composed sprite forms over the terrain simulation grid.".to_string(),
         };
         app.refresh_if_dirty(&cc.egui_ctx);
         app
@@ -448,14 +448,14 @@ impl GroundLabApp {
             recipe_changed |= ui
                 .add(egui::Slider::new(&mut self.recipe.projection.height_step_px, 4..=96).text("angled height step px"))
                 .changed();
-            if ui.button("Use faux-perspective defaults").clicked() {
+            if ui.button("Use visual-target sprite defaults").clicked() {
                 self.recipe.projection.kind = ProjectionKind::FauxPerspective2D;
-                self.recipe.projection.faux_cell_width_px = 64;
-                self.recipe.projection.faux_cell_height_px = 64;
-                self.recipe.projection.faux_height_step_px = 18;
-                self.recipe.projection.faux_side_face_width_px = 12;
-                self.preview_options.height_step_px = 18;
-                self.preview_mode = PreviewMode::FauxPerspectiveTerrain;
+                self.recipe.projection.faux_cell_width_px = 96;
+                self.recipe.projection.faux_cell_height_px = 80;
+                self.recipe.projection.faux_height_step_px = 32;
+                self.recipe.projection.faux_side_face_width_px = 20;
+                self.preview_options.height_step_px = 32;
+                self.preview_mode = PreviewMode::PerspectiveSpriteScene;
                 recipe_changed = true;
                 self.dirty_preview = true;
             }
@@ -517,13 +517,13 @@ impl GroundLabApp {
             if ui.button("⟲ Rotate view").clicked() {
                 self.preview_options.view_orientation =
                     self.preview_options.view_orientation.rotate_ccw();
-                self.preview_mode = PreviewMode::FauxPerspectiveTerrain;
+                self.preview_mode = PreviewMode::PerspectiveSpriteScene;
                 self.dirty_preview = true;
             }
             if ui.button("Rotate view ⟳").clicked() {
                 self.preview_options.view_orientation =
                     self.preview_options.view_orientation.rotate_cw();
-                self.preview_mode = PreviewMode::FauxPerspectiveTerrain;
+                self.preview_mode = PreviewMode::PerspectiveSpriteScene;
                 self.dirty_preview = true;
             }
         });
@@ -539,7 +539,7 @@ impl GroundLabApp {
                         )
                         .changed()
                     {
-                        self.preview_mode = PreviewMode::FauxPerspectiveTerrain;
+                        self.preview_mode = PreviewMode::PerspectiveSpriteScene;
                         self.dirty_preview = true;
                     }
                 }
@@ -655,6 +655,13 @@ impl GroundLabApp {
 
         ui.separator();
         ui.strong("Actions");
+        if ui.button("Reset visual-target scene").clicked() {
+            self.terrain = TerrainMap::visual_target(24, 16, self.recipe.seed);
+            self.preview_options.los_source = self.terrain.objective;
+            self.preview_mode = PreviewMode::PerspectiveSpriteScene;
+            self.dirty_preview = true;
+            self.status = "Visual-target scene reset.".to_string();
+        }
         if ui.button("Reset art-preview terrain").clicked() {
             self.terrain = TerrainMap::art_preview(32, 24, self.recipe.seed);
             self.preview_options.los_source = self.terrain.objective;
@@ -678,9 +685,9 @@ impl GroundLabApp {
                 &self.tileset,
                 &self.palette,
                 &self.terrain,
-                "exports/milestone_04_2",
+                "exports/milestone_04_3",
             ) {
-                Ok(()) => self.status = "Exported to exports/milestone_04_2".to_string(),
+                Ok(()) => self.status = "Exported to exports/milestone_04_3".to_string(),
                 Err(err) => self.status = format!("Export failed: {err}"),
             }
         }
@@ -783,7 +790,8 @@ impl GroundLabApp {
             self.preview_options.inspect_cell = pointer_cell;
             if matches!(
                 self.preview_mode,
-                PreviewMode::FauxPerspectiveTerrain
+                PreviewMode::PerspectiveSpriteScene
+                    | PreviewMode::FauxPerspectiveTerrain
                     | PreviewMode::AngledTerrain
                     | PreviewMode::ErectedTerrain
             ) && self.preview_options.enable_local_cutaway
@@ -810,7 +818,7 @@ impl GroundLabApp {
             }
         }
 
-        ui.label("Left-drag paints. Right-click sets LOS source. Hovering in faux/angled/legacy views drives a local cutaway lens. Blue = spawn, yellow = objective.");
+        ui.label("Left-drag paints. Right-click sets LOS source. Hovering in sprite/faux/angled/legacy views drives a local cutaway lens. Blue = spawn, yellow = objective.");
     }
 }
 

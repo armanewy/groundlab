@@ -4,33 +4,28 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: Milestone 4.2 — feature-aware faux-perspective terrain
+## Current status: Milestone 4.3 — perspective sprite scene prototype
 
-Milestone 4.2 keeps the top-down, screen-aligned 2D camera from Milestone 4.1, but changes the
-terrain read from “independent square cells with ledge strips” toward coherent terrain features.
-The renderer now derives a `TerrainFeatureMap` from the height/material grid and uses that feature
-map to draw more intentional terrain structures.
+Milestone 4.3 is a visual-target reset. The previous faux-perspective renderer is still useful as
+a debug/diagnostic terrain view, but the main workbench view now targets a composed **2D sprite
+scene**: the terrain grid remains the simulation layer, while the renderer derives larger visual
+forms and draws those forms as floor regions, ledges, trench runs, berm runs, cliff faces, and scene
+dressing.
 
 New in this milestone:
 
-- art-directed preview terrain with broad regions, a readable road, coherent shelves, trenches,
-  berms, mud basin, and rock outcrop
-- stress-test terrain preserved separately for noisy edge-case coverage
-- `TerrainFeatureMap` with material, ledge, trench, and berm edge masks
-- transition-aware faux terrain rendering using generated transition tiles in the map view
-- cropped top-tile sampling to reduce visible grid seams in art previews
-- stronger front faces, contact shadows, and lips for height changes
-- dedicated trench and berm surface-detail passes
-- optional feature-mask overlay for debugging derived terrain features
-- export comparison views: `terrain_preview_faux_debug.png`, `terrain_preview_faux_art.png`,
-  and `terrain_preview_faux_features.png`
-- default faux height step increased to 24px and side-face width to 16px for stronger terrain body
+- `PreviewMode::PerspectiveSpriteScene` is the default view
+- `TerrainMap::visual_target(...)` creates a small hand-composed outpost/approach scene
+- `VisualScene` and `VisualTerrainForm` export larger visual forms derived from the terrain grid
+- renderer draws broad floor regions rather than one obvious square per cell
+- continuous cliff-face, trench-run, berm-run, shadow, and dressing passes
+- larger default sprite footprint: `96x80 px` cells with `32 px` height steps
+- CLI/app export target defaults to `exports/milestone_04_3`
+- export writes `terrain_preview_visual_target.png`, `terrain_preview_visual_target_debug.png`, and `terrain_forms.json`
 
-The prior angled/dimetric renderer is still included as an experimental preview mode. The flat
-material view remains useful as the command/debug map.
-
-The terrain/gameplay core remains focused on the prepared-ground defense fantasy: trenches, berms,
-elevation, line of sight, route shaping, movement cost, and rolling-hazard scaffolding.
+The prior faux, angled, erected, and flat previews remain available as debug views. The design goal
+remains terrain-first: trenches, berms, elevation, line of sight, route shaping, movement cost, and
+rolling-hazard scaffolding are still the core systems.
 
 ## Run
 
@@ -50,13 +45,13 @@ The UI can reload, save, and auto-reload those files while the app is running.
 ## CLI export
 
 ```bash
-cargo run -p ground_cli -- export exports/milestone_04_2
+cargo run -p ground_cli -- export exports/milestone_04_3
 ```
 
 Optional explicit files:
 
 ```bash
-cargo run -p ground_cli -- export exports/milestone_04_2 recipes/dry_upland_outpost.ron palettes/muted_field_32.ron
+cargo run -p ground_cli -- export exports/milestone_04_3 recipes/dry_upland_outpost.ron palettes/muted_field_32.ron
 ```
 
 Validation only:
@@ -67,7 +62,7 @@ cargo run -p ground_cli -- validate
 
 ## Export bundle
 
-Milestone 4.2 writes:
+Milestone 4.3 writes:
 
 ```txt
 terrain_atlas.png
@@ -80,6 +75,9 @@ seam_validation.png
 terrain_preview.png
 terrain_preview_2_5d.png
 terrain_preview_cutaway.png
+terrain_preview_visual_target.png
+terrain_preview_visual_target_debug.png
+terrain_forms.json
 terrain_preview_faux.png
 terrain_preview_faux_cutaway.png
 terrain_preview_faux_debug.png
@@ -106,14 +104,14 @@ terrain_demo.json
 
 ```txt
 crates/
-  ground_core/   # engine-owned data, terrain, generation, masks, validation, preview, path/LOS, export
+  ground_core/   # engine-owned data, terrain, visual forms, generation, masks, validation, preview, path/LOS, export
   ground_app/    # desktop workbench shell; not a game engine
   ground_cli/    # deterministic asset/export/validation command
 ```
 
 ## Important scope note
 
-This is still not the final game runtime. It is the internal workbench and asset pipeline foundation.
-The next visual pass should focus on actual authored/generated slope and corner feature sprites:
-ramp tops, trench inside/outside corners, berm corner caps, continuous feature-run rendering, and
-placeable-object shadows.
+This is still not the final game runtime. Milestone 4.3 is meant to separate the hidden simulation
+terrain from the visible scene composition. The next pass should improve the actual form art: slope
+ramps, cliff caps, trench/berm inside and outside corners, prop silhouettes, and better authored
+scene dressing.

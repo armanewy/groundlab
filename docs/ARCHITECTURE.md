@@ -124,3 +124,11 @@ Current faux renderer policy:
 
 This remains a software preview. Once the projection and asset contract feel right, the GPU runtime
 should implement the same command model with sprite batching and y/elevation sort keys.
+
+
+## Milestone 4.3 visual-target scene note
+
+Milestone 4.3 separates the hidden simulation grid from the intended visual composition. The new
+`PerspectiveSpriteScene` preview derives `VisualScene` / `VisualTerrainForm` records from the terrain
+map and draws larger forms such as floor regions, cliff faces, trench runs, berm runs, shadows, and
+field-engineering dressing. The older faux/angled/flat previews remain as diagnostic tools.

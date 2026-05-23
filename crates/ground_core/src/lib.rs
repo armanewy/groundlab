@@ -13,6 +13,7 @@ pub mod sim;
 pub mod terrain;
 pub mod tileset;
 pub mod validation;
+pub mod visual_scene;
 
 pub use color::*;
 pub use export::*;
@@ -29,3 +30,4 @@ pub use sim::*;
 pub use terrain::*;
 pub use tileset::*;
 pub use validation::*;
+pub use visual_scene::*;
