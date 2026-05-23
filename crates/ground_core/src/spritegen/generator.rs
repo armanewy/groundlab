@@ -43,6 +43,15 @@ pub fn generate_terrain_sprites(recipe: &TerrainSpriteRecipe) -> Vec<GeneratedTe
             image: generate_transition_tile(&recipe, kind, 1),
         });
     }
+    for mask in 0..16 {
+        let kind = TerrainSpriteKind::from_path_mask(mask).expect("valid path mask");
+        sprites.push(GeneratedTerrainSprite {
+            id: format!("path_mask_{mask:02}"),
+            kind,
+            variant: 1,
+            image: generate_path_mask_tile(&recipe, mask),
+        });
+    }
 
     sprites
 }
@@ -260,6 +269,48 @@ pub fn generate_transition_tile(
     image
 }
 
+pub fn generate_path_mask_tile(recipe: &TerrainSpriteRecipe, mask: u8) -> PixelImage {
+    let size = recipe.tile_size;
+    let style = &recipe.style;
+    let palette = &style.palette;
+    let seed = sprite_seed(recipe.seed, mask as u32 + 1, 0x1801);
+    let grass_variant = mask as u32 % recipe.variant_count.max(1) + 1;
+    let dirt_variant = (mask as u32 + 1) % recipe.variant_count.max(1) + 1;
+    let grass = generate_grass_tile(recipe, grass_variant);
+    let dirt = generate_dirt_tile(recipe, dirt_variant);
+    let mut image = grass.clone();
+    let soft_edge = (size as f32 * (0.08 + style.transition.edge_softness * 0.08)).max(1.6);
+
+    for y in 0..size {
+        for x in 0..size {
+            let signed = path_mask_signed_distance(mask, x, y, size, seed);
+            if signed <= 0.0 {
+                let color = dirt.get(x, y);
+                if signed.abs() <= soft_edge {
+                    let grass_mix = 1.0 - signed.abs() / soft_edge;
+                    image.set(x, y, color.blend(palette.grass_mid, grass_mix * 0.16));
+                } else {
+                    image.set(x, y, color);
+                }
+            } else if signed <= soft_edge {
+                let dirt_mix = 1.0 - signed / soft_edge;
+                image.blend_pixel(x, y, dirt.get(x, y), dirt_mix * 0.38);
+                let speckle = hash01(seed ^ 0x1a01 ^ ((x as u64) << 16) ^ y as u64);
+                if speckle < style.transition.dirt_speckle_density * 0.55 {
+                    image.set(x, y, palette.dirt_light.blend(palette.grass_mid, 0.25));
+                }
+            }
+        }
+    }
+
+    add_path_edge_intrusions(&mut image, recipe, mask, seed);
+    if style.pixel.avoid_single_pixel_noise {
+        soften_isolated_pixels(&mut image);
+    }
+    enforce_palette(&mut image, &style.palette.all_colors());
+    image
+}
+
 pub fn scale_nearest(image: &PixelImage, scale: u32) -> PixelImage {
     let scale = scale.max(1);
     let mut out = PixelImage::transparent(image.width * scale, image.height * scale);
@@ -270,6 +321,134 @@ pub fn scale_nearest(image: &PixelImage, scale: u32) -> PixelImage {
         }
     }
     out
+}
+
+fn add_path_edge_intrusions(
+    image: &mut PixelImage,
+    recipe: &TerrainSpriteRecipe,
+    mask: u8,
+    seed: u64,
+) {
+    let size = image.width.min(image.height);
+    let style = &recipe.style;
+    let count = ((size * size) as f32 * style.transition.grass_intrusion_density / 14.0)
+        .round()
+        .max(1.0) as u32;
+    let mut occupied = Vec::new();
+    for i in 0..count {
+        let sample = hash(seed ^ 0x1b01 ^ (i as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15));
+        let mut best = None;
+        for attempt in 0..10 {
+            let x = (hash(sample ^ attempt as u64 ^ 0x1b02) % size as u64) as u32;
+            let y = (hash(sample ^ (attempt as u64 * 0x85eb) ^ 0x1b03) % size as u64) as u32;
+            let signed = path_mask_signed_distance(mask, x, y, size, seed);
+            if (-1.0..=2.5).contains(&signed) && spaced(x as i32, y as i32, 3, &occupied) {
+                best = Some((x, y));
+                break;
+            }
+        }
+        if let Some((x, y)) = best {
+            let motif = match hash(sample ^ 0x1b04) % 4 {
+                0 => BLADE_A,
+                1 => BLADE_D,
+                2 => LIGHT_LEAF_C,
+                _ => SOFT_GRASS_DARK_A,
+            };
+            draw_motif(image, x, y, motif, &grass_color_picker(recipe, true));
+            occupied.push((x as i32, y as i32));
+        }
+    }
+}
+
+fn path_mask_signed_distance(mask: u8, x: u32, y: u32, size: u32, seed: u64) -> f32 {
+    let half = (size as f32 * 0.19).max(2.8);
+    let center = (size as f32 - 1.0) * 0.5;
+    let xf = x as f32 + 0.5;
+    let yf = y as f32 + 0.5;
+    let mut distance = rect_signed_distance(
+        xf,
+        yf,
+        center - half,
+        center + half,
+        center - half,
+        center + half,
+    );
+    if mask & 1 != 0 {
+        distance = distance.min(rect_signed_distance(
+            xf,
+            yf,
+            center - half,
+            center + half,
+            -1.0,
+            center + half,
+        ));
+    }
+    if mask & 2 != 0 {
+        distance = distance.min(rect_signed_distance(
+            xf,
+            yf,
+            center - half,
+            size as f32 + 1.0,
+            center - half,
+            center + half,
+        ));
+    }
+    if mask & 4 != 0 {
+        distance = distance.min(rect_signed_distance(
+            xf,
+            yf,
+            center - half,
+            center + half,
+            center - half,
+            size as f32 + 1.0,
+        ));
+    }
+    if mask & 8 != 0 {
+        distance = distance.min(rect_signed_distance(
+            xf,
+            yf,
+            -1.0,
+            center + half,
+            center - half,
+            center + half,
+        ));
+    }
+    if mask == 0 {
+        let dx = xf - center;
+        let dy = yf - center;
+        distance = (dx * dx + dy * dy).sqrt() - size as f32 * 0.24;
+    }
+    let organic = path_edge_noise(seed, x, y) * 1.35;
+    distance + organic
+}
+
+fn rect_signed_distance(x: f32, y: f32, x0: f32, x1: f32, y0: f32, y1: f32) -> f32 {
+    let outside_x = if x < x0 {
+        x0 - x
+    } else if x > x1 {
+        x - x1
+    } else {
+        0.0
+    };
+    let outside_y = if y < y0 {
+        y0 - y
+    } else if y > y1 {
+        y - y1
+    } else {
+        0.0
+    };
+    if outside_x > 0.0 || outside_y > 0.0 {
+        return (outside_x * outside_x + outside_y * outside_y).sqrt();
+    }
+    let inside = (x - x0).min(x1 - x).min(y - y0).min(y1 - y);
+    -inside
+}
+
+fn path_edge_noise(seed: u64, x: u32, y: u32) -> f32 {
+    let coarse_x = x / 2;
+    let coarse_y = y / 2;
+    let raw = hash01(seed ^ 0x1c01 ^ ((coarse_x as u64) << 18) ^ coarse_y as u64);
+    (raw - 0.5) * 2.0
 }
 
 fn scatter_motifs(

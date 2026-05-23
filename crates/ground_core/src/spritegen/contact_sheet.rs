@@ -223,6 +223,82 @@ pub fn build_transition_edges_preview(
     scale_nearest(&preview, scale)
 }
 
+pub fn build_path_autotile_sheet(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    let scale = recipe.style.display_scale.max(1);
+    let tile = recipe.tile_size;
+    let mut sheet = PixelImage::new(tile * 4, tile * 4, Rgba8::opaque(13, 15, 17));
+    for mask in 0..16 {
+        let x = mask as u32 % 4;
+        let y = mask as u32 / 4;
+        if let Some(sprite) = path_mask_sprite(sprites, mask) {
+            sheet.blit(&sprite.image, x * tile, y * tile);
+        }
+    }
+    scale_nearest(&sheet, scale)
+}
+
+pub fn build_path_preview_random(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    let scale = recipe.style.display_scale.max(1);
+    let tile = recipe.tile_size;
+    let width = 12;
+    let height = 8;
+    let map = sample_path_map(width, height);
+    let mut preview = PixelImage::transparent(tile * width, tile * height);
+    let grass = sprites
+        .iter()
+        .filter(|sprite| sprite.kind == TerrainSpriteKind::GrassTile)
+        .collect::<Vec<_>>();
+    for y in 0..height {
+        for x in 0..width {
+            if map[(y * width + x) as usize] {
+                let mask = path_neighbor_mask(&map, width, height, x, y);
+                if let Some(sprite) = path_mask_sprite(sprites, mask) {
+                    preview.blit(&sprite.image, x * tile, y * tile);
+                }
+            } else if !grass.is_empty() {
+                let sprite = grass[variant_index(x, y, grass.len())];
+                preview.blit(&sprite.image, x * tile, y * tile);
+            }
+        }
+    }
+    scale_nearest(&preview, scale)
+}
+
+pub fn build_path_mask_debug_preview(recipe: &TerrainSpriteRecipe) -> PixelImage {
+    let scale = recipe.style.display_scale.max(1);
+    let tile = recipe.tile_size;
+    let mut preview = PixelImage::new(tile * 4, tile * 4, Rgba8::opaque(25, 34, 26));
+    let path = Rgba8::opaque(188, 131, 82);
+    let edge = Rgba8::opaque(98, 125, 64);
+    let center = tile / 2;
+    let arm = (tile / 5).max(2);
+    for mask in 0..16 {
+        let ox = mask as u32 % 4 * tile;
+        let oy = mask as u32 / 4 * tile;
+        preview.outline_rect(ox, oy, tile, tile, edge);
+        preview.fill_rect(ox + center - arm / 2, oy + center - arm / 2, arm, arm, path);
+        if mask & 1 != 0 {
+            preview.fill_rect(ox + center - arm / 2, oy, arm, center, path);
+        }
+        if mask & 2 != 0 {
+            preview.fill_rect(ox + center, oy + center - arm / 2, center, arm, path);
+        }
+        if mask & 4 != 0 {
+            preview.fill_rect(ox + center - arm / 2, oy + center, arm, center, path);
+        }
+        if mask & 8 != 0 {
+            preview.fill_rect(ox, oy + center - arm / 2, center, arm, path);
+        }
+    }
+    scale_nearest(&preview, scale)
+}
+
 pub fn build_seam_heatmap(
     sprites: &[GeneratedTerrainSprite],
     recipe: &TerrainSpriteRecipe,
@@ -231,7 +307,12 @@ pub fn build_seam_heatmap(
     let tile = recipe.tile_size;
     let surfaces = sprites
         .iter()
-        .filter(|sprite| !sprite.kind.is_transition())
+        .filter(|sprite| {
+            matches!(
+                sprite.kind,
+                TerrainSpriteKind::GrassTile | TerrainSpriteKind::DirtTile
+            )
+        })
         .collect::<Vec<_>>();
     let mut image = PixelImage::new(tile * surfaces.len().max(1) as u32, tile, Rgba8::BLACK);
     for (i, sprite) in surfaces.iter().enumerate() {
@@ -261,7 +342,12 @@ pub fn build_motif_heatmap(
     let scale = recipe.style.display_scale.max(1);
     let tile = recipe.tile_size;
     let mut counts = vec![0u32; (tile * tile) as usize];
-    for sprite in sprites.iter().filter(|sprite| !sprite.kind.is_transition()) {
+    for sprite in sprites.iter().filter(|sprite| {
+        matches!(
+            sprite.kind,
+            TerrainSpriteKind::GrassTile | TerrainSpriteKind::DirtTile
+        )
+    }) {
         let base = dominant_color(&sprite.image);
         for y in 0..tile {
             for x in 0..tile {
@@ -310,6 +396,70 @@ fn blit_kind(
     if let Some(sprite) = sprites.iter().find(|sprite| sprite.kind == kind) {
         target.blit(&sprite.image, x, y);
     }
+}
+
+fn path_mask_sprite(
+    sprites: &[GeneratedTerrainSprite],
+    mask: u8,
+) -> Option<&GeneratedTerrainSprite> {
+    sprites
+        .iter()
+        .find(|sprite| sprite.kind.path_mask() == Some(mask))
+}
+
+fn sample_path_map(width: u32, height: u32) -> Vec<bool> {
+    let mut map = vec![false; (width * height) as usize];
+    let mut y = height / 2;
+    for x in 0..width {
+        if x == 3 {
+            y = y.saturating_sub(1);
+        }
+        if x == 7 {
+            y = (y + 1).min(height - 2);
+        }
+        set_path(&mut map, width, x, y);
+        if x == 2 || x == 8 {
+            set_path(&mut map, width, x, y.saturating_sub(1));
+        }
+        if x == 5 {
+            for by in y..height.saturating_sub(1) {
+                set_path(&mut map, width, x, by);
+            }
+        }
+        if x == 9 {
+            for by in 1..=y {
+                set_path(&mut map, width, x, by);
+            }
+        }
+    }
+    set_path(&mut map, width, 1, height.saturating_sub(2));
+    set_path(&mut map, width, 2, height.saturating_sub(2));
+    set_path(&mut map, width, 2, height.saturating_sub(3));
+    map
+}
+
+fn set_path(map: &mut [bool], width: u32, x: u32, y: u32) {
+    let idx = (y * width + x) as usize;
+    if idx < map.len() {
+        map[idx] = true;
+    }
+}
+
+fn path_neighbor_mask(map: &[bool], width: u32, height: u32, x: u32, y: u32) -> u8 {
+    let mut mask = 0;
+    if y > 0 && map[((y - 1) * width + x) as usize] {
+        mask |= 1;
+    }
+    if x + 1 < width && map[(y * width + x + 1) as usize] {
+        mask |= 2;
+    }
+    if y + 1 < height && map[((y + 1) * width + x) as usize] {
+        mask |= 4;
+    }
+    if x > 0 && map[(y * width + x - 1) as usize] {
+        mask |= 8;
+    }
+    mask
 }
 
 fn variant_index(x: u32, y: u32, len: usize) -> usize {

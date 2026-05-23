@@ -5,6 +5,8 @@ use crate::spritegen::{GeneratedTerrainSprite, TerrainSpriteKind};
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TerrainSpriteValidationReport {
     pub sprite_count: usize,
+    pub path_mask_coverage: usize,
+    pub missing_path_masks: Vec<u8>,
     pub average_seam_score: f32,
     pub average_single_pixel_noise: f32,
     pub average_motif_repetition_score: f32,
@@ -64,7 +66,11 @@ pub fn validate_terrain_sprites(
             edge_total += score;
             edge_count += 1.0;
         }
-        if !sprite.kind.is_transition() && summary.seam_score > 42.0 {
+        let surface = matches!(
+            sprite.kind,
+            TerrainSpriteKind::GrassTile | TerrainSpriteKind::DirtTile
+        );
+        if surface && summary.seam_score > 42.0 {
             issues.push(TerrainSpriteValidationIssue {
                 severity: TerrainSpriteValidationSeverity::Warning,
                 sprite_id: Some(sprite.id.clone()),
@@ -85,24 +91,21 @@ pub fn validate_terrain_sprites(
                 message: "sprite uses more colors than the cozy base palette".to_string(),
             });
         }
-        if !sprite.kind.is_transition() && summary.motif_repetition_score > 0.68 {
+        if surface && summary.motif_repetition_score > 0.68 {
             issues.push(TerrainSpriteValidationIssue {
                 severity: TerrainSpriteValidationSeverity::Warning,
                 sprite_id: Some(sprite.id.clone()),
                 message: "surface tile has a high motif repetition score".to_string(),
             });
         }
-        if !sprite.kind.is_transition()
-            && summary.diagonal_pattern_score > 0.38
-            && detail_pixel_count(sprite) >= 12
-        {
+        if surface && summary.diagonal_pattern_score > 0.38 && detail_pixel_count(sprite) >= 12 {
             issues.push(TerrainSpriteValidationIssue {
                 severity: TerrainSpriteValidationSeverity::Warning,
                 sprite_id: Some(sprite.id.clone()),
                 message: "surface tile has a visible diagonal-pattern risk".to_string(),
             });
         }
-        if sprite.kind.is_transition()
+        if (sprite.kind.is_transition() || sprite.kind.is_path_mask())
             && summary
                 .edge_mask_continuity_score
                 .is_some_and(|score| score > 0.34)
@@ -116,14 +119,7 @@ pub fn validate_terrain_sprites(
         summaries.push(summary);
     }
 
-    for required in [
-        TerrainSpriteKind::GrassTile,
-        TerrainSpriteKind::DirtTile,
-        TerrainSpriteKind::GrassToDirtEdgeNorth,
-        TerrainSpriteKind::GrassToDirtEdgeSouth,
-        TerrainSpriteKind::GrassToDirtEdgeEast,
-        TerrainSpriteKind::GrassToDirtEdgeWest,
-    ] {
+    for required in TerrainSpriteKind::ALL {
         if !sprites.iter().any(|sprite| sprite.kind == required) {
             issues.push(TerrainSpriteValidationIssue {
                 severity: TerrainSpriteValidationSeverity::Error,
@@ -131,6 +127,20 @@ pub fn validate_terrain_sprites(
                 message: format!("missing required sprite kind {}", required.id()),
             });
         }
+    }
+    let missing_path_masks = (0..16)
+        .filter(|mask| {
+            !sprites
+                .iter()
+                .any(|sprite| sprite.kind.path_mask() == Some(*mask))
+        })
+        .collect::<Vec<_>>();
+    if !missing_path_masks.is_empty() {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Error,
+            sprite_id: None,
+            message: format!("missing path mask coverage for {:?}", missing_path_masks),
+        });
     }
 
     let count = sprites.len().max(1) as f32;
@@ -144,6 +154,8 @@ pub fn validate_terrain_sprites(
     }
     TerrainSpriteValidationReport {
         sprite_count: sprites.len(),
+        path_mask_coverage: 16 - missing_path_masks.len(),
+        missing_path_masks,
         average_seam_score: seam_total / count,
         average_single_pixel_noise: noise_total / count,
         average_motif_repetition_score: motif_total / count,
@@ -176,7 +188,7 @@ fn summarize(sprite: &GeneratedTerrainSprite) -> TerrainSpriteValidationSummary 
         motif_repetition_score: motif_repetition_score(sprite),
         diagonal_pattern_score: diagonal_pattern_score(sprite),
         cluster_diversity_score: cluster_diversity_score(sprite),
-        edge_mask_continuity_score: if sprite.kind.is_transition() {
+        edge_mask_continuity_score: if sprite.kind.is_transition() || sprite.kind.is_path_mask() {
             Some(edge_mask_continuity_score(sprite))
         } else {
             None

@@ -6,11 +6,12 @@ use ron::ser::PrettyConfig;
 
 use crate::recipe::{GroundMaterial, TransitionEdge};
 use crate::spritegen::{
-    build_motif_heatmap, build_palette_preview, build_repeat_preview, build_seam_heatmap,
-    build_single_repeat_preview, build_sprite_contact_sheet, build_transition_edges_preview,
-    build_transition_repeat_preview, build_variant_repeat_preview, generate_terrain_sprites,
-    validate_terrain_sprites, GeneratedTerrainSprite, TerrainSpriteKind, TerrainSpriteRecipe,
-    DEFAULT_SPRITEGEN_EXPORT_DIR,
+    build_motif_heatmap, build_palette_preview, build_path_autotile_sheet,
+    build_path_mask_debug_preview, build_path_preview_random, build_repeat_preview,
+    build_seam_heatmap, build_single_repeat_preview, build_sprite_contact_sheet,
+    build_transition_edges_preview, build_transition_repeat_preview, build_variant_repeat_preview,
+    generate_terrain_sprites, validate_terrain_sprites, GeneratedTerrainSprite, TerrainSpriteKind,
+    TerrainSpriteRecipe, DEFAULT_SPRITEGEN_EXPORT_DIR,
 };
 use crate::terrain_artkit::{
     TerrainArtKitFile, TerrainArtOcclusion, TerrainArtOrientationSupport, TerrainArtPiece,
@@ -72,6 +73,11 @@ pub fn export_terrain_sprite_bundle(
         .save_png(out_dir.join("repeat_preview_transition.png"))?;
     build_transition_edges_preview(&sprites, &recipe)
         .save_png(out_dir.join("repeat_preview_transition_edges.png"))?;
+    build_path_autotile_sheet(&sprites, &recipe)
+        .save_png(out_dir.join("path_autotile_sheet.png"))?;
+    build_path_preview_random(&sprites, &recipe)
+        .save_png(out_dir.join("path_preview_random.png"))?;
+    build_path_mask_debug_preview(&recipe).save_png(out_dir.join("path_preview_mask_debug.png"))?;
     build_seam_heatmap(&sprites, &recipe).save_png(out_dir.join("seam_heatmap.png"))?;
     build_motif_heatmap(&sprites, &recipe).save_png(out_dir.join("motif_heatmap.png"))?;
     build_repeat_preview(&sprites, TerrainSpriteKind::GrassTile, &recipe)
@@ -122,6 +128,27 @@ fn art_piece_for_sprite(sprite: &GeneratedTerrainSprite) -> TerrainArtPiece {
             Some(GroundMaterial::Dirt),
             TerrainArtRepeatMode::Tile,
             vec!["spritegen", "cozy", "grass-dirt-transition"],
+        ),
+        TerrainSpriteKind::PathMask00
+        | TerrainSpriteKind::PathMask01
+        | TerrainSpriteKind::PathMask02
+        | TerrainSpriteKind::PathMask03
+        | TerrainSpriteKind::PathMask04
+        | TerrainSpriteKind::PathMask05
+        | TerrainSpriteKind::PathMask06
+        | TerrainSpriteKind::PathMask07
+        | TerrainSpriteKind::PathMask08
+        | TerrainSpriteKind::PathMask09
+        | TerrainSpriteKind::PathMask10
+        | TerrainSpriteKind::PathMask11
+        | TerrainSpriteKind::PathMask12
+        | TerrainSpriteKind::PathMask13
+        | TerrainSpriteKind::PathMask14
+        | TerrainSpriteKind::PathMask15 => (
+            TerrainArtPieceKind::DirtRoadLarge,
+            Some(GroundMaterial::Dirt),
+            TerrainArtRepeatMode::Tile,
+            vec!["spritegen", "cozy", "path-mask"],
         ),
     };
     TerrainArtPiece {

@@ -1,10 +1,11 @@
 use eframe::egui;
 use ground_core::{
-    build_motif_heatmap, build_palette_preview, build_seam_heatmap, build_single_repeat_preview,
-    build_sprite_contact_sheet, build_transition_edges_preview, build_transition_repeat_preview,
-    build_variant_repeat_preview, export_terrain_sprite_bundle, generate_terrain_sprites,
-    scale_nearest, GeneratedTerrainSprite, PixelImage, TerrainSpriteKind, TerrainSpriteRecipe,
-    DEFAULT_SPRITEGEN_EXPORT_DIR,
+    build_motif_heatmap, build_palette_preview, build_path_autotile_sheet,
+    build_path_mask_debug_preview, build_path_preview_random, build_seam_heatmap,
+    build_single_repeat_preview, build_sprite_contact_sheet, build_transition_edges_preview,
+    build_transition_repeat_preview, build_variant_repeat_preview, export_terrain_sprite_bundle,
+    generate_terrain_sprites, scale_nearest, GeneratedTerrainSprite, PixelImage, TerrainSpriteKind,
+    TerrainSpriteRecipe, DEFAULT_SPRITEGEN_EXPORT_DIR,
 };
 
 fn main() -> eframe::Result {
@@ -32,13 +33,16 @@ enum PreviewPanel {
     DirtVariantRepeat,
     TransitionRepeat,
     TransitionEdges,
+    PathAutotileSheet,
+    PathRandomPreview,
+    PathMaskDebug,
     SeamHeatmap,
     MotifHeatmap,
     Palette,
 }
 
 impl PreviewPanel {
-    const ALL: [PreviewPanel; 11] = [
+    const ALL: [PreviewPanel; 14] = [
         PreviewPanel::Selected,
         PreviewPanel::ContactSheet,
         PreviewPanel::GrassSingleRepeat,
@@ -47,6 +51,9 @@ impl PreviewPanel {
         PreviewPanel::DirtVariantRepeat,
         PreviewPanel::TransitionRepeat,
         PreviewPanel::TransitionEdges,
+        PreviewPanel::PathAutotileSheet,
+        PreviewPanel::PathRandomPreview,
+        PreviewPanel::PathMaskDebug,
         PreviewPanel::SeamHeatmap,
         PreviewPanel::MotifHeatmap,
         PreviewPanel::Palette,
@@ -62,6 +69,9 @@ impl PreviewPanel {
             PreviewPanel::DirtVariantRepeat => "Dirt variant repeat",
             PreviewPanel::TransitionRepeat => "Transition repeat",
             PreviewPanel::TransitionEdges => "Transition edges",
+            PreviewPanel::PathAutotileSheet => "Path autotile sheet",
+            PreviewPanel::PathRandomPreview => "Random path preview",
+            PreviewPanel::PathMaskDebug => "Path mask debug",
             PreviewPanel::SeamHeatmap => "Seam heatmap",
             PreviewPanel::MotifHeatmap => "Motif heatmap",
             PreviewPanel::Palette => "Palette",
@@ -85,6 +95,9 @@ struct SpriteForgeApp {
     dirt_variant_texture: Option<egui::TextureHandle>,
     transition_repeat_texture: Option<egui::TextureHandle>,
     transition_edges_texture: Option<egui::TextureHandle>,
+    path_autotile_texture: Option<egui::TextureHandle>,
+    path_random_texture: Option<egui::TextureHandle>,
+    path_mask_debug_texture: Option<egui::TextureHandle>,
     seam_heatmap_texture: Option<egui::TextureHandle>,
     motif_heatmap_texture: Option<egui::TextureHandle>,
     palette_texture: Option<egui::TextureHandle>,
@@ -110,6 +123,9 @@ impl SpriteForgeApp {
             dirt_variant_texture: None,
             transition_repeat_texture: None,
             transition_edges_texture: None,
+            path_autotile_texture: None,
+            path_random_texture: None,
+            path_mask_debug_texture: None,
             seam_heatmap_texture: None,
             motif_heatmap_texture: None,
             palette_texture: None,
@@ -209,6 +225,27 @@ impl SpriteForgeApp {
             "transition_edges",
             &transition_edges,
         );
+        let path_autotile = build_path_autotile_sheet(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.path_autotile_texture,
+            "path_autotile_sheet",
+            &path_autotile,
+        );
+        let path_random = build_path_preview_random(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.path_random_texture,
+            "path_random_preview",
+            &path_random,
+        );
+        let path_mask_debug = build_path_mask_debug_preview(&self.recipe);
+        put_texture(
+            ctx,
+            &mut self.path_mask_debug_texture,
+            "path_mask_debug",
+            &path_mask_debug,
+        );
         let seam_heatmap = build_seam_heatmap(&self.sprites, &self.recipe);
         put_texture(
             ctx,
@@ -229,7 +266,7 @@ impl SpriteForgeApp {
 
     fn show_controls(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.heading("Pixel Terrain Forge");
-        ui.label("ArtGen 1: cozy grass, dirt, and grass-dirt transitions.");
+        ui.label("ArtGen 1.2: cozy grass, dirt, and path autotiles.");
         ui.separator();
         ui.label("Export directory");
         ui.text_edit_singleline(&mut self.export_dir);
@@ -425,6 +462,30 @@ impl SpriteForgeApp {
                     self.transition_edges_texture.as_ref(),
                     1.0,
                     "No transition edge preview",
+                );
+            }
+            PreviewPanel::PathAutotileSheet => {
+                show_texture(
+                    ui,
+                    self.path_autotile_texture.as_ref(),
+                    1.0,
+                    "No path autotile sheet",
+                );
+            }
+            PreviewPanel::PathRandomPreview => {
+                show_texture(
+                    ui,
+                    self.path_random_texture.as_ref(),
+                    1.0,
+                    "No path preview",
+                );
+            }
+            PreviewPanel::PathMaskDebug => {
+                show_texture(
+                    ui,
+                    self.path_mask_debug_texture.as_ref(),
+                    1.0,
+                    "No path mask debug preview",
                 );
             }
             PreviewPanel::SeamHeatmap => {
