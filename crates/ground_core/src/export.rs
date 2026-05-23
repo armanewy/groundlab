@@ -5,6 +5,7 @@ use anyhow::Result;
 use ron::ser::PrettyConfig;
 use serde::Serialize;
 
+use crate::edit_patch::build_edit_patches;
 use crate::feature::TerrainFeatureMap;
 use crate::mask::{
     build_height_mask_atlas, build_normal_map_atlas, build_occlusion_mask_atlas,
@@ -63,7 +64,12 @@ pub struct TilesetExportMetadata {
     pub terrain_preview_visual_target_path: String,
     pub terrain_preview_visual_target_no_overlay_path: String,
     pub terrain_preview_visual_target_debug_path: String,
+    pub terrain_preview_target_base_path: String,
+    pub terrain_preview_target_with_edits_path: String,
+    pub terrain_preview_target_patch_debug_path: String,
     pub visual_target_source_path: String,
+    pub terrain_edit_patches_path: String,
+    pub terrain_edit_patch_count: usize,
     pub terrain_forms_path: String,
     pub terrain_stamps_path: String,
     pub terrain_stamp_count: usize,
@@ -188,6 +194,33 @@ pub fn export_tileset_bundle_with_palette(
     visual_target
         .image
         .save_png(out_dir.join("visual_target_source.png"))?;
+    visual_target
+        .image
+        .save_png(out_dir.join("terrain_preview_target_base.png"))?;
+    visual_target_no_overlay.save_png(out_dir.join("terrain_preview_target_with_edits.png"))?;
+
+    let mut target_patch_debug_options = preview_options.clone();
+    target_patch_debug_options.show_projected_route = false;
+    target_patch_debug_options.show_scene_markers = false;
+    target_patch_debug_options.inspect_cell = None;
+    target_patch_debug_options.show_feature_overlay = true;
+    target_patch_debug_options.show_grid = true;
+    let target_patch_debug = render_terrain_preview(
+        terrain,
+        tileset,
+        PreviewMode::PerspectiveSpriteScene,
+        &target_patch_debug_options,
+    );
+    target_patch_debug.save_png(out_dir.join("terrain_preview_target_patch_debug.png"))?;
+
+    let baseline = TerrainMap::target_derived(
+        visual_target.spec.map_size_cells.0,
+        visual_target.spec.map_size_cells.1,
+        tileset.recipe.seed,
+    );
+    let edit_patches = build_edit_patches(terrain, &baseline, &visual_target);
+    let edit_patches_json = serde_json::to_string_pretty(&edit_patches)?;
+    fs::write(out_dir.join("terrain_edit_patches.json"), edit_patches_json)?;
 
     let visual_scene = VisualScene::from_terrain(terrain);
     let visual_scene_json = serde_json::to_string_pretty(&visual_scene)?;
@@ -312,7 +345,7 @@ pub fn export_tileset_bundle_with_palette(
     angled_cutaway_preview.save_png(out_dir.join("terrain_preview_angled_cutaway.png"))?;
 
     let validation = validate_tileset(tileset);
-    let metadata = export_metadata(tileset, columns, padding, validation.clone());
+    let metadata = export_metadata(tileset, terrain, columns, padding, validation.clone());
     let json = serde_json::to_string_pretty(&metadata)?;
     fs::write(out_dir.join("tileset_metadata.json"), json)?;
 
@@ -334,6 +367,7 @@ pub fn export_tileset_bundle_with_palette(
 
 pub fn export_metadata(
     tileset: &Tileset,
+    terrain: &TerrainMap,
     columns: u32,
     padding: u32,
     validation: ValidationReport,
@@ -388,6 +422,10 @@ pub fn export_metadata(
             "terrain_preview_visual_target_no_overlay.png".to_string(),
         terrain_preview_visual_target_debug_path: "terrain_preview_visual_target_debug.png"
             .to_string(),
+        terrain_preview_target_base_path: "terrain_preview_target_base.png".to_string(),
+        terrain_preview_target_with_edits_path: "terrain_preview_target_with_edits.png".to_string(),
+        terrain_preview_target_patch_debug_path: "terrain_preview_target_patch_debug.png"
+            .to_string(),
         terrain_forms_path: "terrain_forms.json".to_string(),
         terrain_stamps_path: "terrain_stamps.json".to_string(),
         terrain_stamp_count: {
@@ -395,6 +433,18 @@ pub fn export_metadata(
             TerrainStampResolver::resolve(&visual).len()
         },
         visual_target_source_path: "visual_target_source.png".to_string(),
+        terrain_edit_patches_path: "terrain_edit_patches.json".to_string(),
+        terrain_edit_patch_count: VisualTarget::load_default()
+            .ok()
+            .map(|target| {
+                let baseline = TerrainMap::target_derived(
+                    target.spec.map_size_cells.0,
+                    target.spec.map_size_cells.1,
+                    tileset.recipe.seed,
+                );
+                build_edit_patches(terrain, &baseline, &target).len()
+            })
+            .unwrap_or_default(),
         terrain_artkit_atlas_path: "terrain_artkit_atlas.png".to_string(),
         terrain_artkit_manifest_path: "terrain_artkit_manifest.json".to_string(),
         terrain_artkit_validation_path: "terrain_artkit_validation.json".to_string(),

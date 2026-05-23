@@ -218,7 +218,7 @@ Implemented in this drop.
 
 - `target_look.rs` added as the active perspective-scene renderer
 - `PreviewMode::PerspectiveSpriteScene` now calls the target-look composition pass directly
-- superseded 4.8R perspective-scene helper code removed rather than kept as dormant fallback logic
+- superseded 4.8R perspective-scene helper code removed rather than kept as dormant logic
 - target-look picking added through `target_look_pixel_to_cell`
 - roads, trenches, berms, stone platforms, mud, grass, hero dressing, and final lighting are composed from editable terrain
 - CLI/app export target defaults to `exports/milestone_04_9`
@@ -241,6 +241,26 @@ Implemented in this drop.
 
 This is the source-art correction: the target image is no longer only a reference, and the renderer
 does not try to recreate the entire scene from placeholder art-kit pieces.
+
+## Milestone 4.11 — Target-derived local edit patches
+
+Implemented in this drop.
+
+- `edit_patch.rs` added to compare editable terrain against the target-derived semantic baseline
+- changed cells are grouped into connected dirty regions by terrain patch kind
+- each patch records dirty cells, neighboring cells, image-space bounds, and old/new terrain signatures
+- default perspective preview now renders local edits from patch records instead of implicit cell scanning
+- patch drawing samples the target image under each edited cell so replacement art inherits local color
+- target-grid / patch debug overlay shows material swatches, height marks, dirty cells, neighbor cells, and patch bounds
+- export bundle writes `terrain_preview_target_base.png`
+- export bundle writes `terrain_preview_target_with_edits.png`
+- export bundle writes `terrain_preview_target_patch_debug.png`
+- export bundle writes `terrain_edit_patches.json`
+- CLI/app export target defaults to `exports/milestone_04_11`
+
+This is the editability checkpoint for the target-derived source-art path. The base image keeps the
+scene cohesive, while brush edits now produce explicit visual deltas that can be inspected, exported,
+and replaced with stronger target-style patch pieces.
 
 ## Milestone 5 — Custom renderer/runtime
 

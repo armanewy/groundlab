@@ -4,9 +4,14 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: Milestone 4.10 — target-derived editable scene
+## Current status: Milestone 4.11 — target-derived local edit patches
 
-Milestone 4.10 makes the generated target image a real source asset instead of a comparison image.
+Milestone 4.11 builds on the target-derived source image and makes terrain edits explicit local
+patches. The generated target image is still the base scene, but every divergence from the aligned
+semantic terrain baseline now becomes a tracked dirty region with cell changes, neighbor context,
+pixel bounds, and old/new terrain signatures.
+
+Milestone 4.10 made the generated target image a real source asset instead of a comparison image.
 The default renderer draws `assets/visual_targets/dry_upland_outpost_01/visual_target.png` as the
 base scene, aligns a 16x12 semantic terrain grid to it, and renders only local replacement patches
 when editable terrain diverges from that target-derived baseline.
@@ -17,7 +22,8 @@ New in this milestone:
 - `assets/visual_targets/dry_upland_outpost_01/manifest.ron` defines the grid/image alignment
 - `VisualTarget` loads the image and maps pixels to terrain cells for editing
 - `TerrainMap::target_derived(16, 12, seed)` creates the matching semantic terrain map
-- `target_look.rs` now draws the target image first, then local edit patches and overlays
+- `edit_patch.rs` records dirty cells, neighbor cells, patch bounds, and old/new terrain signatures
+- `target_look.rs` draws the target image first, then patch-record-driven local edits and overlays
 - `terrain_stamps.json` exports the resolved stamp list for debugging/decomposition
 - `assets/artkits/dry_upland_outpost/manifest.ron` now describes 50 source art pieces
 - `assets/artkits/dry_upland_outpost/pieces/*.png` contains authored-looking variants, props, caps, and shadows
@@ -28,11 +34,15 @@ New in this milestone:
 - art-kit validation reports missing pieces, duplicate ids, bad footprints, and size mismatches
 - `terrain_artkit_atlas.png`, `terrain_artkit_manifest.json`, and `terrain_artkit_validation.json` are exported with the bundle
 - `terrain_preview_visual_target_no_overlay.png` is exported for judging art without route/marker overlays
+- `terrain_preview_target_base.png` exports the untouched source-image base
+- `terrain_preview_target_with_edits.png` exports the current editable scene without route/marker overlays
+- `terrain_preview_target_patch_debug.png` exports semantic grid, dirty cells, patch bounds, material swatches, and height marks
+- `terrain_edit_patches.json` exports the active dirty-region records
 - perspective scene rendering now uses the target-derived source image instead of trying to repaint the whole scene procedurally
 - roads, trenches, berms, grass, stone, and mud edits draw as local replacement patches
 - `PreviewMode::PerspectiveSpriteScene` remains the default view, now labeled target-derived editable scene
 - `VisualScene` and `VisualTerrainForm` still export larger forms derived from the terrain grid
-- CLI/app export target defaults to `exports/milestone_04_10`
+- CLI/app export target defaults to `exports/milestone_04_11`
 
 The prior faux, angled, erected, and flat previews remain available as debug views. The design goal
 remains terrain-first: trenches, berms, elevation, line of sight, route shaping, movement cost, and
@@ -61,13 +71,13 @@ between runs.
 ## CLI export
 
 ```bash
-cargo run -p ground_cli -- export exports/milestone_04_10
+cargo run -p ground_cli -- export exports/milestone_04_11
 ```
 
 Optional explicit files:
 
 ```bash
-cargo run -p ground_cli -- export exports/milestone_04_10 recipes/dry_upland_outpost.ron palettes/muted_field_32.ron
+cargo run -p ground_cli -- export exports/milestone_04_11 recipes/dry_upland_outpost.ron palettes/muted_field_32.ron
 ```
 
 Validation only:
@@ -78,7 +88,7 @@ cargo run -p ground_cli -- validate
 
 ## Export bundle
 
-Milestone 4.10 writes:
+Milestone 4.11 writes:
 
 ```txt
 terrain_atlas.png
@@ -95,6 +105,10 @@ terrain_preview_visual_target.png
 terrain_preview_visual_target_no_overlay.png
 terrain_preview_visual_target_debug.png
 visual_target_source.png
+terrain_preview_target_base.png
+terrain_preview_target_with_edits.png
+terrain_preview_target_patch_debug.png
+terrain_edit_patches.json
 terrain_forms.json
 terrain_stamps.json
 terrain_artkit_atlas.png
@@ -133,6 +147,6 @@ crates/
 
 ## Important scope note
 
-This is still not the final game runtime. Milestone 4.10 is a source-art correction: the target image
-is the visual base, while editable GroundLab terrain remains the source of truth for gameplay data,
-local modifications, pathing, LOS, and debug overlays.
+This is still not the final game runtime. Milestone 4.11 makes the edit layer measurable: the target
+image is the visual base, while editable GroundLab terrain remains the source of truth for gameplay
+data, local modifications, patch records, pathing, LOS, and debug overlays.

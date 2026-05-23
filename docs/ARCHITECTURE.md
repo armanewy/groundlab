@@ -150,9 +150,9 @@ simulation grid -> visual forms -> external art-kit pieces -> composed preview/e
 ```
 
 The default art kit now lives under `assets/artkits/dry_upland_outpost/` as `manifest.ron` plus
-individual PNG pieces. Generated pieces remain a fallback and bootstrap path, but the perspective
-scene renderer prefers the external kit so authored or AI-assisted sprites can replace placeholders
-without rewriting terrain simulation, visual-form derivation, pathing, LOS, or export code.
+individual PNG pieces. Generated pieces are a bootstrap path for new kits; authored or AI-assisted
+sprites can replace placeholders without rewriting terrain simulation, visual-form derivation,
+pathing, LOS, or export code.
 
 The visual benchmark scene is intentionally smaller at 16x12 cells. It is meant to judge composition,
 terrain body, trenches, berms, caps, shadows, and dressing before adding more gameplay systems.
@@ -240,3 +240,22 @@ visual target image -> aligned semantic terrain grid -> local edit patches -> ro
 image. `VisualTarget` loads the manifest and maps pixels back to grid cells, so terrain brushes still
 edit the simulation map. If the user edits a cell, the renderer draws only a local replacement patch
 over the target image; unchanged cells continue to use the source art directly.
+
+## Milestone 4.11 target-derived edit patch note
+
+Milestone 4.11 makes those local edits explicit data:
+
+```txt
+visual target image -> aligned semantic terrain grid -> edit patch records -> local patch renderer -> overlays
+```
+
+`edit_patch::build_edit_patches` compares the current `TerrainMap` with the aligned
+`TerrainMap::target_derived` baseline. Changed cells are grouped into connected dirty regions by
+terrain patch kind: grass, road, mud, stone, trench, berm, or mixed. Each `TerrainEditPatch` records
+the dirty cells, neighboring context cells, image-space patch bounds, representative old/new
+signatures, and per-cell `TerrainCellChange` entries.
+
+`target_look::render_target_look_scene` now renders from those patch records. The unchanged scene is
+still the source image. Changed regions get target-derived color sampling, local material/trench/berm
+patches, and optional debug overlays showing semantic cell material, height marks, dirty cells,
+neighbor context, and patch bounds.

@@ -1,13 +1,13 @@
 use crate::color::Rgba8;
+use crate::edit_patch::{build_edit_patches, PatchRect, TerrainEditPatch, TerrainEditPatchKind};
 use crate::pathfinding::find_path;
 use crate::pixel_image::PixelImage;
 use crate::recipe::{GroundMaterial, ViewOrientation};
-use crate::target_style::{TerrainStampKind, TerrainStampResolver};
 use crate::terrain::{TerrainCell, TerrainMap};
 use crate::tileset::Tileset;
 use crate::visual_target::{ImageCellRect, VisualTarget};
 
-/// Milestone 4.10 renderer options.
+/// Milestone 4.11 renderer options.
 ///
 /// The source image is the visual authority. The terrain grid remains the simulation/editing
 /// authority, and edits render as local replacement patches over the target-derived base scene.
@@ -54,11 +54,12 @@ pub fn render_target_look_scene(
         target.spec.map_size_cells.1,
         0,
     );
+    let edit_patches = build_edit_patches(map, &baseline, &target);
 
-    draw_edit_patches(&mut image, map, &baseline, &target);
+    draw_edit_patches(&mut image, map, &target, &edit_patches);
 
     if options.show_debug {
-        draw_stamp_debug(&mut image, map, &target);
+        draw_patch_debug(&mut image, map, &target, &edit_patches);
     }
     if options.show_grid {
         draw_grid(&mut image, &target, Rgba8::opaque(30, 38, 31));
@@ -112,62 +113,88 @@ pub fn target_look_pixel_to_cell(
 fn draw_edit_patches(
     image: &mut PixelImage,
     map: &TerrainMap,
-    baseline: &TerrainMap,
     target: &VisualTarget,
+    edit_patches: &[TerrainEditPatch],
 ) {
-    let width = map.width.min(target.spec.map_size_cells.0);
-    let height = map.height.min(target.spec.map_size_cells.1);
-    for y in 0..height {
-        for x in 0..width {
+    for patch in edit_patches {
+        draw_patch_blend(image, patch.bounds_px, patch.kind);
+        for &(x, y) in &patch.cells {
             let Some(cell) = map.cell(x, y) else {
                 continue;
             };
-            let baseline_cell = baseline.cell(x, y);
-            if baseline_cell.is_some_and(|base| same_semantics(base, cell)) {
-                continue;
-            }
             let Some(rect) = target.cell_rect((x, y)) else {
                 continue;
             };
-            draw_local_replacement_patch(image, rect, cell, hash3(x, y, 0x4100));
+            draw_local_replacement_patch(image, target, rect, cell, hash3(x, y, 0x4100));
         }
     }
 }
 
-fn same_semantics(a: &TerrainCell, b: &TerrainCell) -> bool {
-    a.height == b.height
-        && a.ground == b.ground
-        && a.trench_depth == b.trench_depth
-        && a.berm_height == b.berm_height
-        && a.cover == b.cover
-        && a.blocks_sight == b.blocks_sight
-}
-
 fn draw_local_replacement_patch(
     image: &mut PixelImage,
+    target: &VisualTarget,
     rect: ImageCellRect,
     cell: &TerrainCell,
     seed: u32,
 ) {
+    let local_average = average_color_in_rect(&target.image, rect);
     if cell.trench_depth > 0 || matches!(cell.ground, GroundMaterial::TrenchFloor) {
-        draw_trench_patch(image, rect, seed);
+        draw_trench_patch(image, rect, local_average, seed);
     } else if cell.berm_height > 0 || matches!(cell.ground, GroundMaterial::BermTop) {
-        draw_berm_patch(image, rect, seed);
+        draw_berm_patch(image, rect, local_average, seed);
     } else {
         match cell.ground {
-            GroundMaterial::Grass => {
-                draw_material_patch(image, rect, Rgba8::opaque(76, 116, 54), 0.78, seed)
-            }
-            GroundMaterial::Dirt => {
-                draw_material_patch(image, rect, Rgba8::opaque(160, 111, 64), 0.82, seed)
-            }
-            GroundMaterial::Mud => {
-                draw_material_patch(image, rect, Rgba8::opaque(76, 67, 48), 0.84, seed)
-            }
-            GroundMaterial::Rock => draw_stone_patch(image, rect, seed),
-            GroundMaterial::TrenchWall => draw_trench_patch(image, rect, seed),
-            GroundMaterial::BermFace => draw_berm_patch(image, rect, seed),
+            GroundMaterial::Grass => draw_material_patch(
+                image,
+                rect,
+                local_average.blend(Rgba8::opaque(74, 114, 54), 0.62),
+                0.70,
+                seed,
+            ),
+            GroundMaterial::Dirt => draw_material_patch(
+                image,
+                rect,
+                local_average.blend(Rgba8::opaque(166, 113, 63), 0.72),
+                0.78,
+                seed,
+            ),
+            GroundMaterial::Mud => draw_material_patch(
+                image,
+                rect,
+                local_average.blend(Rgba8::opaque(70, 63, 47), 0.76),
+                0.82,
+                seed,
+            ),
+            GroundMaterial::Rock => draw_stone_patch(image, rect, local_average, seed),
+            GroundMaterial::TrenchWall => draw_trench_patch(image, rect, local_average, seed),
+            GroundMaterial::BermFace => draw_berm_patch(image, rect, local_average, seed),
             GroundMaterial::TrenchFloor | GroundMaterial::BermTop => unreachable!(),
+        }
+    }
+}
+
+fn draw_patch_blend(image: &mut PixelImage, bounds: PatchRect, kind: TerrainEditPatchKind) {
+    let color = match kind {
+        TerrainEditPatchKind::Grass => Rgba8::opaque(71, 104, 49),
+        TerrainEditPatchKind::Road => Rgba8::opaque(147, 104, 62),
+        TerrainEditPatchKind::Mud => Rgba8::opaque(65, 58, 45),
+        TerrainEditPatchKind::Stone => Rgba8::opaque(105, 112, 101),
+        TerrainEditPatchKind::Trench => Rgba8::opaque(55, 39, 28),
+        TerrainEditPatchKind::Berm => Rgba8::opaque(116, 82, 48),
+        TerrainEditPatchKind::Mixed => Rgba8::opaque(103, 92, 70),
+    };
+    for yy in 0..bounds.height {
+        let v = yy as f32 / bounds.height.max(1) as f32;
+        for xx in 0..bounds.width {
+            let u = xx as f32 / bounds.width.max(1) as f32;
+            let edge = (u.min(1.0 - u).min(v.min(1.0 - v)) * 8.0).clamp(0.0, 1.0);
+            blend_pixel(
+                image,
+                bounds.x + xx as i32,
+                bounds.y + yy as i32,
+                color,
+                0.08 * edge,
+            );
         }
     }
 }
@@ -200,7 +227,7 @@ fn draw_material_patch(
     }
 }
 
-fn draw_trench_patch(image: &mut PixelImage, rect: ImageCellRect, seed: u32) {
+fn draw_trench_patch(image: &mut PixelImage, rect: ImageCellRect, local_average: Rgba8, seed: u32) {
     draw_soft_shadow(
         image,
         rect.x + 4,
@@ -209,8 +236,8 @@ fn draw_trench_patch(image: &mut PixelImage, rect: ImageCellRect, seed: u32) {
         rect.height.saturating_sub(8),
         0.36,
     );
-    let lip = Rgba8::opaque(116, 78, 47);
-    let floor = Rgba8::opaque(33, 27, 22);
+    let lip = local_average.blend(Rgba8::opaque(116, 78, 47), 0.82);
+    let floor = local_average.blend(Rgba8::opaque(29, 24, 20), 0.90);
     draw_noisy_ellipse(image, rect, lip, 0.86, seed ^ 0x5511);
     let inner = ImageCellRect {
         x: rect.x + (rect.width / 7) as i32,
@@ -219,7 +246,7 @@ fn draw_trench_patch(image: &mut PixelImage, rect: ImageCellRect, seed: u32) {
         height: rect.height.saturating_sub(rect.height / 3),
     };
     draw_noisy_ellipse(image, inner, floor, 0.94, seed ^ 0x5512);
-    let plank = Rgba8::opaque(83, 56, 35);
+    let plank = local_average.blend(Rgba8::opaque(83, 56, 35), 0.86);
     let mut y = inner.y + 8;
     while y < inner.y + inner.height as i32 - 4 {
         draw_line(
@@ -235,7 +262,7 @@ fn draw_trench_patch(image: &mut PixelImage, rect: ImageCellRect, seed: u32) {
     }
 }
 
-fn draw_berm_patch(image: &mut PixelImage, rect: ImageCellRect, seed: u32) {
+fn draw_berm_patch(image: &mut PixelImage, rect: ImageCellRect, local_average: Rgba8, seed: u32) {
     draw_soft_shadow(
         image,
         rect.x + 8,
@@ -244,7 +271,8 @@ fn draw_berm_patch(image: &mut PixelImage, rect: ImageCellRect, seed: u32) {
         rect.height / 2,
         0.24,
     );
-    draw_noisy_ellipse(image, rect, Rgba8::opaque(120, 83, 48), 0.88, seed ^ 0x6611);
+    let mound = local_average.blend(Rgba8::opaque(120, 83, 48), 0.80);
+    draw_noisy_ellipse(image, rect, mound, 0.88, seed ^ 0x6611);
     for i in 0..22 {
         let x = rect.x + (hash3(i, seed, 0x6612) % rect.width.max(1)) as i32;
         let y = rect.y + (hash3(i, seed, 0x6613) % rect.height.max(1)) as i32;
@@ -254,14 +282,14 @@ fn draw_berm_patch(image: &mut PixelImage, rect: ImageCellRect, seed: u32) {
             y,
             2 + hash3(i, seed, 0x6614) % 6,
             2,
-            Rgba8::opaque(74, 58, 42),
+            mound.darken(0.30),
             0.45,
         );
     }
 }
 
-fn draw_stone_patch(image: &mut PixelImage, rect: ImageCellRect, seed: u32) {
-    let stone = Rgba8::opaque(119, 126, 111);
+fn draw_stone_patch(image: &mut PixelImage, rect: ImageCellRect, local_average: Rgba8, seed: u32) {
+    let stone = local_average.blend(Rgba8::opaque(119, 126, 111), 0.78);
     blend_rect(
         image,
         rect.x + 4,
@@ -344,29 +372,123 @@ fn draw_grid(image: &mut PixelImage, target: &VisualTarget, color: Rgba8) {
     }
 }
 
-fn draw_stamp_debug(image: &mut PixelImage, map: &TerrainMap, target: &VisualTarget) {
-    for stamp in TerrainStampResolver::resolve(map) {
-        let color = match stamp.kind {
-            TerrainStampKind::GrassFieldPatch => Rgba8::opaque(72, 156, 86),
-            TerrainStampKind::DirtRoadSegment | TerrainStampKind::DirtRoadJunction => {
-                Rgba8::opaque(216, 161, 88)
+fn draw_patch_debug(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    target: &VisualTarget,
+    edit_patches: &[TerrainEditPatch],
+) {
+    for y in 0..target.spec.map_size_cells.1.min(map.height) {
+        for x in 0..target.spec.map_size_cells.0.min(map.width) {
+            let Some(cell) = map.cell(x, y) else {
+                continue;
+            };
+            let Some(rect) = target.cell_rect((x, y)) else {
+                continue;
+            };
+            blend_rect(
+                image,
+                rect.x + 3,
+                rect.y + 3,
+                9,
+                9,
+                material_debug_color(cell.ground),
+                0.52,
+            );
+            let bars = cell.height.max(0) as u32;
+            for i in 0..bars.min(8) {
+                blend_rect(
+                    image,
+                    rect.x + 3 + i as i32 * 3,
+                    rect.y + rect.height as i32 - 8,
+                    2,
+                    5,
+                    Rgba8::opaque(235, 224, 132),
+                    0.60,
+                );
             }
-            TerrainStampKind::TrenchStraight
-            | TerrainStampKind::TrenchCorner
-            | TerrainStampKind::TrenchEndCap => Rgba8::opaque(72, 178, 222),
-            TerrainStampKind::BermStraight | TerrainStampKind::BermCorner => {
-                Rgba8::opaque(238, 196, 83)
-            }
-            TerrainStampKind::StonePlatform => Rgba8::opaque(157, 178, 196),
-            TerrainStampKind::MudPatch => Rgba8::opaque(88, 78, 65),
-            TerrainStampKind::GrassTuftCluster
-            | TerrainStampKind::RockScatter
-            | TerrainStampKind::CastShadow => Rgba8::opaque(210, 178, 112),
-        };
-        for cell in stamp.cells {
-            draw_cell_outline(image, target, cell, color, 0.50);
         }
     }
+
+    for patch in edit_patches {
+        for &cell in &patch.neighbor_cells {
+            draw_cell_outline(image, target, cell, Rgba8::opaque(210, 213, 204), 0.18);
+        }
+        let color = edit_patch_debug_color(patch.kind);
+        for &cell in &patch.cells {
+            draw_cell_outline(image, target, cell, color, 0.78);
+        }
+        draw_rect_outline(image, patch.bounds_px, color.lighten(0.18), 0.82);
+    }
+}
+
+fn material_debug_color(material: GroundMaterial) -> Rgba8 {
+    match material {
+        GroundMaterial::Grass => Rgba8::opaque(87, 170, 75),
+        GroundMaterial::Dirt => Rgba8::opaque(222, 157, 81),
+        GroundMaterial::Mud => Rgba8::opaque(103, 90, 70),
+        GroundMaterial::Rock => Rgba8::opaque(166, 180, 184),
+        GroundMaterial::TrenchFloor | GroundMaterial::TrenchWall => Rgba8::opaque(78, 190, 232),
+        GroundMaterial::BermTop | GroundMaterial::BermFace => Rgba8::opaque(242, 196, 78),
+    }
+}
+
+fn edit_patch_debug_color(kind: TerrainEditPatchKind) -> Rgba8 {
+    match kind {
+        TerrainEditPatchKind::Grass => Rgba8::opaque(71, 205, 104),
+        TerrainEditPatchKind::Road => Rgba8::opaque(244, 171, 81),
+        TerrainEditPatchKind::Mud => Rgba8::opaque(142, 118, 85),
+        TerrainEditPatchKind::Stone => Rgba8::opaque(176, 211, 228),
+        TerrainEditPatchKind::Trench => Rgba8::opaque(73, 203, 244),
+        TerrainEditPatchKind::Berm => Rgba8::opaque(246, 215, 88),
+        TerrainEditPatchKind::Mixed => Rgba8::opaque(220, 134, 229),
+    }
+}
+
+fn draw_rect_outline(image: &mut PixelImage, rect: PatchRect, color: Rgba8, alpha: f32) {
+    let x0 = rect.x;
+    let y0 = rect.y;
+    let x1 = rect.x + rect.width as i32 - 1;
+    let y1 = rect.y + rect.height as i32 - 1;
+    draw_line(image, x0, y0, x1, y0, color, alpha);
+    draw_line(image, x1, y0, x1, y1, color, alpha);
+    draw_line(image, x1, y1, x0, y1, color, alpha);
+    draw_line(image, x0, y1, x0, y0, color, alpha);
+}
+
+fn average_color_in_rect(image: &PixelImage, rect: ImageCellRect) -> Rgba8 {
+    let x0 = rect.x.max(0) as u32;
+    let y0 = rect.y.max(0) as u32;
+    let x1 = (rect.x + rect.width as i32).clamp(0, image.width as i32) as u32;
+    let y1 = (rect.y + rect.height as i32).clamp(0, image.height as i32) as u32;
+    if x0 >= x1 || y0 >= y1 {
+        return Rgba8::opaque(96, 91, 72);
+    }
+
+    let mut r = 0_u64;
+    let mut g = 0_u64;
+    let mut b = 0_u64;
+    let mut count = 0_u64;
+    let step_x = ((x1 - x0) / 12).max(1);
+    let step_y = ((y1 - y0) / 12).max(1);
+    let mut y = y0;
+    while y < y1 {
+        let mut x = x0;
+        while x < x1 {
+            let px = image.get(x, y);
+            r += px.r as u64;
+            g += px.g as u64;
+            b += px.b as u64;
+            count += 1;
+            x = x.saturating_add(step_x);
+        }
+        y = y.saturating_add(step_y);
+    }
+
+    if count == 0 {
+        return Rgba8::opaque(96, 91, 72);
+    }
+    Rgba8::opaque((r / count) as u8, (g / count) as u8, (b / count) as u8)
 }
 
 fn draw_cell_outline(

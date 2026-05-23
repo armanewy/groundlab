@@ -184,7 +184,7 @@ editable terrain-derived stamps, but feature-specific code now composes the fina
 field wash, worn dirt roads, dark plank trenches, dirt lips, berm mounds, stone platform faces and
 steps, hero-scene dressing, and final lighting.
 
-The superseded 4.8R perspective helper path was removed instead of retained as fallback code. Debug
+The superseded 4.8R perspective helper path was removed instead of retained as dormant code. Debug
 previews remain explicit preview modes; the default visual target path is now the target-look
 composition renderer.
 
@@ -201,3 +201,22 @@ workbench output can be compared against the exact source image.
 The default perspective renderer draws the visual target first and then draws local replacement
 patches only where the editable terrain map differs from `TerrainMap::target_derived`. This keeps
 the art source cohesive while preserving terrain brushes, pathing, LOS, and debug overlays.
+
+## Milestone 4.11 local edit patch note
+
+Milestone 4.11 turns target-derived edits into exportable patch data. The active export bundle now
+writes:
+
+```txt
+terrain_preview_target_base.png
+terrain_preview_target_with_edits.png
+terrain_preview_target_patch_debug.png
+terrain_edit_patches.json
+```
+
+`terrain_preview_target_base.png` is the untouched source-art image. `terrain_preview_target_with_edits.png`
+is the editable terrain state rendered without route and marker overlays. `terrain_preview_target_patch_debug.png`
+shows the aligned semantic grid, material swatches, height marks, dirty cells, neighboring context,
+and patch bounds. `terrain_edit_patches.json` is the machine-readable bridge for future target-style
+patch pieces: it contains changed cells, old/new terrain signatures, neighbor cells, and image-space
+bounds for every dirty region.

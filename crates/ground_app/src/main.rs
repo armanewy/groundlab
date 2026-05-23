@@ -127,7 +127,7 @@ impl GroundLabApp {
             dirty_assets: true,
             dirty_preview: true,
             last_preview_size: [1, 1],
-            status: "Ready. Milestone 4.10 target-derived editable scene is active: the visual target image is the base art source and edits render as local terrain patches.".to_string(),
+            status: "Ready. Milestone 4.11 target-derived local edit patches are active: edits render as tracked dirty regions over the source image.".to_string(),
         };
         app.refresh_if_dirty(&cc.egui_ctx);
         app
@@ -605,7 +605,7 @@ impl GroundLabApp {
         if ui
             .checkbox(
                 &mut self.preview_options.show_feature_overlay,
-                "Feature-mask overlay",
+                "Target-grid / patch debug",
             )
             .changed()
         {
@@ -686,9 +686,9 @@ impl GroundLabApp {
                 &self.tileset,
                 &self.palette,
                 &self.terrain,
-                "exports/milestone_04_10",
+                "exports/milestone_04_11",
             ) {
-                Ok(()) => self.status = "Exported to exports/milestone_04_10".to_string(),
+                Ok(()) => self.status = "Exported to exports/milestone_04_11".to_string(),
                 Err(err) => self.status = format!("Export failed: {err}"),
             }
         }
