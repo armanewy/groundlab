@@ -471,6 +471,26 @@ impl TerrainArtKit {
             .find(|piece| piece.definition.kind == kind)
     }
 
+    pub fn piece_variant(
+        &self,
+        kind: TerrainArtPieceKind,
+        seed: u32,
+    ) -> Option<&TerrainArtPieceAsset> {
+        let count = self
+            .pieces
+            .iter()
+            .filter(|piece| piece.definition.kind == kind)
+            .count();
+        if count == 0 {
+            return None;
+        }
+        let index = seed as usize % count;
+        self.pieces
+            .iter()
+            .filter(|piece| piece.definition.kind == kind)
+            .nth(index)
+    }
+
     pub fn build_atlas(&self, padding: u32) -> PixelImage {
         let width = self
             .pieces

@@ -166,6 +166,20 @@ The next pass should replace the generated placeholder PNGs with authored or AI-
 stronger slope/ramp silhouettes, trench and berm corners/caps, prop silhouettes, cast shadows, and
 scene dressing.
 
+## Milestone 4.6 — Hero art pass
+
+Implemented in this drop.
+
+- external dry-upland art kit expanded from 15 pieces to 34 source pieces
+- added art-directed variants for grass, road, mud, stone, trench, berm, shadow, corner, and debris kinds
+- `TerrainArtKit::piece_variant(kind, seed)` added for deterministic variant selection
+- perspective sprite scene now chooses stable variants for repeated art-piece kinds
+- CLI/app export target defaults to `exports/milestone_04_6`
+
+This milestone intentionally leaves the renderer architecture alone. It tests whether the external
+art-kit contract can absorb a stronger source-art pass without touching simulation, visual-form
+derivation, pathing, LOS, or export structure.
+
 ## Milestone 5 — Custom renderer/runtime
 
 - introduce `ground_render`

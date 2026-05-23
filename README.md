@@ -4,18 +4,19 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: Milestone 4.5 — external art kit + hero scene
+## Current status: Milestone 4.6 — hero art pass
 
-Milestone 4.5 keeps the composed **2D sprite scene** and makes the art-kit contract real on disk.
-The renderer still derives larger visual forms from the terrain simulation grid, but it now prefers
-an external art-kit folder before falling back to generated placeholders. The default benchmark is
-also smaller: a 16x12 hero scene with one raised platform, one trench, one berm, one road, one mud
-basin, and one route overlay.
+Milestone 4.6 keeps the Milestone 4.5 external art-kit architecture and improves the source art
+pieces themselves. The renderer still derives larger visual forms from the terrain simulation grid,
+but the art-kit folder now contains multiple art-directed variants for floors, roads, mud, stone,
+trenches, berms, shadows, caps, and dressing. The default benchmark remains a 16x12 hero scene with
+one raised platform, one trench, one berm, one road, one mud basin, and one route overlay.
 
 New in this milestone:
 
-- `assets/artkits/dry_upland_outpost/manifest.ron` is the source art-kit manifest
-- `assets/artkits/dry_upland_outpost/pieces/*.png` contains the named source pieces
+- `assets/artkits/dry_upland_outpost/manifest.ron` now describes 34 source art pieces
+- `assets/artkits/dry_upland_outpost/pieces/*.png` contains authored-looking variants
+- `TerrainArtKit::piece_variant(kind, seed)` picks stable variants for duplicate piece kinds
 - `TerrainArtPiece` now carries footprint, z-bias, opacity, and occlusion metadata
 - art-kit validation reports missing pieces, duplicate ids, bad footprints, and size mismatches
 - `terrain_artkit_atlas.png`, `terrain_artkit_manifest.json`, and `terrain_artkit_validation.json` are exported with the bundle
@@ -23,7 +24,7 @@ New in this milestone:
 - floor regions, roads, trench runs, berm runs, cliff faces, shadows, and dressing use the art kit
 - `PreviewMode::PerspectiveSpriteScene` remains the default view
 - `VisualScene` and `VisualTerrainForm` still export larger forms derived from the terrain grid
-- CLI/app export target defaults to `exports/milestone_04_5`
+- CLI/app export target defaults to `exports/milestone_04_6`
 
 The prior faux, angled, erected, and flat previews remain available as debug views. The design goal
 remains terrain-first: trenches, berms, elevation, line of sight, route shaping, movement cost, and
@@ -49,13 +50,13 @@ kit is loaded by the perspective sprite renderer and can be edited on disk betwe
 ## CLI export
 
 ```bash
-cargo run -p ground_cli -- export exports/milestone_04_5
+cargo run -p ground_cli -- export exports/milestone_04_6
 ```
 
 Optional explicit files:
 
 ```bash
-cargo run -p ground_cli -- export exports/milestone_04_5 recipes/dry_upland_outpost.ron palettes/muted_field_32.ron
+cargo run -p ground_cli -- export exports/milestone_04_6 recipes/dry_upland_outpost.ron palettes/muted_field_32.ron
 ```
 
 Validation only:
@@ -66,7 +67,7 @@ cargo run -p ground_cli -- validate
 
 ## Export bundle
 
-Milestone 4.5 writes:
+Milestone 4.6 writes:
 
 ```txt
 terrain_atlas.png
@@ -118,7 +119,6 @@ crates/
 
 ## Important scope note
 
-This is still not the final game runtime. Milestone 4.5 makes the terrain art-kit layer externally
-loadable and validates the contract. The next visual jump should come from replacing the generated
-placeholder PNG pieces with authored or AI-assisted terrain pieces that have stronger silhouettes,
-corners, caps, lighting, and prop dressing.
+This is still not the final game runtime. Milestone 4.6 is an art-pass milestone, not a renderer
+rewrite. The next visual jump should continue improving authored or AI-assisted terrain pieces:
+slope ramps, trench/berm corners, stronger prop silhouettes, cast shadows, and scene dressing.

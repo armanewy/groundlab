@@ -145,3 +145,11 @@ caps, shadows, and props without treating every piece as a stretched rectangle.
 
 The export bundle also writes `terrain_artkit_validation.json`, which reports missing required
 pieces, duplicate ids, invalid footprints or opacity, and manifest/image size mismatches.
+
+## Milestone 4.6 hero art-pass note
+
+Milestone 4.6 keeps the external art-kit contract and replaces the baseline placeholder set with 34
+source PNG pieces. The manifest can now contain multiple entries with the same `TerrainArtPieceKind`,
+such as several grass floors or trench walls. `TerrainArtKit::piece_variant(kind, seed)` selects a
+stable variant from those duplicate kinds, so the scene renderer can add visual variety without
+changing the simulation grid or visual-form derivation.

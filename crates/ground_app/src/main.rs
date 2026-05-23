@@ -126,7 +126,7 @@ impl GroundLabApp {
             dirty_assets: true,
             dirty_preview: true,
             last_preview_size: [1, 1],
-            status: "Ready. Milestone 4.5 external art-kit hero scene is active: named sprite pieces are loaded from the art-kit folder when available.".to_string(),
+            status: "Ready. Milestone 4.6 hero art pass is active: external pieces now provide art-directed variants for floors, roads, trench/berm walls, caps, shadows, and dressing.".to_string(),
         };
         app.refresh_if_dirty(&cc.egui_ctx);
         app
@@ -685,9 +685,9 @@ impl GroundLabApp {
                 &self.tileset,
                 &self.palette,
                 &self.terrain,
-                "exports/milestone_04_5",
+                "exports/milestone_04_6",
             ) {
-                Ok(()) => self.status = "Exported to exports/milestone_04_5".to_string(),
+                Ok(()) => self.status = "Exported to exports/milestone_04_6".to_string(),
                 Err(err) => self.status = format!("Export failed: {err}"),
             }
         }

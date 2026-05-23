@@ -2283,7 +2283,7 @@ fn draw_art_piece_region(
     alpha: f32,
     seed: u32,
 ) -> bool {
-    let Some(piece) = artkit.piece(kind) else {
+    let Some(piece) = artkit.piece_variant(kind, seed) else {
         return false;
     };
     let alpha = alpha * piece.definition.opacity;

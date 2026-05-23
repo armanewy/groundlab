@@ -152,3 +152,15 @@ without rewriting terrain simulation, visual-form derivation, pathing, LOS, or e
 
 The visual benchmark scene is intentionally smaller at 16x12 cells. It is meant to judge composition,
 terrain body, trenches, berms, caps, shadows, and dressing before adding more gameplay systems.
+
+## Milestone 4.6 hero art-pass note
+
+Milestone 4.6 exercises the same layer split with a larger art-kit set:
+
+```txt
+simulation grid -> visual forms -> variant art-kit pieces -> composed preview/export
+```
+
+The renderer now uses deterministic art-piece variant selection when the manifest contains multiple
+pieces of the same kind. This keeps the art-pass work isolated in the art-kit manifest and PNGs
+instead of leaking visual variation rules into terrain simulation or gameplay systems.
