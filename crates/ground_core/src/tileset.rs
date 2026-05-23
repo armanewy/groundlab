@@ -3,12 +3,26 @@ use serde::{Deserialize, Serialize};
 use crate::color::{clamp01, Rgba8};
 use crate::palette::{muted_field_32, Palette};
 use crate::pixel_image::PixelImage;
-use crate::recipe::{GroundMaterial, TilesetRecipe};
+use crate::recipe::{GroundMaterial, TileRole, TilesetRecipe, TransitionEdge};
+
+const TRANSITION_PAIRS: [(GroundMaterial, GroundMaterial); 8] = [
+    (GroundMaterial::Grass, GroundMaterial::Dirt),
+    (GroundMaterial::Grass, GroundMaterial::Mud),
+    (GroundMaterial::Dirt, GroundMaterial::Mud),
+    (GroundMaterial::Dirt, GroundMaterial::Rock),
+    (GroundMaterial::Grass, GroundMaterial::Rock),
+    (GroundMaterial::Grass, GroundMaterial::BermTop),
+    (GroundMaterial::Dirt, GroundMaterial::TrenchFloor),
+    (GroundMaterial::Grass, GroundMaterial::TrenchFloor),
+];
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TileMetadata {
     pub id: String,
+    pub role: TileRole,
     pub material: GroundMaterial,
+    pub transition_to: Option<GroundMaterial>,
+    pub transition_edge: Option<TransitionEdge>,
     pub variant: u32,
     pub movement_cost: f32,
     pub cover_hint: f32,
@@ -31,9 +45,13 @@ pub struct Tileset {
 
 impl Tileset {
     pub fn generate(recipe: &TilesetRecipe) -> Self {
+        Self::generate_with_palette(recipe, &muted_field_32())
+    }
+
+    pub fn generate_with_palette(recipe: &TilesetRecipe, palette: &Palette) -> Self {
         let mut recipe = recipe.clone();
         recipe.sanitize();
-        let palette = muted_field_32();
+        let palette = palette.clone();
         let mut tiles = Vec::new();
 
         for material in GroundMaterial::ALL {
@@ -41,7 +59,10 @@ impl Tileset {
                 let image = generate_tile_image(&recipe, &palette, material, variant);
                 let meta = TileMetadata {
                     id: format!("{}_{}", material.id(), variant),
+                    role: TileRole::Surface,
                     material,
+                    transition_to: None,
+                    transition_edge: None,
                     variant,
                     movement_cost: material.base_movement_cost(),
                     cover_hint: cover_hint(material),
@@ -52,6 +73,38 @@ impl Tileset {
                     height_role: height_role(material).to_string(),
                 };
                 tiles.push(TileAsset { meta, image });
+            }
+        }
+
+        if recipe.generate_transitions {
+            for (from, to) in TRANSITION_PAIRS {
+                for edge in TransitionEdge::ALL {
+                    for variant in 0..recipe.variants_per_material {
+                        let image = generate_transition_tile_image(
+                            &recipe, &palette, from, to, edge, variant,
+                        );
+                        let meta = TileMetadata {
+                            id: format!(
+                                "transition_{}_to_{}_{}_{}",
+                                from.id(),
+                                to.id(),
+                                edge.id(),
+                                variant
+                            ),
+                            role: TileRole::Transition,
+                            material: from,
+                            transition_to: Some(to),
+                            transition_edge: Some(edge),
+                            variant,
+                            movement_cost: (from.base_movement_cost() + to.base_movement_cost())
+                                * 0.5,
+                            cover_hint: cover_hint(from).max(cover_hint(to)) * 0.5,
+                            blocks_sight_hint: false,
+                            height_role: "material_transition".to_string(),
+                        };
+                        tiles.push(TileAsset { meta, image });
+                    }
+                }
             }
         }
 
@@ -67,8 +120,58 @@ impl Tileset {
         let wanted = variant % variants;
         self.tiles
             .iter()
-            .find(|t| t.meta.material == material && t.meta.variant == wanted)
+            .find(|t| {
+                t.meta.role == TileRole::Surface
+                    && t.meta.material == material
+                    && t.meta.variant == wanted
+            })
             .unwrap_or_else(|| &self.tiles[0])
+    }
+
+    pub fn transition_tile(
+        &self,
+        from: GroundMaterial,
+        to: GroundMaterial,
+        edge: TransitionEdge,
+        variant: u32,
+    ) -> Option<&TileAsset> {
+        let variants = self.recipe.variants_per_material.max(1);
+        let wanted = variant % variants;
+        self.tiles.iter().find(|t| {
+            t.meta.role == TileRole::Transition
+                && t.meta.material == from
+                && t.meta.transition_to == Some(to)
+                && t.meta.transition_edge == Some(edge)
+                && t.meta.variant == wanted
+        })
+    }
+
+    pub fn surface_tiles_for(&self, material: GroundMaterial) -> Vec<&TileAsset> {
+        self.tiles
+            .iter()
+            .filter(|tile| tile.meta.role == TileRole::Surface && tile.meta.material == material)
+            .collect()
+    }
+
+    pub fn transition_tiles(&self) -> Vec<&TileAsset> {
+        self.tiles
+            .iter()
+            .filter(|tile| tile.meta.role == TileRole::Transition)
+            .collect()
+    }
+
+    pub fn surface_tile_count(&self) -> usize {
+        self.tiles
+            .iter()
+            .filter(|tile| tile.meta.role == TileRole::Surface)
+            .count()
+    }
+
+    pub fn transition_tile_count(&self) -> usize {
+        self.tiles
+            .iter()
+            .filter(|tile| tile.meta.role == TileRole::Transition)
+            .count()
     }
 
     pub fn build_contact_sheet(&self, columns: u32, padding: u32) -> PixelImage {
@@ -85,13 +188,21 @@ impl Tileset {
             let x = padding + col * (tile + padding);
             let y = padding + row * (tile + padding);
             image.blit(&asset.image, x, y);
-            image.outline_rect(x, y, tile, tile, Rgba8::opaque(38, 38, 42));
+            image.outline_rect(x, y, tile, tile, role_outline(asset.meta.role));
         }
         image
     }
 
     pub fn build_atlas(&self, columns: u32, padding: u32) -> PixelImage {
         self.build_contact_sheet(columns, padding)
+    }
+}
+
+fn role_outline(role: TileRole) -> Rgba8 {
+    match role {
+        TileRole::Surface => Rgba8::opaque(38, 38, 42),
+        TileRole::Transition => Rgba8::opaque(60, 78, 68),
+        TileRole::StructureFace => Rgba8::opaque(82, 58, 42),
     }
 }
 
@@ -142,6 +253,56 @@ fn generate_tile_image(
     }
 
     add_material_detail(&mut image, recipe, material, seed);
+    image
+}
+
+fn generate_transition_tile_image(
+    recipe: &TilesetRecipe,
+    palette: &Palette,
+    from: GroundMaterial,
+    to: GroundMaterial,
+    edge: TransitionEdge,
+    variant: u32,
+) -> PixelImage {
+    let size = recipe.tile_size;
+    let from_img = generate_tile_image(recipe, palette, from, variant);
+    let to_img = generate_tile_image(recipe, palette, to, variant.wrapping_add(23));
+    let mut image = PixelImage::transparent(size, size);
+    let seed = recipe.seed
+        ^ (from as u64).wrapping_mul(0x51ed_270b_ee99_21b5)
+        ^ (to as u64).wrapping_mul(0x94d0_49bb_1331_11eb)
+        ^ (variant as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15)
+        ^ edge as u64;
+
+    for y in 0..size {
+        for x in 0..size {
+            let nx = if size <= 1 {
+                0.0
+            } else {
+                x as f32 / (size - 1) as f32
+            };
+            let ny = if size <= 1 {
+                0.0
+            } else {
+                y as f32 / (size - 1) as f32
+            };
+            let noise = value_noise(seed, x / 2, y / 2, 219) - 0.5;
+            let edge_t = match edge {
+                TransitionEdge::North => ny,
+                TransitionEdge::South => 1.0 - ny,
+                TransitionEdge::West => nx,
+                TransitionEdge::East => 1.0 - nx,
+            };
+            let boundary = 0.36 + noise * 0.18;
+            let alpha = clamp01((boundary - edge_t) / recipe.transition_feather + 0.5);
+            let mut color = from_img.get(x, y).blend(to_img.get(x, y), alpha);
+            if (alpha - 0.5).abs() < 0.10 {
+                color = color.darken(recipe.outline_strength * 0.12);
+            }
+            image.set(x, y, color);
+        }
+    }
+
     image
 }
 
@@ -272,7 +433,7 @@ fn edge_strength(material: GroundMaterial) -> f32 {
     }
 }
 
-fn cover_hint(material: GroundMaterial) -> f32 {
+pub fn cover_hint(material: GroundMaterial) -> f32 {
     match material {
         GroundMaterial::TrenchFloor => 0.65,
         GroundMaterial::TrenchWall | GroundMaterial::BermFace => 0.45,
@@ -281,7 +442,7 @@ fn cover_hint(material: GroundMaterial) -> f32 {
     }
 }
 
-fn height_role(material: GroundMaterial) -> &'static str {
+pub fn height_role(material: GroundMaterial) -> &'static str {
     match material {
         GroundMaterial::Grass
         | GroundMaterial::Dirt

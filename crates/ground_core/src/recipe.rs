@@ -86,6 +86,58 @@ impl fmt::Display for GroundMaterial {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TileRole {
+    Surface,
+    Transition,
+    StructureFace,
+}
+
+impl TileRole {
+    pub fn label(self) -> &'static str {
+        match self {
+            TileRole::Surface => "surface",
+            TileRole::Transition => "transition",
+            TileRole::StructureFace => "structure_face",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum TransitionEdge {
+    North,
+    South,
+    East,
+    West,
+}
+
+impl TransitionEdge {
+    pub const ALL: [TransitionEdge; 4] = [
+        TransitionEdge::North,
+        TransitionEdge::South,
+        TransitionEdge::East,
+        TransitionEdge::West,
+    ];
+
+    pub fn id(self) -> &'static str {
+        match self {
+            TransitionEdge::North => "north",
+            TransitionEdge::South => "south",
+            TransitionEdge::East => "east",
+            TransitionEdge::West => "west",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            TransitionEdge::North => "north edge",
+            TransitionEdge::South => "south edge",
+            TransitionEdge::East => "east edge",
+            TransitionEdge::West => "west edge",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum LightDirection {
     Northwest,
     North,
@@ -127,8 +179,10 @@ impl fmt::Display for LightDirection {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TilesetRecipe {
     pub id: String,
+    pub palette_id: String,
     pub tile_size: u32,
     pub seed: u64,
     pub variants_per_material: u32,
@@ -137,12 +191,17 @@ pub struct TilesetRecipe {
     pub highlight_strength: f32,
     pub outline_strength: f32,
     pub light_direction: LightDirection,
+    pub generate_transitions: bool,
+    pub transition_feather: f32,
+    pub mask_strength: f32,
+    pub seam_warning_threshold: f32,
 }
 
 impl Default for TilesetRecipe {
     fn default() -> Self {
         Self {
             id: "dry_upland_outpost".to_string(),
+            palette_id: "muted_field_32".to_string(),
             tile_size: 32,
             seed: 1337,
             variants_per_material: 8,
@@ -151,6 +210,10 @@ impl Default for TilesetRecipe {
             highlight_strength: 0.28,
             outline_strength: 0.45,
             light_direction: LightDirection::Northwest,
+            generate_transitions: true,
+            transition_feather: 0.24,
+            mask_strength: 0.75,
+            seam_warning_threshold: 38.0,
         }
     }
 }
@@ -169,5 +232,14 @@ impl TilesetRecipe {
         self.shadow_strength = self.shadow_strength.clamp(0.0, 1.0);
         self.highlight_strength = self.highlight_strength.clamp(0.0, 1.0);
         self.outline_strength = self.outline_strength.clamp(0.0, 1.0);
+        self.transition_feather = self.transition_feather.clamp(0.05, 0.45);
+        self.mask_strength = self.mask_strength.clamp(0.0, 2.0);
+        self.seam_warning_threshold = self.seam_warning_threshold.clamp(8.0, 160.0);
+        if self.palette_id.trim().is_empty() {
+            self.palette_id = "muted_field_32".to_string();
+        }
+        if self.id.trim().is_empty() {
+            self.id = "unnamed_tileset".to_string();
+        }
     }
 }

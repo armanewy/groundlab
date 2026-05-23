@@ -1,3 +1,8 @@
+use std::fs;
+use std::path::Path;
+
+use anyhow::{anyhow, bail, Result};
+use ron::ser::PrettyConfig;
 use serde::{Deserialize, Serialize};
 
 use crate::color::{clamp01, Rgba8};
@@ -12,6 +17,25 @@ pub struct Ramp {
 pub struct Palette {
     pub id: String,
     pub ramps: Vec<Ramp>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PaletteFile {
+    pub id: String,
+    pub ramps: Vec<PaletteRampSpec>,
+}
+
+impl Default for PaletteFile {
+    fn default() -> Self {
+        palette_to_file(&muted_field_32())
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PaletteRampSpec {
+    pub name: String,
+    pub colors: Vec<String>,
 }
 
 impl Palette {
@@ -29,6 +53,20 @@ impl Palette {
     pub fn color_names(&self) -> Vec<String> {
         self.ramps.iter().map(|r| r.name.clone()).collect()
     }
+
+    pub fn all_colors(&self) -> Vec<Rgba8> {
+        self.ramps
+            .iter()
+            .flat_map(|ramp| ramp.colors.iter().copied())
+            .collect()
+    }
+
+    pub fn nearest_distance(&self, color: Rgba8) -> f32 {
+        self.all_colors()
+            .into_iter()
+            .map(|candidate| candidate.rgb_distance(color))
+            .fold(f32::INFINITY, f32::min)
+    }
 }
 
 pub fn sample_ramp(colors: &[Rgba8], t: f32) -> Rgba8 {
@@ -45,6 +83,82 @@ pub fn sample_ramp(colors: &[Rgba8], t: f32) -> Rgba8 {
     let i1 = (i0 + 1).min(colors.len() - 1);
     let frac = scaled - i0 as f32;
     colors[i0].blend(colors[i1], frac)
+}
+
+pub fn load_palette_file(path: impl AsRef<Path>) -> Result<Palette> {
+    let text = fs::read_to_string(path.as_ref())?;
+    let parsed: PaletteFile = ron::de::from_str(&text)?;
+    palette_from_file(&parsed)
+}
+
+pub fn save_palette_file(path: impl AsRef<Path>, palette: &Palette) -> Result<()> {
+    let path = path.as_ref();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let file = palette_to_file(palette);
+    let text = ron::ser::to_string_pretty(&file, PrettyConfig::new())?;
+    fs::write(path, text)?;
+    Ok(())
+}
+
+pub fn palette_from_file(file: &PaletteFile) -> Result<Palette> {
+    if file.id.trim().is_empty() {
+        bail!("palette file is missing an id");
+    }
+    let mut ramps = Vec::with_capacity(file.ramps.len());
+    for ramp_spec in &file.ramps {
+        if ramp_spec.name.trim().is_empty() {
+            bail!("palette file contains a ramp without a name");
+        }
+        if ramp_spec.colors.is_empty() {
+            bail!("palette ramp '{}' has no colors", ramp_spec.name);
+        }
+        let mut colors = Vec::with_capacity(ramp_spec.colors.len());
+        for raw in &ramp_spec.colors {
+            colors.push(parse_hex_color(raw)?);
+        }
+        ramps.push(Ramp {
+            name: ramp_spec.name.clone(),
+            colors,
+        });
+    }
+    Ok(Palette {
+        id: file.id.clone(),
+        ramps,
+    })
+}
+
+pub fn palette_to_file(palette: &Palette) -> PaletteFile {
+    PaletteFile {
+        id: palette.id.clone(),
+        ramps: palette
+            .ramps
+            .iter()
+            .map(|ramp| PaletteRampSpec {
+                name: ramp.name.clone(),
+                colors: ramp
+                    .colors
+                    .iter()
+                    .map(|color| format_hex_color(*color))
+                    .collect(),
+            })
+            .collect(),
+    }
+}
+
+pub fn parse_hex_color(raw: &str) -> Result<Rgba8> {
+    let trimmed = raw.trim().trim_start_matches('#');
+    if trimmed.len() != 6 {
+        bail!("expected #rrggbb color, got '{raw}'");
+    }
+    let value =
+        u32::from_str_radix(trimmed, 16).map_err(|_| anyhow!("invalid hex color '{raw}'"))?;
+    Ok(Rgba8::from_rgb_hex(value))
+}
+
+pub fn format_hex_color(color: Rgba8) -> String {
+    format!("#{:02x}{:02x}{:02x}", color.r, color.g, color.b)
 }
 
 pub fn muted_field_32() -> Palette {

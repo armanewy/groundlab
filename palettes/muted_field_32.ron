@@ -1,0 +1,17 @@
+(
+    id: "muted_field_32",
+    ramps: [
+        (name: "grass", colors: ["#1f3125", "#314d2e", "#4f6d3a", "#75844d", "#a6a66b"]),
+        (name: "dry_grass", colors: ["#2e2b1f", "#56502f", "#80784b", "#a89b63", "#c3b67b"]),
+        (name: "dirt", colors: ["#241b16", "#443026", "#6c4d37", "#987149", "#bc935f"]),
+        (name: "mud", colors: ["#171717", "#2b2722", "#473a2e", "#65513a", "#806848"]),
+        (name: "rock", colors: ["#20242a", "#393f46", "#59616a", "#7d8790", "#a2a9ad"]),
+        (name: "trench_floor", colors: ["#14100d", "#241913", "#3a271b", "#563921", "#775331"]),
+        (name: "trench_wall", colors: ["#1c130f", "#332217", "#54351f", "#7c5130", "#a46f42"]),
+        (name: "berm_top", colors: ["#2a1d14", "#4d3321", "#765238", "#a17451", "#c3966a"]),
+        (name: "berm_face", colors: ["#18110c", "#2b1d14", "#4b311e", "#704728", "#986333"]),
+        (name: "overlay_blue", colors: ["#0f2232", "#1d4b65", "#398ba8", "#80c8d8"]),
+        (name: "overlay_red", colors: ["#2b1014", "#68212c", "#a63e45", "#e0785f"]),
+        (name: "overlay_yellow", colors: ["#2e2410", "#6e5721", "#a8903e", "#e2d66a"]),
+    ],
+)

@@ -1,4 +1,7 @@
 # muted_field_32
 
-This starter palette is embedded in `ground_core::palette::muted_field_32()`.
-Milestone 2 should externalize palettes as RON files and add palette linting.
+Milestone 2 promotes the palette from notes-only to a live RON file:
+
+- `palettes/muted_field_32.ron` is loaded by the workbench and CLI.
+- Ramps are named to match `GroundMaterial::ramp()`.
+- Generated tiles are still allowed to interpolate inside ramps, but validation reports average drift from palette anchors.

@@ -63,6 +63,17 @@ impl Rgba8 {
     pub fn with_alpha(self, a: u8) -> Self {
         Self { a, ..self }
     }
+
+    pub fn luma(self) -> u8 {
+        clamp_u8(self.r as f32 * 0.299 + self.g as f32 * 0.587 + self.b as f32 * 0.114)
+    }
+
+    pub fn rgb_distance(self, other: Self) -> f32 {
+        let dr = self.r as f32 - other.r as f32;
+        let dg = self.g as f32 - other.g as f32;
+        let db = self.b as f32 - other.b as f32;
+        ((dr * dr + dg * dg + db * db) / 3.0).sqrt()
+    }
 }
 
 pub fn clamp01(v: f32) -> f32 {

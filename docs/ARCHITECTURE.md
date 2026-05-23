@@ -8,9 +8,13 @@ for one future game family: terrain-first prepared-ground defense.
 - Terrain data model
 - Terrain editing brushes
 - Pixel tile recipes
-- Palette ramps
+- Palette ramps and palette file format
 - Tile metadata
+- Material transition tile generation
+- Height/normal/shadow/occlusion mask generation
+- Seam/palette validation
 - Software preview renderer
+- 2.5D erected terrain preview
 - A* route query
 - Line-of-sight query
 - Export bundle format
@@ -25,6 +29,23 @@ for one future game family: terrain-first prepared-ground defense.
 These are libraries, not a game engine. The core can be moved into a raw `winit + wgpu` runtime
 without changing the terrain, generation, pathing, or LOS systems.
 
+## Data flow
+
+```txt
+recipe.ron + palette.ron
+  -> TilesetRecipe + Palette
+  -> Tileset::generate_with_palette
+  -> surface tiles + transition tiles
+  -> height/normal/shadow/occlusion masks
+  -> validation report + seam test sheet
+  -> export bundle
+  -> future runtime renderer/importer
+```
+
+The important design rule is that generated art remains deterministic and metadata-rich. Tiles are
+not just PNGs; they carry role, material, movement cost, cover hint, sight-blocking hint, height role,
+and transition metadata.
+
 ## Simulation vs faked/custom
 
 Custom gameplay systems:
@@ -34,17 +55,18 @@ Custom gameplay systems:
 - line of sight is sampled over terrain height and sight blockers
 - cover is a simple semantic category on cells
 
-Visual/software-rendered systems in Milestone 1:
+Visual/software-rendered systems:
 
 - pixel tiles are deterministic recipes
+- material transitions are generated from material pairs and edge masks
 - terrain preview is CPU-rasterized into an egui texture
 - height and slope are shown as overlays
+- 2.5D terrain is previewed by lifting cell tops and drawing exposed faces
 
 Future physics/hazard systems:
 
 - rolling logs should start as a custom height-gradient simulation
 - raw rigid-body physics should only be added where spectacle improves the game
-
 
 ## 2.5D terrain rendering policy
 

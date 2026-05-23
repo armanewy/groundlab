@@ -2,6 +2,8 @@
 
 ## Milestone 0 — Project seed
 
+Implemented.
+
 - Rust workspace
 - Pure core crate with no UI dependencies
 - Workbench shell crate
@@ -10,7 +12,7 @@
 
 ## Milestone 1 — Live pixel terrain asset lab
 
-Implemented in this starter:
+Implemented.
 
 - deterministic tile generation from `TilesetRecipe`
 - fixed palette ramps
@@ -23,17 +25,49 @@ Implemented in this starter:
 - custom A* route preview
 - custom grid-based LOS query
 
+## Milestone 1.1 — Erected terrain preview
+
+Implemented.
+
+- first software-rendered 2.5D pass
+- top surfaces displaced upward by height
+- exposed faces between height deltas
+- workbench face fading for inspectability
+- approximate hit testing in erected view
+
 ## Milestone 2 — Better asset pipeline
 
-- RON/YAML recipe loading in UI
-- multiple palettes
-- palette linter / forbidden color detector
-- seam-test generator with transition tiles
-- generated normal, height, shadow, and occlusion masks
-- import bundle structure for the eventual runtime
-- hot reload from watched recipe files
+Implemented in this drop.
+
+- external RON recipe loading/saving
+- external RON palette loading/saving
+- auto-reload polling for recipe/palette edits
+- material transition tiles
+- generated height masks
+- generated normal maps
+- generated shadow masks
+- generated occlusion masks
+- seam-test sheet
+- validation report
+- metadata-rich export bundle
+- CLI `export` and `validate` commands
+
+Milestone 2 is deliberately still CPU/software-preview based. It gives the renderer a stronger asset contract before `wgpu` runtime work begins.
+
+## Milestone 2.1 — Terrain extrusion asset upgrade
+
+Recommended next sub-milestone before the GPU renderer if visual readability still feels weak.
+
+- dedicated trench-wall and berm-face tile generation
+- exposed-face atlas separate from top-surface atlas
+- slope/ramp tiles
+- cliff/ledge lip tiles
+- cutaway and hidden-object silhouette preview
+- better 2.5D hit testing for walls vs top surfaces
 
 ## Milestone 3 — Custom renderer/runtime
+
+Next major milestone.
 
 - introduce `ground_render`
 - `wgpu` native renderer
@@ -69,15 +103,3 @@ Implemented in this starter:
 - budget/labor model
 - post-run explanation
 - one polished dry upland outpost map
-
-
-## Milestone 1.1 — Erected terrain preview
-
-Added a first software-rendered 2.5D pass. Terrain height is now visualized by raising top tiles and drawing exposed terrain faces between neighboring cells with different effective heights. This is not the final GPU renderer, but it prevents the workbench from relying only on height-color overlays.
-
-Important constraints:
-
-- The projection is still high-top-down/rectangular, not full diamond isometric.
-- Raised faces can be faded in the workbench so hidden cells remain inspectable.
-- Final runtime should use conditional occluder fade, silhouettes, cutaway, and/or camera rotation so units and important objects behind high terrain are never lost.
-- The asset generator still needs dedicated wall/face/edge tiles for trench walls, berm faces, cliffs, slopes, and ramps.

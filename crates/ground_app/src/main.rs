@@ -1,8 +1,12 @@
+use std::path::PathBuf;
+
 use eframe::egui;
 use ground_core::{
-    export_tileset_bundle, find_path, preview_pixel_to_cell, render_terrain_preview, Brush,
-    BrushKind, GroundMaterial, LightDirection, PixelImage, PreviewMode, PreviewOptions, TerrainMap,
-    Tileset, TilesetRecipe,
+    build_seam_test_sheet, ensure_default_asset_files, export_tileset_bundle_with_palette,
+    find_path, load_workbench_assets, muted_field_32, preview_pixel_to_cell,
+    render_terrain_preview, save_palette_file, save_recipe_file, validate_tileset, Brush,
+    BrushKind, FileSnapshot, GroundMaterial, LightDirection, Palette, PixelImage, PreviewMode,
+    PreviewOptions, TerrainMap, Tileset, TilesetRecipe, ValidationReport, WorkbenchAssetPaths,
 };
 
 fn main() -> eframe::Result {
@@ -20,16 +24,47 @@ fn main() -> eframe::Result {
     )
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum CanvasView {
+    TerrainPreview,
+    ContactSheet,
+    SeamTest,
+}
+
+impl CanvasView {
+    const ALL: [CanvasView; 3] = [
+        CanvasView::TerrainPreview,
+        CanvasView::ContactSheet,
+        CanvasView::SeamTest,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            CanvasView::TerrainPreview => "Terrain preview",
+            CanvasView::ContactSheet => "Contact sheet",
+            CanvasView::SeamTest => "Seam test",
+        }
+    }
+}
+
 struct GroundLabApp {
+    paths: WorkbenchAssetPaths,
+    recipe_path_text: String,
+    palette_path_text: String,
+    file_snapshot: FileSnapshot,
+    auto_reload: bool,
     recipe: TilesetRecipe,
+    palette: Palette,
     tileset: Tileset,
+    validation: ValidationReport,
     terrain: TerrainMap,
     preview_mode: PreviewMode,
     preview_options: PreviewOptions,
     brush: Brush,
     zoom: f32,
-    show_contact_sheet: bool,
+    canvas_view: CanvasView,
     contact_texture: Option<egui::TextureHandle>,
+    seam_texture: Option<egui::TextureHandle>,
     preview_texture: Option<egui::TextureHandle>,
     dirty_assets: bool,
     dirty_preview: bool,
@@ -39,42 +74,103 @@ struct GroundLabApp {
 
 impl GroundLabApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        let recipe = TilesetRecipe::default();
-        let tileset = Tileset::generate(&recipe);
-        let terrain = TerrainMap::demo(32, 24, recipe.seed);
+        let paths = WorkbenchAssetPaths::default();
+        let _ = ensure_default_asset_files(&paths);
+        let loaded = load_workbench_assets(&paths).unwrap_or_else(|_| {
+            let recipe = TilesetRecipe::default();
+            let palette = muted_field_32();
+            let tileset = Tileset::generate_with_palette(&recipe, &palette);
+            let validation = validate_tileset(&tileset);
+            ground_core::LoadedWorkbenchAssets {
+                recipe,
+                palette,
+                tileset,
+                validation,
+            }
+        });
+        let terrain = TerrainMap::demo(32, 24, loaded.recipe.seed);
         let mut app = Self {
+            recipe_path_text: paths.recipe_path.to_string_lossy().to_string(),
+            palette_path_text: paths.palette_path.to_string_lossy().to_string(),
+            file_snapshot: FileSnapshot::capture(&paths),
+            paths,
+            auto_reload: true,
             preview_options: PreviewOptions {
                 show_grid: true,
                 los_source: terrain.objective,
                 los_range: 18,
-                height_step_px: (recipe.tile_size / 4).max(4),
+                height_step_px: (loaded.recipe.tile_size / 4).max(4),
                 fade_raised_faces: true,
             },
-            recipe,
-            tileset,
+            recipe: loaded.recipe,
+            palette: loaded.palette,
+            tileset: loaded.tileset,
+            validation: loaded.validation,
             terrain,
             preview_mode: PreviewMode::Material,
             brush: Brush::new(BrushKind::DigTrench, 1, 1),
             zoom: 1.0,
-            show_contact_sheet: false,
+            canvas_view: CanvasView::TerrainPreview,
             contact_texture: None,
+            seam_texture: None,
             preview_texture: None,
             dirty_assets: true,
             dirty_preview: true,
             last_preview_size: [1, 1],
-            status: "Ready. Paint terrain or tune the tile recipe.".to_string(),
+            status: "Ready. Milestone 2 pipeline is active: recipe/palette files, masks, transitions, validation, export.".to_string(),
         };
         app.refresh_if_dirty(&cc.egui_ctx);
         app
     }
 
+    fn active_paths_from_text(&self) -> WorkbenchAssetPaths {
+        WorkbenchAssetPaths {
+            recipe_path: PathBuf::from(self.recipe_path_text.trim()),
+            palette_path: PathBuf::from(self.palette_path_text.trim()),
+        }
+    }
+
+    fn poll_hot_reload(&mut self, ctx: &egui::Context) {
+        if !self.auto_reload {
+            return;
+        }
+        let paths = self.active_paths_from_text();
+        let snapshot = FileSnapshot::capture(&paths);
+        if snapshot.changed_since(&self.file_snapshot) {
+            match load_workbench_assets(&paths) {
+                Ok(loaded) => {
+                    self.paths = paths;
+                    self.file_snapshot = snapshot;
+                    self.recipe = loaded.recipe;
+                    self.palette = loaded.palette;
+                    self.tileset = loaded.tileset;
+                    self.validation = loaded.validation;
+                    self.preview_options.height_step_px = (self.recipe.tile_size / 4).max(4);
+                    self.dirty_assets = true;
+                    self.dirty_preview = true;
+                    self.status = "Hot reloaded recipe/palette files.".to_string();
+                    ctx.request_repaint();
+                }
+                Err(err) => {
+                    self.file_snapshot = snapshot;
+                    self.status = format!("Hot reload failed: {err}");
+                }
+            }
+        }
+    }
+
     fn refresh_if_dirty(&mut self, ctx: &egui::Context) {
+        self.poll_hot_reload(ctx);
+
         if self.dirty_assets {
             self.recipe.sanitize();
-            self.tileset = Tileset::generate(&self.recipe);
+            self.tileset = Tileset::generate_with_palette(&self.recipe, &self.palette);
+            self.validation = validate_tileset(&self.tileset);
             let columns = self.recipe.variants_per_material.max(1);
             let contact = self.tileset.build_contact_sheet(columns, 2);
             put_texture(ctx, &mut self.contact_texture, "contact_sheet", &contact);
+            let seam = build_seam_test_sheet(&self.tileset);
+            put_texture(ctx, &mut self.seam_texture, "seam_test_sheet", &seam);
             self.dirty_assets = false;
             self.dirty_preview = true;
         }
@@ -92,9 +188,80 @@ impl GroundLabApp {
         }
     }
 
+    fn load_from_paths(&mut self, ctx: &egui::Context) {
+        let paths = self.active_paths_from_text();
+        match load_workbench_assets(&paths) {
+            Ok(loaded) => {
+                self.paths = paths;
+                self.file_snapshot = FileSnapshot::capture(&self.paths);
+                self.recipe = loaded.recipe;
+                self.palette = loaded.palette;
+                self.tileset = loaded.tileset;
+                self.validation = loaded.validation;
+                self.preview_options.height_step_px = (self.recipe.tile_size / 4).max(4);
+                self.dirty_assets = true;
+                self.dirty_preview = true;
+                self.status = "Loaded recipe and palette from disk.".to_string();
+                ctx.request_repaint();
+            }
+            Err(err) => {
+                self.status = format!("Load failed: {err}");
+            }
+        }
+    }
+
+    fn save_recipe(&mut self) {
+        let paths = self.active_paths_from_text();
+        match save_recipe_file(&paths.recipe_path, &self.recipe) {
+            Ok(()) => {
+                self.paths = paths;
+                self.file_snapshot = FileSnapshot::capture(&self.paths);
+                self.status = format!("Saved recipe to {}", self.paths.recipe_path.display());
+            }
+            Err(err) => self.status = format!("Save recipe failed: {err}"),
+        }
+    }
+
+    fn save_palette(&mut self) {
+        let paths = self.active_paths_from_text();
+        match save_palette_file(&paths.palette_path, &self.palette) {
+            Ok(()) => {
+                self.paths = paths;
+                self.file_snapshot = FileSnapshot::capture(&self.paths);
+                self.status = format!("Saved palette to {}", self.paths.palette_path.display());
+            }
+            Err(err) => self.status = format!("Save palette failed: {err}"),
+        }
+    }
+
     fn show_controls(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.heading("GroundLab");
         ui.label("Internal custom terrain + pixel asset workbench");
+        ui.separator();
+
+        ui.strong("Pipeline files");
+        ui.label("Recipe");
+        ui.text_edit_singleline(&mut self.recipe_path_text);
+        ui.label("Palette");
+        ui.text_edit_singleline(&mut self.palette_path_text);
+        ui.horizontal(|ui| {
+            if ui.button("Reload").clicked() {
+                self.load_from_paths(ctx);
+            }
+            if ui.button("Save recipe").clicked() {
+                self.save_recipe();
+            }
+            if ui.button("Save palette").clicked() {
+                self.save_palette();
+            }
+        });
+        ui.checkbox(&mut self.auto_reload, "Auto reload recipe/palette files");
+        ui.small(format!(
+            "Palette: {} · ramps: {}",
+            self.palette.id,
+            self.palette.ramps.len()
+        ));
+        ui.small(self.validation.summary_line());
         ui.separator();
 
         ui.strong("Asset recipe");
@@ -152,6 +319,38 @@ impl GroundLabApp {
                 .changed();
         });
 
+        ui.collapsing("Milestone 2 asset pipeline", |ui| {
+            recipe_changed |= ui
+                .checkbox(
+                    &mut self.recipe.generate_transitions,
+                    "Generate material transition tiles",
+                )
+                .changed();
+            recipe_changed |= ui
+                .add(
+                    egui::Slider::new(&mut self.recipe.transition_feather, 0.05..=0.45)
+                        .text("transition feather"),
+                )
+                .changed();
+            recipe_changed |= ui
+                .add(
+                    egui::Slider::new(&mut self.recipe.mask_strength, 0.0..=2.0)
+                        .text("normal/mask strength"),
+                )
+                .changed();
+            recipe_changed |= ui
+                .add(
+                    egui::Slider::new(&mut self.recipe.seam_warning_threshold, 8.0..=160.0)
+                        .text("seam warn threshold"),
+                )
+                .changed();
+            ui.label(format!(
+                "Tiles: {} surface, {} transition",
+                self.tileset.surface_tile_count(),
+                self.tileset.transition_tile_count()
+            ));
+        });
+
         if recipe_changed {
             self.dirty_assets = true;
             self.status = "Recipe changed; regenerated tiles next frame.".to_string();
@@ -159,7 +358,14 @@ impl GroundLabApp {
         }
 
         ui.separator();
-        ui.strong("Terrain preview");
+        ui.strong("Canvas");
+        egui::ComboBox::from_label("View")
+            .selected_text(self.canvas_view.label())
+            .show_ui(ui, |ui| {
+                for view in CanvasView::ALL {
+                    ui.selectable_value(&mut self.canvas_view, view, view.label());
+                }
+            });
         egui::ComboBox::from_label("Overlay")
             .selected_text(self.preview_mode.label())
             .show_ui(ui, |ui| {
@@ -203,7 +409,6 @@ impl GroundLabApp {
             self.dirty_preview = true;
         }
         ui.add(egui::Slider::new(&mut self.zoom, 0.4..=3.0).text("zoom"));
-        ui.checkbox(&mut self.show_contact_sheet, "Show contact sheet");
 
         ui.separator();
         ui.strong("Brush");
@@ -261,8 +466,13 @@ impl GroundLabApp {
         }
         if ui.button("Export bundle").clicked() {
             self.refresh_if_dirty(ctx);
-            match export_tileset_bundle(&self.tileset, &self.terrain, "exports/milestone_01") {
-                Ok(()) => self.status = "Exported to exports/milestone_01".to_string(),
+            match export_tileset_bundle_with_palette(
+                &self.tileset,
+                &self.palette,
+                &self.terrain,
+                "exports/milestone_02",
+            ) {
+                Ok(()) => self.status = "Exported to exports/milestone_02".to_string(),
                 Err(err) => self.status = format!("Export failed: {err}"),
             }
         }
@@ -271,23 +481,58 @@ impl GroundLabApp {
         let path = find_path(&self.terrain, self.terrain.spawn, self.terrain.objective);
         ui.label(format!("Route cost: {:.1}", path.total_cost));
         ui.label(format!("Route reached objective: {}", path.reached_goal));
+        ui.collapsing("Validation issues", |ui| {
+            if self.validation.issues.is_empty() {
+                ui.label("No validation issues reported.");
+            } else {
+                for issue in self.validation.issues.iter().take(16) {
+                    ui.label(format!(
+                        "{} · {} · {}{}",
+                        issue.severity.label(),
+                        issue.category,
+                        issue.message,
+                        issue
+                            .metric
+                            .map(|m| format!(" ({m:.1})"))
+                            .unwrap_or_default()
+                    ));
+                }
+                if self.validation.issues.len() > 16 {
+                    ui.label(format!("… plus {} more", self.validation.issues.len() - 16));
+                }
+            }
+        });
         ui.separator();
         ui.label(&self.status);
     }
 
     fn show_canvas(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
-        if self.show_contact_sheet {
-            if let Some(texture) = &self.contact_texture {
-                let size = texture.size_vec2() * self.zoom;
-                let sized = egui::load::SizedTexture::new(texture.id(), size);
-                ui.add(
-                    egui::Image::from_texture(sized).texture_options(egui::TextureOptions::NEAREST),
+        match self.canvas_view {
+            CanvasView::TerrainPreview => self.show_terrain_canvas(ui, ctx),
+            CanvasView::ContactSheet => {
+                let texture = self.contact_texture.clone();
+                show_texture_only(
+                    ui,
+                    texture.as_ref(),
+                    self.zoom,
+                    "Contact sheet is not ready yet.",
                 );
             }
-            return;
+            CanvasView::SeamTest => {
+                let texture = self.seam_texture.clone();
+                show_texture_only(
+                    ui,
+                    texture.as_ref(),
+                    self.zoom,
+                    "Seam test is not ready yet.",
+                );
+            }
         }
+    }
 
-        let Some(texture) = &self.preview_texture else {
+    fn show_terrain_canvas(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        let texture = self.preview_texture.clone();
+        let Some(texture) = texture else {
             ui.label("Preview texture is not ready yet.");
             return;
         };
@@ -344,9 +589,9 @@ impl eframe::App for GroundLabApp {
 
         egui::Panel::left("groundlab_controls")
             .resizable(true)
-            .default_size(340.0)
-            .min_size(280.0)
-            .max_size(460.0)
+            .default_size(360.0)
+            .min_size(300.0)
+            .max_size(520.0)
             .show_inside(ui, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     self.show_controls(ui, &ctx);
@@ -360,6 +605,21 @@ impl eframe::App for GroundLabApp {
                     self.show_canvas(ui, &ctx);
                 });
         });
+    }
+}
+
+fn show_texture_only(
+    ui: &mut egui::Ui,
+    texture: Option<&egui::TextureHandle>,
+    zoom: f32,
+    missing: &str,
+) {
+    if let Some(texture) = texture {
+        let size = texture.size_vec2() * zoom;
+        let sized = egui::load::SizedTexture::new(texture.id(), size);
+        ui.add(egui::Image::from_texture(sized).texture_options(egui::TextureOptions::NEAREST));
+    } else {
+        ui.label(missing);
     }
 }
 
