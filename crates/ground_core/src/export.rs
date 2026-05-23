@@ -14,6 +14,7 @@ use crate::palette::{palette_to_file, Palette};
 use crate::preview::{render_terrain_preview, PreviewMode, PreviewOptions};
 use crate::recipe::ViewOrientation;
 use crate::terrain::TerrainMap;
+use crate::terrain_artkit::TerrainArtKit;
 use crate::tileset::{TileMetadata, Tileset};
 use crate::validation::{build_seam_test_sheet, validate_tileset, ValidationReport};
 use crate::visual_scene::VisualScene;
@@ -60,6 +61,9 @@ pub struct TilesetExportMetadata {
     pub terrain_preview_visual_target_path: String,
     pub terrain_preview_visual_target_debug_path: String,
     pub terrain_forms_path: String,
+    pub terrain_artkit_atlas_path: String,
+    pub terrain_artkit_manifest_path: String,
+    pub terrain_artkit_piece_count: usize,
     pub visual_target_form_count: usize,
     pub visual_target_summary: String,
     pub art_preview_structural_edge_count: usize,
@@ -159,6 +163,16 @@ pub fn export_tileset_bundle_with_palette(
     let visual_scene = VisualScene::from_terrain(terrain);
     let visual_scene_json = serde_json::to_string_pretty(&visual_scene)?;
     fs::write(out_dir.join("terrain_forms.json"), visual_scene_json)?;
+
+    let artkit = TerrainArtKit::generate(tileset);
+    let artkit_atlas = artkit.build_atlas(padding);
+    artkit_atlas.save_png(out_dir.join("terrain_artkit_atlas.png"))?;
+    let artkit_manifest = artkit.manifest("terrain_artkit_atlas.png", padding);
+    let artkit_manifest_json = serde_json::to_string_pretty(&artkit_manifest)?;
+    fs::write(
+        out_dir.join("terrain_artkit_manifest.json"),
+        artkit_manifest_json,
+    )?;
 
     let faux_preview = render_terrain_preview(
         terrain,
@@ -335,6 +349,9 @@ pub fn export_metadata(
         terrain_preview_visual_target_debug_path: "terrain_preview_visual_target_debug.png"
             .to_string(),
         terrain_forms_path: "terrain_forms.json".to_string(),
+        terrain_artkit_atlas_path: "terrain_artkit_atlas.png".to_string(),
+        terrain_artkit_manifest_path: "terrain_artkit_manifest.json".to_string(),
+        terrain_artkit_piece_count: TerrainArtKit::generate(tileset).pieces.len(),
         visual_target_form_count: {
             let visual = TerrainMap::visual_target(24, 16, tileset.recipe.seed);
             VisualScene::from_terrain(&visual).forms.len()

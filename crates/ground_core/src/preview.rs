@@ -7,6 +7,7 @@ use crate::pathfinding::find_path;
 use crate::pixel_image::PixelImage;
 use crate::recipe::{GroundMaterial, StructureFaceKind, TransitionEdge, ViewOrientation};
 use crate::terrain::TerrainMap;
+use crate::terrain_artkit::{TerrainArtKit, TerrainArtPieceKind, TerrainArtRepeatMode};
 use crate::tileset::{stable_tile_variant, Tileset};
 use crate::visual_scene::{VisualScene, VisualTerrainForm, VisualTerrainFormKind};
 
@@ -1367,14 +1368,15 @@ fn render_perspective_sprite_scene_preview(
 ) -> PixelImage {
     let proj = perspective_scene_projection(map, tileset, options);
     let scene = VisualScene::from_terrain(map);
+    let artkit = TerrainArtKit::generate(tileset);
     let mut image = PixelImage::new(proj.width, proj.height, Rgba8::opaque(11, 12, 15));
 
     // One soft ground plate keeps the scene feeling like a composed illustration instead
     // of isolated terrain tiles floating on a black editor background.
-    draw_scene_base_plate(&mut image, map, tileset, proj);
+    draw_scene_base_plate(&mut image, map, tileset, &artkit, proj);
 
     for form in scene.forms.iter().filter(|form| form.kind.is_floor_like()) {
-        draw_scene_floor_form(&mut image, map, tileset, proj, form);
+        draw_scene_floor_form(&mut image, map, tileset, &artkit, proj, form);
     }
 
     for form in scene.forms.iter().filter(|form| {
@@ -1388,16 +1390,16 @@ fn render_perspective_sprite_scene_preview(
     }) {
         match form.kind {
             VisualTerrainFormKind::CliffFace => {
-                draw_scene_cliff_form(&mut image, map, tileset, proj, form, options)
+                draw_scene_cliff_form(&mut image, map, tileset, &artkit, proj, form, options)
             }
             VisualTerrainFormKind::TrenchRun => {
-                draw_scene_trench_form(&mut image, map, tileset, proj, form)
+                draw_scene_trench_form(&mut image, map, tileset, &artkit, proj, form)
             }
             VisualTerrainFormKind::BermRun => {
-                draw_scene_berm_form(&mut image, map, tileset, proj, form, options)
+                draw_scene_berm_form(&mut image, map, tileset, &artkit, proj, form, options)
             }
             VisualTerrainFormKind::ShadowPatch => {
-                draw_scene_shadow_form(&mut image, map, proj, form)
+                draw_scene_shadow_form(&mut image, map, &artkit, proj, form)
             }
             _ => {}
         }
@@ -1408,7 +1410,7 @@ fn render_perspective_sprite_scene_preview(
         .iter()
         .filter(|form| form.kind == VisualTerrainFormKind::Dressing)
     {
-        draw_scene_dressing_form(&mut image, map, tileset, proj, form);
+        draw_scene_dressing_form(&mut image, map, tileset, &artkit, proj, form);
     }
 
     if options.show_projected_route {
@@ -1482,6 +1484,7 @@ fn draw_scene_base_plate(
     image: &mut PixelImage,
     map: &TerrainMap,
     tileset: &Tileset,
+    artkit: &TerrainArtKit,
     proj: FauxProjection,
 ) {
     let grass = tileset
@@ -1510,15 +1513,22 @@ fn draw_scene_base_plate(
             (proj.cell_h / 2).max(18),
             0.20,
         );
-        blend_rect_i32(
+        let rect = ImageRect {
+            x: min_x,
+            y: min_y,
+            width: (max_x - min_x) as u32,
+            height: (max_y - min_y) as u32,
+        };
+        if !draw_art_piece_region(
             image,
-            min_x,
-            min_y,
-            (max_x - min_x) as u32,
-            (max_y - min_y) as u32,
-            grass,
-            0.18,
-        );
+            artkit,
+            TerrainArtPieceKind::GrassFloorLarge,
+            rect,
+            0.28,
+            0x3ba5,
+        ) {
+            blend_rect_i32(image, rect.x, rect.y, rect.width, rect.height, grass, 0.18);
+        }
     }
 }
 
@@ -1526,6 +1536,7 @@ fn draw_scene_floor_form(
     image: &mut PixelImage,
     map: &TerrainMap,
     tileset: &Tileset,
+    artkit: &TerrainArtKit,
     proj: FauxProjection,
     form: &VisualTerrainForm,
 ) {
@@ -1538,19 +1549,32 @@ fn draw_scene_floor_form(
         material,
         tileset.recipe.variants_per_material,
     );
-    let tile = &tileset.tile(material, variant).image;
-    draw_tiled_image_region(
+    let piece_kind = match form.kind {
+        VisualTerrainFormKind::RoadPatch => TerrainArtPieceKind::DirtRoadLarge,
+        VisualTerrainFormKind::MudBasin => TerrainArtPieceKind::MudFloor,
+        VisualTerrainFormKind::RockOutcrop => TerrainArtPieceKind::StoneFloor,
+        VisualTerrainFormKind::RaisedPlatform | VisualTerrainFormKind::FloorRegion => {
+            TerrainArtPieceKind::GrassFloorLarge
+        }
+        _ => TerrainArtPieceKind::GrassFloorLarge,
+    };
+    let rect = ImageRect {
+        x: sx,
+        y: sy,
+        width,
+        height,
+    };
+    if !draw_art_piece_region(
         image,
-        tile,
-        ImageRect {
-            x: sx,
-            y: sy,
-            width,
-            height,
-        },
+        artkit,
+        piece_kind,
+        rect,
         1.0,
         form.rect.x ^ (form.rect.y << 8),
-    );
+    ) {
+        let tile = &tileset.tile(material, variant).image;
+        draw_tiled_image_region(image, tile, rect, 1.0, form.rect.x ^ (form.rect.y << 8));
+    }
 
     let height_shade = 0.045 * (form.base_height - 2.0);
     if height_shade > 0.0 {
@@ -1577,7 +1601,7 @@ fn draw_scene_floor_form(
 
     match form.kind {
         VisualTerrainFormKind::RoadPatch => {
-            draw_scene_road_edges(image, tileset, sx, sy, width, height)
+            draw_scene_road_edges(image, tileset, artkit, sx, sy, width, height)
         }
         VisualTerrainFormKind::MudBasin => {
             draw_scene_mud_basin(image, tileset, sx, sy, width, height)
@@ -1596,6 +1620,7 @@ fn draw_scene_cliff_form(
     image: &mut PixelImage,
     map: &TerrainMap,
     tileset: &Tileset,
+    artkit: &TerrainArtKit,
     proj: FauxProjection,
     form: &VisualTerrainForm,
     options: &PreviewOptions,
@@ -1635,7 +1660,27 @@ fn draw_scene_cliff_form(
     if let Some(asset) =
         tileset.structure_face_tile(form.material, StructureFaceKind::Front, variant)
     {
-        draw_scaled_image_rect(image, &asset.image, sx, face_y, width, face_h, alpha);
+        let piece_kind = match form.material {
+            GroundMaterial::Rock => TerrainArtPieceKind::StoneWallFront,
+            GroundMaterial::TrenchWall => TerrainArtPieceKind::TrenchWallFront,
+            GroundMaterial::BermFace => TerrainArtPieceKind::BermFaceFront,
+            _ => TerrainArtPieceKind::BermFaceFront,
+        };
+        if !draw_art_piece_region(
+            image,
+            artkit,
+            piece_kind,
+            ImageRect {
+                x: sx,
+                y: face_y,
+                width,
+                height: face_h,
+            },
+            alpha,
+            form.rect.x ^ (form.rect.y << 10),
+        ) {
+            draw_scaled_image_rect(image, &asset.image, sx, face_y, width, face_h, alpha);
+        }
     } else {
         draw_faux_face_fallback(
             image,
@@ -1657,15 +1702,29 @@ fn draw_scene_cliff_form(
         if let Some(asset) =
             tileset.structure_face_tile(form.material, StructureFaceKind::Lip, variant)
         {
-            draw_scaled_image_rect(
+            if !draw_art_piece_region(
                 image,
-                &asset.image,
-                sx,
-                lip_y,
-                width,
-                lip_h,
+                artkit,
+                TerrainArtPieceKind::TrenchLip,
+                ImageRect {
+                    x: sx,
+                    y: lip_y,
+                    width,
+                    height: lip_h,
+                },
                 alpha.max(0.82),
-            );
+                form.rect.x,
+            ) {
+                draw_scaled_image_rect(
+                    image,
+                    &asset.image,
+                    sx,
+                    lip_y,
+                    width,
+                    lip_h,
+                    alpha.max(0.82),
+                );
+            }
         } else {
             let lip = tileset
                 .palette
@@ -1680,6 +1739,7 @@ fn draw_scene_trench_form(
     image: &mut PixelImage,
     map: &TerrainMap,
     tileset: &Tileset,
+    artkit: &TerrainArtKit,
     proj: FauxProjection,
     form: &VisualTerrainForm,
 ) {
@@ -1700,26 +1760,79 @@ fn draw_scene_trench_form(
         height.saturating_sub(inset_y),
         0.24,
     );
-    blend_rect_i32(
+    let floor_rect = ImageRect {
+        x: sx + inset_x as i32,
+        y: sy + inset_y as i32,
+        width: width.saturating_sub(inset_x * 2),
+        height: height.saturating_sub(inset_y * 2),
+    };
+    if !draw_art_piece_region(
         image,
-        sx + inset_x as i32,
-        sy + inset_y as i32,
-        width.saturating_sub(inset_x * 2),
-        height.saturating_sub(inset_y * 2),
-        floor,
-        0.82,
-    );
+        artkit,
+        TerrainArtPieceKind::TrenchFloor,
+        floor_rect,
+        0.92,
+        form.rect.x ^ (form.rect.y << 8),
+    ) {
+        blend_rect_i32(
+            image,
+            floor_rect.x,
+            floor_rect.y,
+            floor_rect.width,
+            floor_rect.height,
+            floor,
+            0.82,
+        );
+    }
     let lip_h = (proj.cell_h / 10).max(4);
-    blend_rect_i32(image, sx, sy, width, lip_h, wall.lighten(0.04), 0.82);
-    blend_rect_i32(
-        image,
-        sx,
-        sy + height as i32 - lip_h as i32,
+    let top_lip = ImageRect {
+        x: sx,
+        y: sy,
         width,
-        lip_h,
-        wall.darken(0.12),
+        height: lip_h,
+    };
+    let bottom_lip = ImageRect {
+        x: sx,
+        y: sy + height as i32 - lip_h as i32,
+        width,
+        height: lip_h,
+    };
+    if !draw_art_piece_region(
+        image,
+        artkit,
+        TerrainArtPieceKind::TrenchLip,
+        top_lip,
         0.90,
-    );
+        form.rect.x,
+    ) {
+        blend_rect_i32(
+            image,
+            top_lip.x,
+            top_lip.y,
+            top_lip.width,
+            top_lip.height,
+            wall.lighten(0.04),
+            0.82,
+        );
+    }
+    if !draw_art_piece_region(
+        image,
+        artkit,
+        TerrainArtPieceKind::TrenchWallFront,
+        bottom_lip,
+        0.92,
+        form.rect.y,
+    ) {
+        blend_rect_i32(
+            image,
+            bottom_lip.x,
+            bottom_lip.y,
+            bottom_lip.width,
+            bottom_lip.height,
+            wall.darken(0.12),
+            0.90,
+        );
+    }
     blend_rect_i32(
         image,
         sx,
@@ -1744,6 +1857,7 @@ fn draw_scene_berm_form(
     image: &mut PixelImage,
     map: &TerrainMap,
     tileset: &Tileset,
+    artkit: &TerrainArtKit,
     proj: FauxProjection,
     form: &VisualTerrainForm,
     options: &PreviewOptions,
@@ -1765,15 +1879,30 @@ fn draw_scene_berm_form(
         (proj.cell_h / 3).max(12),
         0.16,
     );
-    blend_rect_i32(
+    let top_rect = ImageRect {
+        x: sx + pad as i32,
+        y: sy + pad as i32,
+        width: width.saturating_sub(pad * 2),
+        height: height.saturating_sub(pad),
+    };
+    if !draw_art_piece_region(
         image,
-        sx + pad as i32,
-        sy + pad as i32,
-        width.saturating_sub(pad * 2),
-        height.saturating_sub(pad),
-        crown,
-        0.34,
-    );
+        artkit,
+        TerrainArtPieceKind::BermTop,
+        top_rect,
+        0.72,
+        form.rect.x ^ (form.rect.y << 8),
+    ) {
+        blend_rect_i32(
+            image,
+            top_rect.x,
+            top_rect.y,
+            top_rect.width,
+            top_rect.height,
+            crown,
+            0.34,
+        );
+    }
     let face_h = (proj.height_step_px / 2).max(10);
     let face_y = sy + height as i32 - face_h as i32 / 2;
     let alpha = scene_cutaway_alpha(
@@ -1789,15 +1918,30 @@ fn draw_scene_berm_form(
         tileset.recipe.cutaway_alpha,
         options,
     );
-    blend_rect_i32(
-        image,
-        sx,
-        face_y,
+    let face_rect = ImageRect {
+        x: sx,
+        y: face_y,
         width,
-        face_h,
-        face.darken(0.10),
-        alpha * 0.86,
-    );
+        height: face_h,
+    };
+    if !draw_art_piece_region(
+        image,
+        artkit,
+        TerrainArtPieceKind::BermFaceFront,
+        face_rect,
+        alpha * 0.92,
+        form.rect.x,
+    ) {
+        blend_rect_i32(
+            image,
+            face_rect.x,
+            face_rect.y,
+            face_rect.width,
+            face_rect.height,
+            face.darken(0.10),
+            alpha * 0.86,
+        );
+    }
     let lip = crown.lighten(0.08);
     blend_rect_i32(
         image,
@@ -1813,26 +1957,68 @@ fn draw_scene_berm_form(
 fn draw_scene_shadow_form(
     image: &mut PixelImage,
     map: &TerrainMap,
+    artkit: &TerrainArtKit,
     proj: FauxProjection,
     form: &VisualTerrainForm,
 ) {
     let (sx, sy, width, height) = scene_form_screen_rect(map, proj, form);
-    draw_soft_pixel_shadow(image, sx, sy, width, height, 0.20);
+    if !draw_art_piece_region(
+        image,
+        artkit,
+        TerrainArtPieceKind::SoftShadow,
+        ImageRect {
+            x: sx,
+            y: sy,
+            width,
+            height,
+        },
+        0.70,
+        form.rect.x,
+    ) {
+        draw_soft_pixel_shadow(image, sx, sy, width, height, 0.20);
+    }
 }
 
 fn draw_scene_dressing_form(
     image: &mut PixelImage,
     map: &TerrainMap,
     tileset: &Tileset,
+    artkit: &TerrainArtKit,
     proj: FauxProjection,
     form: &VisualTerrainForm,
 ) {
     let (sx, sy, width, height) = scene_form_screen_rect(map, proj, form);
     if form.id.contains("objective") {
         draw_engineering_pad(image, tileset, sx, sy, width, height, true);
+        draw_art_piece_region(
+            image,
+            artkit,
+            TerrainArtPieceKind::CornerCap,
+            ImageRect {
+                x: sx + width as i32 - (width / 4).max(24) as i32,
+                y: sy,
+                width: (width / 4).max(24),
+                height: (height / 2).max(24),
+            },
+            0.84,
+            form.rect.x,
+        );
     } else {
         draw_engineering_pad(image, tileset, sx, sy, width, height, false);
     }
+    draw_art_piece_region(
+        image,
+        artkit,
+        TerrainArtPieceKind::PropDebris,
+        ImageRect {
+            x: sx + (width / 5) as i32,
+            y: sy + (height / 3) as i32,
+            width: (width / 3).max(32),
+            height: (height / 3).max(24),
+        },
+        0.62,
+        form.rect.y,
+    );
 }
 
 fn draw_engineering_pad(
@@ -1913,6 +2099,7 @@ fn draw_engineering_pad(
 fn draw_scene_road_edges(
     image: &mut PixelImage,
     tileset: &Tileset,
+    artkit: &TerrainArtKit,
     sx: i32,
     sy: i32,
     width: u32,
@@ -1923,16 +2110,44 @@ fn draw_scene_road_edges(
         .sample(GroundMaterial::Grass.ramp(), 0.42)
         .darken(0.06);
     let band = (height.min(width) / 12).max(4);
-    blend_rect_i32(image, sx, sy, width, band, edge, 0.16);
-    blend_rect_i32(
+    if !draw_art_piece_region(
         image,
-        sx,
-        sy + height as i32 - band as i32,
+        artkit,
+        TerrainArtPieceKind::DirtRoadEdge,
+        ImageRect {
+            x: sx,
+            y: sy,
+            width,
+            height: band,
+        },
+        0.42,
         width,
-        band,
-        edge.darken(0.08),
-        0.18,
-    );
+    ) {
+        blend_rect_i32(image, sx, sy, width, band, edge, 0.16);
+    }
+    if !draw_art_piece_region(
+        image,
+        artkit,
+        TerrainArtPieceKind::DirtRoadEdge,
+        ImageRect {
+            x: sx,
+            y: sy + height as i32 - band as i32,
+            width,
+            height: band,
+        },
+        0.46,
+        height,
+    ) {
+        blend_rect_i32(
+            image,
+            sx,
+            sy + height as i32 - band as i32,
+            width,
+            band,
+            edge.darken(0.08),
+            0.18,
+        );
+    }
 }
 
 fn draw_scene_mud_basin(
@@ -2058,6 +2273,49 @@ fn scene_form_screen_rect(
     let width = ((max_vx - min_vx + 1).max(1) as u32) * proj.cell_w;
     let height = ((max_vy - min_vy + 1).max(1) as u32) * proj.cell_h;
     (sx, sy, width, height)
+}
+
+fn draw_art_piece_region(
+    image: &mut PixelImage,
+    artkit: &TerrainArtKit,
+    kind: TerrainArtPieceKind,
+    dst: ImageRect,
+    alpha: f32,
+    seed: u32,
+) -> bool {
+    let Some(piece) = artkit.piece(kind) else {
+        return false;
+    };
+    match piece.definition.repeat_mode {
+        TerrainArtRepeatMode::Tile => {
+            draw_tiled_image_region(image, &piece.image, dst, alpha, seed);
+        }
+        TerrainArtRepeatMode::Stretch | TerrainArtRepeatMode::StretchMiddle => {
+            draw_scaled_image_rect(
+                image,
+                &piece.image,
+                dst.x,
+                dst.y,
+                dst.width,
+                dst.height,
+                alpha,
+            );
+        }
+        TerrainArtRepeatMode::Stamp => {
+            let stamp_w = dst.width.min(piece.image.width).max(1);
+            let stamp_h = dst.height.min(piece.image.height).max(1);
+            draw_scaled_image_rect(
+                image,
+                &piece.image,
+                dst.x + (dst.width as i32 - stamp_w as i32) / 2,
+                dst.y + (dst.height as i32 - stamp_h as i32) / 2,
+                stamp_w,
+                stamp_h,
+                alpha,
+            );
+        }
+    }
+    true
 }
 
 fn draw_tiled_image_region(

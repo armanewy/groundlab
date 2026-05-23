@@ -126,7 +126,7 @@ impl GroundLabApp {
             dirty_assets: true,
             dirty_preview: true,
             last_preview_size: [1, 1],
-            status: "Ready. Milestone 4.3 visual target scene is active: larger composed sprite forms over the terrain simulation grid.".to_string(),
+            status: "Ready. Milestone 4.4 terrain art-kit renderer is active: named sprite pieces are composed over the terrain simulation grid.".to_string(),
         };
         app.refresh_if_dirty(&cc.egui_ctx);
         app
@@ -685,9 +685,9 @@ impl GroundLabApp {
                 &self.tileset,
                 &self.palette,
                 &self.terrain,
-                "exports/milestone_04_3",
+                "exports/milestone_04_4",
             ) {
-                Ok(()) => self.status = "Exported to exports/milestone_04_3".to_string(),
+                Ok(()) => self.status = "Exported to exports/milestone_04_4".to_string(),
                 Err(err) => self.status = format!("Export failed: {err}"),
             }
         }

@@ -11,6 +11,7 @@ pub mod preview;
 pub mod recipe;
 pub mod sim;
 pub mod terrain;
+pub mod terrain_artkit;
 pub mod tileset;
 pub mod validation;
 pub mod visual_scene;

@@ -126,3 +126,7 @@ Milestone 4.3 separates the hidden simulation grid from the intended visual comp
 `PerspectiveSpriteScene` preview derives `VisualScene` / `VisualTerrainForm` records from the terrain
 map and draws larger forms such as floor regions, cliff faces, trench runs, berm runs, shadows, and
 field-engineering dressing. The older faux/angled/flat previews remain as diagnostic tools.
+
+## Milestone 4.4 terrain art-kit note
+
+Milestone 4.4 adds `TerrainArtKit`, `TerrainArtPiece`, and a generated art-kit export. The bundle now includes `terrain_artkit_atlas.png` and `terrain_artkit_manifest.json`. The manifest names pieces such as grass floors, dirt road edges, trench walls, trench lips, berm faces, stone walls, soft shadows, corner caps, and debris props. This is the first step toward replacing internal generated placeholders with imported art-kit atlases.

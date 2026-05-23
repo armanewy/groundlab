@@ -132,3 +132,7 @@ Milestone 4.3 separates the hidden simulation grid from the intended visual comp
 `PerspectiveSpriteScene` preview derives `VisualScene` / `VisualTerrainForm` records from the terrain
 map and draws larger forms such as floor regions, cliff faces, trench runs, berm runs, shadows, and
 field-engineering dressing. The older faux/angled/flat previews remain as diagnostic tools.
+
+## Milestone 4.4 terrain art-kit note
+
+Milestone 4.4 adds the first `TerrainArtKit` layer. The perspective sprite scene still derives large visual forms from the simulation grid, but the renderer now composes those forms from named sprite pieces instead of relying only on procedural rectangles. The generated kit exports an atlas and manifest so the same contract can later be backed by hand-authored or external generated art.

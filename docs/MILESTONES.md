@@ -139,18 +139,19 @@ This milestone intentionally demotes the previous cell-feature renderer to a dia
 new target is an illustrated 2D scene whose sprites imply physical terrain while the simulation grid
 remains hidden underneath.
 
-## Milestone 4.4 — Authored terrain-form art pass
+## Milestone 4.4 — Terrain art-kit renderer
 
-Recommended next.
+Implemented in this drop.
 
-- ramp/slope top sprites
-- cliff cap/lip variants
-- trench inside corners and outside corners
-- berm corner lips
-- prop silhouettes and object shadows
-- stronger field-engineering dressing: sandbags, timber, stakes, crates, logs
-- face seam validation by face kind and orientation
-- hidden-object x-ray silhouettes in the software preview
+- `TerrainArtKit` and `TerrainArtPiece` added as the sprite-piece composition layer
+- generated local art kit exports `terrain_artkit_atlas.png` and `terrain_artkit_manifest.json`
+- perspective sprite scene consumes named pieces for floor regions, roads, trench runs, berms, cliff faces, shadows, and dressing
+- art-kit pieces include irregular alpha edges, textured faces, lips, soft shadows, corner caps, and debris
+- CLI/app export target defaults to `exports/milestone_04_4`
+
+The next pass should make art kits externally loadable from `assets/artkits/...`, then add stronger
+authored slope/ramp pieces, trench and berm corner pieces, prop silhouettes, and missing-piece
+validation.
 
 ## Milestone 5 — Custom renderer/runtime
 
