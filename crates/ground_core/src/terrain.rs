@@ -68,7 +68,16 @@ impl TerrainMap {
         }
     }
 
+    /// Default preview map used by the workbench. This is intentionally art-directed:
+    /// broad readable material regions, coherent ledges, and obvious trench/berm test
+    /// features. Use `stress_test` when the renderer needs noisy edge-case coverage.
     pub fn demo(width: u32, height: u32, seed: u64) -> Self {
+        Self::art_preview(width, height, seed)
+    }
+
+    /// Stress-test map kept for validation/debug exports. It deliberately contains many
+    /// isolated material and height changes, so it should not be used as the default art read.
+    pub fn stress_test(width: u32, height: u32, seed: u64) -> Self {
         let mut map = TerrainMap::new(width, height, TerrainCell::new(2, GroundMaterial::Grass));
         map.objective = (width.saturating_sub(5), height / 2);
         map.spawn = (2, height / 2 + 2);
@@ -102,7 +111,9 @@ impl TerrainMap {
                 } else {
                     GroundMaterial::Grass
                 };
-                let idx = map.index(x, y).expect("demo coordinates are in bounds");
+                let idx = map
+                    .index(x, y)
+                    .expect("stress-test coordinates are in bounds");
                 map.cells[idx] = TerrainCell::new(h, ground);
             }
         }
@@ -117,6 +128,175 @@ impl TerrainMap {
             map.spawn.1,
             Brush::new(BrushKind::Paint(GroundMaterial::Dirt), 2, 1),
         );
+        map
+    }
+
+    /// Art-directed preview map. It has large regions, a clear approach road, coherent
+    /// elevation shelves, a mud basin, a rock outcrop, and explicit trench/berm runs so
+    /// the faux-perspective renderer can be judged visually instead of as a tile stress test.
+    pub fn art_preview(width: u32, height: u32, seed: u64) -> Self {
+        let mut map = TerrainMap::new(width, height, TerrainCell::new(2, GroundMaterial::Grass));
+        map.objective = (width.saturating_sub(5), (height / 2).saturating_sub(2));
+        map.spawn = (2, height / 2 + 3);
+
+        let w = width.max(1) as f32;
+        let hgt = height.max(1) as f32;
+        for y in 0..height {
+            for x in 0..width {
+                let fx = x as f32 / w;
+                let fy = y as f32 / hgt;
+                let mut height_value = 2.0;
+
+                // Broad readable shelves: high rear ground, mid plateau, lower foreground.
+                if fy < 0.26 {
+                    height_value += 2.4;
+                } else if fy < 0.48 {
+                    height_value += 1.4;
+                } else if fy > 0.72 {
+                    height_value -= 0.8;
+                }
+                if fx > 0.58 && fy < 0.66 {
+                    height_value += 0.8;
+                }
+                if fx < 0.22 && fy > 0.62 {
+                    height_value -= 0.6;
+                }
+
+                // Subtle coherent terrain variation, not noisy one-cell chaos.
+                let large_noise = (hash01(seed, x / 3, y / 3, 1147) - 0.5) * 0.55;
+                let detail_noise = (hash01(seed, x, y, 7721) - 0.5) * 0.18;
+                let h = (height_value + large_noise + detail_noise)
+                    .round()
+                    .clamp(0.0, 8.0) as i8;
+
+                let road_y =
+                    map.spawn.1 as f32 - (x as f32 / w) * 5.0 + ((x as f32 * 0.42).sin() * 1.15);
+                let road_dist = (y as f32 - road_y).abs();
+                let mut ground = if road_dist < 1.45 {
+                    GroundMaterial::Dirt
+                } else if fx > 0.60 && fx < 0.84 && fy > 0.36 && fy < 0.58 {
+                    GroundMaterial::Rock
+                } else if fx > 0.34 && fx < 0.60 && fy > 0.55 && fy < 0.73 {
+                    GroundMaterial::Mud
+                } else if hash01(seed, x / 4, y / 4, 908) > 0.82 && road_dist < 3.0 {
+                    GroundMaterial::Dirt
+                } else {
+                    GroundMaterial::Grass
+                };
+
+                // Keep a little natural variation, but at patch scale.
+                if matches!(ground, GroundMaterial::Grass) && hash01(seed, x / 5, y / 5, 441) > 0.92
+                {
+                    ground = GroundMaterial::Dirt;
+                }
+
+                let idx = map
+                    .index(x, y)
+                    .expect("art-preview coordinates are in bounds");
+                map.cells[idx] = TerrainCell::new(h, ground);
+            }
+        }
+
+        // Deliberate road and objective pads.
+        for x in 0..width {
+            let road_y =
+                map.spawn.1 as f32 - (x as f32 / w) * 5.0 + ((x as f32 * 0.42).sin() * 1.15);
+            for dy in -1..=1 {
+                let y = road_y.round() as i32 + dy;
+                if y >= 0 && y < height as i32 {
+                    if let Some(cell) = map.cell_mut(x, y as u32) {
+                        cell.ground = GroundMaterial::Dirt;
+                        recompute_semantics(cell);
+                    }
+                }
+            }
+        }
+
+        map.apply_brush(
+            map.spawn.0,
+            map.spawn.1,
+            Brush::new(BrushKind::Flatten, 2, 1),
+        );
+        map.apply_brush(
+            map.spawn.0,
+            map.spawn.1,
+            Brush::new(BrushKind::Paint(GroundMaterial::Dirt), 2, 1),
+        );
+        map.apply_brush(
+            map.objective.0,
+            map.objective.1,
+            Brush::new(BrushKind::Flatten, 3, 1),
+        );
+        map.apply_brush(
+            map.objective.0,
+            map.objective.1,
+            Brush::new(BrushKind::Paint(GroundMaterial::Dirt), 2, 1),
+        );
+
+        // Continuous trench run near the road and a shorter fallback trench.
+        let trench_y = height / 2;
+        for x in 7..width.saturating_sub(12) {
+            if x % 2 == 0 || x < width / 2 {
+                map.apply_brush(
+                    x,
+                    trench_y.saturating_sub(3),
+                    Brush::new(BrushKind::DigTrench, 1, 2),
+                );
+            }
+        }
+        let fallback_x = width.saturating_sub(9);
+        for y in height / 3..height.saturating_sub(5) {
+            if y % 2 == 0 || y < height / 2 {
+                map.apply_brush(fallback_x, y, Brush::new(BrushKind::DigTrench, 1, 1));
+            }
+        }
+
+        // Berms that visibly raise ground around a defended pad and shape the route.
+        for x in width.saturating_sub(12)..width.saturating_sub(3) {
+            map.apply_brush(
+                x,
+                map.objective.1.saturating_add(3),
+                Brush::new(BrushKind::RaiseBerm, 1, 1),
+            );
+        }
+        for y in map.objective.1.saturating_sub(4)
+            ..=map
+                .objective
+                .1
+                .saturating_add(2)
+                .min(height.saturating_sub(1))
+        {
+            map.apply_brush(
+                width.saturating_sub(11),
+                y,
+                Brush::new(BrushKind::RaiseBerm, 1, 1),
+            );
+        }
+        for x in 5_u32..13_u32.min(width) {
+            map.apply_brush(
+                x,
+                height.saturating_sub(6),
+                Brush::new(BrushKind::RaiseBerm, 1, 1),
+            );
+        }
+
+        // A compact rock outcrop with coherent shape instead of isolated grey cells.
+        let outcrop_cx = (width as f32 * 0.70) as i32;
+        let outcrop_cy = (height as f32 * 0.40) as i32;
+        for y in 0..height {
+            for x in 0..width {
+                let dx = x as i32 - outcrop_cx;
+                let dy = y as i32 - outcrop_cy;
+                if dx * dx + dy * dy <= 18 {
+                    if let Some(cell) = map.cell_mut(x, y) {
+                        cell.ground = GroundMaterial::Rock;
+                        cell.height = (cell.height + 1).clamp(0, 9);
+                        recompute_semantics(cell);
+                    }
+                }
+            }
+        }
+
         map
     }
 

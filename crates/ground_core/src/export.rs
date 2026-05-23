@@ -5,6 +5,7 @@ use anyhow::Result;
 use ron::ser::PrettyConfig;
 use serde::Serialize;
 
+use crate::feature::TerrainFeatureMap;
 use crate::mask::{
     build_height_mask_atlas, build_normal_map_atlas, build_occlusion_mask_atlas,
     build_shadow_mask_atlas,
@@ -51,7 +52,12 @@ pub struct TilesetExportMetadata {
     pub terrain_preview_cutaway_path: String,
     pub terrain_preview_faux_path: String,
     pub terrain_preview_faux_cutaway_path: String,
+    pub terrain_preview_faux_debug_path: String,
+    pub terrain_preview_faux_art_path: String,
+    pub terrain_preview_faux_features_path: String,
     pub terrain_preview_faux_orientation_paths: Vec<String>,
+    pub art_preview_structural_edge_count: usize,
+    pub art_preview_material_edge_count: usize,
     pub terrain_preview_angled_path: String,
     pub terrain_preview_angled_cutaway_path: String,
     pub terrain_preview_angled_orientation_paths: Vec<String>,
@@ -111,6 +117,7 @@ pub fn export_tileset_bundle_with_palette(
         inspect_cell: None,
         show_projected_route: true,
         show_structure_lips: true,
+        show_feature_overlay: false,
         view_orientation: tileset.recipe.projection.default_orientation,
     };
 
@@ -186,6 +193,36 @@ pub fn export_tileset_bundle_with_palette(
     );
     faux_cutaway_preview.save_png(out_dir.join("terrain_preview_faux_cutaway.png"))?;
 
+    let mut faux_debug_options = preview_options.clone();
+    faux_debug_options.show_grid = true;
+    faux_debug_options.show_feature_overlay = true;
+    let faux_debug_preview = render_terrain_preview(
+        terrain,
+        tileset,
+        PreviewMode::FauxPerspectiveTerrain,
+        &faux_debug_options,
+    );
+    faux_debug_preview.save_png(out_dir.join("terrain_preview_faux_debug.png"))?;
+
+    let art_terrain = TerrainMap::art_preview(terrain.width, terrain.height, tileset.recipe.seed);
+    let faux_art_preview = render_terrain_preview(
+        &art_terrain,
+        tileset,
+        PreviewMode::FauxPerspectiveTerrain,
+        &preview_options,
+    );
+    faux_art_preview.save_png(out_dir.join("terrain_preview_faux_art.png"))?;
+
+    let mut faux_features_options = preview_options.clone();
+    faux_features_options.show_feature_overlay = true;
+    let faux_features_preview = render_terrain_preview(
+        &art_terrain,
+        tileset,
+        PreviewMode::FauxPerspectiveTerrain,
+        &faux_features_options,
+    );
+    faux_features_preview.save_png(out_dir.join("terrain_preview_faux_features.png"))?;
+
     let angled_cutaway_preview = render_terrain_preview(
         terrain,
         tileset,
@@ -259,10 +296,21 @@ pub fn export_metadata(
         terrain_preview_cutaway_path: "terrain_preview_cutaway.png".to_string(),
         terrain_preview_faux_path: "terrain_preview_faux.png".to_string(),
         terrain_preview_faux_cutaway_path: "terrain_preview_faux_cutaway.png".to_string(),
+        terrain_preview_faux_debug_path: "terrain_preview_faux_debug.png".to_string(),
+        terrain_preview_faux_art_path: "terrain_preview_faux_art.png".to_string(),
+        terrain_preview_faux_features_path: "terrain_preview_faux_features.png".to_string(),
         terrain_preview_faux_orientation_paths: ViewOrientation::ALL
             .iter()
             .map(|orientation| format!("terrain_preview_faux_{}.png", orientation.id()))
             .collect(),
+        art_preview_structural_edge_count: {
+            let art = TerrainMap::art_preview(32, 24, tileset.recipe.seed);
+            TerrainFeatureMap::from_terrain(&art).structural_edge_count()
+        },
+        art_preview_material_edge_count: {
+            let art = TerrainMap::art_preview(32, 24, tileset.recipe.seed);
+            TerrainFeatureMap::from_terrain(&art).material_edge_count()
+        },
         terrain_preview_angled_path: "terrain_preview_angled.png".to_string(),
         terrain_preview_angled_cutaway_path: "terrain_preview_angled_cutaway.png".to_string(),
         terrain_preview_angled_orientation_paths: ViewOrientation::ALL

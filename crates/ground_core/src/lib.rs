@@ -1,5 +1,6 @@
 pub mod color;
 pub mod export;
+pub mod feature;
 pub mod los;
 pub mod mask;
 pub mod palette;
@@ -15,6 +16,7 @@ pub mod validation;
 
 pub use color::*;
 pub use export::*;
+pub use feature::*;
 pub use los::*;
 pub use mask::*;
 pub use palette::*;

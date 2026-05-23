@@ -91,7 +91,7 @@ impl GroundLabApp {
                 validation,
             }
         });
-        let terrain = TerrainMap::demo(32, 24, loaded.recipe.seed);
+        let terrain = TerrainMap::art_preview(32, 24, loaded.recipe.seed);
         let mut app = Self {
             recipe_path_text: paths.recipe_path.to_string_lossy().to_string(),
             palette_path_text: paths.palette_path.to_string_lossy().to_string(),
@@ -108,6 +108,7 @@ impl GroundLabApp {
                 inspect_cell: None,
                 show_projected_route: true,
                 show_structure_lips: true,
+                show_feature_overlay: false,
                 view_orientation: loaded.recipe.projection.default_orientation,
             },
             recipe: loaded.recipe,
@@ -125,7 +126,7 @@ impl GroundLabApp {
             dirty_assets: true,
             dirty_preview: true,
             last_preview_size: [1, 1],
-            status: "Ready. Milestone 4.1 faux-perspective 2D is active: rectangular large tiles, sprite-stacked terrain body, rotation, and cutaway tools.".to_string(),
+            status: "Ready. Milestone 4.2 feature-aware faux-perspective is active: rectangular large tiles, sprite-stacked terrain body, rotation, and cutaway tools.".to_string(),
         };
         app.refresh_if_dirty(&cc.egui_ctx);
         app
@@ -600,6 +601,15 @@ impl GroundLabApp {
         {
             self.dirty_preview = true;
         }
+        if ui
+            .checkbox(
+                &mut self.preview_options.show_feature_overlay,
+                "Feature-mask overlay",
+            )
+            .changed()
+        {
+            self.dirty_preview = true;
+        }
         ui.add(egui::Slider::new(&mut self.zoom, 0.4..=3.0).text("zoom"));
 
         ui.separator();
@@ -645,11 +655,17 @@ impl GroundLabApp {
 
         ui.separator();
         ui.strong("Actions");
-        if ui.button("Reset demo terrain").clicked() {
-            self.terrain = TerrainMap::demo(32, 24, self.recipe.seed);
+        if ui.button("Reset art-preview terrain").clicked() {
+            self.terrain = TerrainMap::art_preview(32, 24, self.recipe.seed);
             self.preview_options.los_source = self.terrain.objective;
             self.dirty_preview = true;
-            self.status = "Terrain reset.".to_string();
+            self.status = "Art-preview terrain reset.".to_string();
+        }
+        if ui.button("Reset stress-test terrain").clicked() {
+            self.terrain = TerrainMap::stress_test(32, 24, self.recipe.seed);
+            self.preview_options.los_source = self.terrain.objective;
+            self.dirty_preview = true;
+            self.status = "Stress-test terrain reset.".to_string();
         }
         if ui.button("Set LOS source to objective").clicked() {
             self.preview_options.los_source = self.terrain.objective;
@@ -662,9 +678,9 @@ impl GroundLabApp {
                 &self.tileset,
                 &self.palette,
                 &self.terrain,
-                "exports/milestone_04_1",
+                "exports/milestone_04_2",
             ) {
-                Ok(()) => self.status = "Exported to exports/milestone_04_1".to_string(),
+                Ok(()) => self.status = "Exported to exports/milestone_04_2".to_string(),
                 Err(err) => self.status = format!("Export failed: {err}"),
             }
         }

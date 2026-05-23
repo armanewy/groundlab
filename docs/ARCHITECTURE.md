@@ -85,7 +85,7 @@ Visibility policy for hidden objects should be explicit in the runtime renderer:
 
 The workbench now supports both global face fading and a local hover-driven cutaway lens. The game should prefer conditional/local fading so terrain still feels solid.
 
-## Milestone 4.1 faux-perspective 2D renderer
+## Milestone 4.2 feature-aware faux-perspective renderer
 
 The main visual preview is now `PreviewMode::FauxPerspectiveTerrain`. It keeps the world top-down and
 rectangular, then uses sprite stacks to imply physical height:
@@ -111,10 +111,13 @@ movement-cost overlays, and schematic inspection.
 
 Current faux renderer policy:
 
-- draw generated square source tiles as screen-aligned top surfaces
+- derive a `TerrainFeatureMap` from the terrain grid before drawing
+- draw generated square source tiles as cropped screen-aligned top surfaces to reduce grid seams
+- draw generated transition tiles where neighboring material regions meet
+- draw trench and berm top/lip/detail passes from feature masks
 - draw exposed terrain body using generated structure-face tiles
 - draw generated lip strips along terrain cuts
-- draw route, markers, and selection above terrain
+- draw route, markers, feature-mask debug overlays, and selection above terrain
 - use orientation-aware inverse picking for edit tools
 - expose 90-degree view rotation in the workbench
 - preserve full-resolution exports while downscaling only UI texture uploads

@@ -78,7 +78,7 @@ simple and dependency-free for now. A later editor pass can replace this with a 
 
 ## Faux-perspective 2D assets
 
-Milestone 4.1 makes faux-perspective 2D the default projection. The preview treats the existing
+Milestone 4.2 keeps faux-perspective 2D as the default projection and adds feature-aware map rendering. The preview treats the existing
 generated surface tiles as square top surfaces, then layers structure-face, lip, and shadow sprites
 below them. This keeps the map top-down and editable while making height look physical.
 
@@ -92,16 +92,17 @@ projection: (
     tile_screen_height_px: 48,
     faux_cell_width_px: 64,
     faux_cell_height_px: 64,
-    faux_height_step_px: 18,
-    faux_side_face_width_px: 12,
+    faux_height_step_px: 24,
+    faux_side_face_width_px: 16,
     height_step_px: 24,
     default_orientation: SouthEast,
     supports_four_way_rotation: true,
 )
 ```
 
-`Dimetric` remains available for experiments, but the next art-pipeline step should improve the
-faux-perspective sprite stack:
+Milestone 4.2 now uses generated transition tiles in the map preview and exports feature-debug
+comparison views. `Dimetric` remains available for experiments, but the next art-pipeline step should
+improve continuous feature-run and corner sprites:
 
 ```txt
 faux_top_grass

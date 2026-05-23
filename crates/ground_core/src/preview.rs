@@ -1,10 +1,11 @@
 use serde::{Deserialize, Serialize};
 
 use crate::color::{clamp01, Rgba8};
+use crate::feature::{CardinalDir, EdgeMask, TerrainFeatureKind, TerrainFeatureMap};
 use crate::los::{visibility_grid, Visibility};
 use crate::pathfinding::find_path;
 use crate::pixel_image::PixelImage;
-use crate::recipe::{GroundMaterial, StructureFaceKind, ViewOrientation};
+use crate::recipe::{GroundMaterial, StructureFaceKind, TransitionEdge, ViewOrientation};
 use crate::terrain::TerrainMap;
 use crate::tileset::{stable_tile_variant, Tileset};
 
@@ -76,6 +77,8 @@ pub struct PreviewOptions {
     pub show_projected_route: bool,
     /// Draw thin generated lip strips on exposed terrain cuts.
     pub show_structure_lips: bool,
+    /// Workbench debug overlay for derived feature masks and coherent terrain runs.
+    pub show_feature_overlay: bool,
     /// Current viewing direction for angled 2.5D projection.
     pub view_orientation: ViewOrientation,
 }
@@ -86,12 +89,13 @@ impl Default for PreviewOptions {
             show_grid: false,
             los_source: (8, 8),
             los_range: 18,
-            height_step_px: 18,
+            height_step_px: 24,
             fade_raised_faces: false,
             enable_local_cutaway: true,
             inspect_cell: None,
             show_projected_route: true,
             show_structure_lips: true,
+            show_feature_overlay: false,
             view_orientation: ViewOrientation::SouthEast,
         }
     }
@@ -1141,6 +1145,14 @@ fn point_in_rect(px: i32, py: i32, x: i32, y: i32, width: u32, height: u32) -> b
     px >= x && py >= y && px < x + width as i32 && py < y + height as i32
 }
 
+#[derive(Clone, Copy, Debug)]
+struct ImageRect {
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+}
+
 fn draw_scaled_image_rect(
     image: &mut PixelImage,
     src: &PixelImage,
@@ -1172,6 +1184,76 @@ fn draw_scaled_image_rect(
     }
 }
 
+fn draw_scaled_image_rect_cropped(
+    image: &mut PixelImage,
+    src: &PixelImage,
+    dst: ImageRect,
+    alpha: f32,
+    crop_px: u32,
+) {
+    if dst.width == 0 || dst.height == 0 || src.width == 0 || src.height == 0 {
+        return;
+    }
+    let crop = crop_px
+        .min(src.width.saturating_sub(1) / 2)
+        .min(src.height.saturating_sub(1) / 2);
+    let sample_w = src.width.saturating_sub(crop * 2).max(1);
+    let sample_h = src.height.saturating_sub(crop * 2).max(1);
+    for yy in 0..dst.height {
+        for xx in 0..dst.width {
+            let src_x = crop + (xx * sample_w / dst.width).min(sample_w - 1);
+            let src_y = crop + (yy * sample_h / dst.height).min(sample_h - 1);
+            let color = src.get(src_x, src_y);
+            if color.a == 0 {
+                continue;
+            }
+            blend_pixel_i32(
+                image,
+                dst.x + xx as i32,
+                dst.y + yy as i32,
+                color,
+                alpha * (color.a as f32 / 255.0),
+            );
+        }
+    }
+}
+
+fn draw_soft_pixel_shadow(
+    image: &mut PixelImage,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    alpha: f32,
+) {
+    if width == 0 || height == 0 {
+        return;
+    }
+    for yy in 0..height {
+        let ty = if height <= 1 {
+            0.0
+        } else {
+            yy as f32 / (height - 1) as f32
+        };
+        let row_alpha = alpha * (1.0 - ty * 0.55).max(0.0);
+        for xx in 0..width {
+            let tx = if width <= 1 {
+                0.0
+            } else {
+                xx as f32 / (width - 1) as f32
+            };
+            let edge_fade = (1.0 - ((tx - 0.5).abs() * 1.5).min(1.0) * 0.45).max(0.0);
+            blend_pixel_i32(
+                image,
+                x + xx as i32,
+                y + yy as i32,
+                Rgba8::BLACK,
+                row_alpha * edge_fade,
+            );
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 struct FauxProjection {
     cell_w: u32,
@@ -1183,6 +1265,13 @@ struct FauxProjection {
     width: u32,
     height: u32,
     orientation: ViewOrientation,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct FauxCellDraw {
+    x: u32,
+    y: u32,
+    variant: u32,
 }
 
 impl FauxProjection {
@@ -1261,15 +1350,27 @@ fn render_faux_perspective_terrain_preview(
     let proj = faux_projection(map, tileset, options);
     let mut image = PixelImage::new(proj.width, proj.height, Rgba8::opaque(12, 13, 16));
     let draw_order = faux_draw_order(map, proj.orientation);
+    let features = TerrainFeatureMap::from_terrain(map);
 
     for &(x, y) in &draw_order {
-        draw_faux_contact_shadow(&mut image, map, x, y, proj, tileset.recipe.shadow_strength);
+        draw_faux_contact_shadow(
+            &mut image,
+            map,
+            &features,
+            x,
+            y,
+            proj,
+            tileset.recipe.shadow_strength,
+        );
     }
     for &(x, y) in &draw_order {
-        draw_faux_top_surface(&mut image, map, tileset, x, y, proj);
+        draw_faux_top_surface(&mut image, map, tileset, &features, x, y, proj);
     }
     for &(x, y) in &draw_order {
-        draw_faux_exposed_faces(&mut image, map, tileset, x, y, proj, options);
+        draw_faux_feature_surface_details(&mut image, map, tileset, &features, x, y, proj);
+    }
+    for &(x, y) in &draw_order {
+        draw_faux_exposed_faces(&mut image, map, tileset, &features, (x, y), proj, options);
     }
 
     if options.show_projected_route {
@@ -1285,6 +1386,11 @@ fn render_faux_perspective_terrain_preview(
                 Rgba8::opaque(230, 74, 74)
             },
         );
+    }
+    if options.show_feature_overlay {
+        for &(x, y) in &draw_order {
+            draw_faux_feature_overlay(&mut image, map, &features, proj, x, y);
+        }
     }
     if options.show_grid {
         for &(x, y) in &draw_order {
@@ -1336,11 +1442,15 @@ fn draw_faux_top_surface(
     image: &mut PixelImage,
     map: &TerrainMap,
     tileset: &Tileset,
+    features: &TerrainFeatureMap,
     x: u32,
     y: u32,
     proj: FauxProjection,
 ) {
     let Some(cell) = map.cell(x, y) else {
+        return;
+    };
+    let Some(feature) = features.cell(x, y) else {
         return;
     };
     let visual_material = visual_material_for_cell(cell.ground);
@@ -1353,10 +1463,33 @@ fn draw_faux_top_surface(
     );
     let tile = &tileset.tile(visual_material, variant).image;
     let (sx, sy) = proj.cell_top_left(map, x, y);
-    draw_scaled_image_rect(image, tile, sx, sy, proj.cell_w, proj.cell_h, 1.0);
+
+    // Use the inner portion of generated surface tiles for map rendering. The
+    // full tiles still keep their edge pixels in the contact sheet/atlas, but
+    // the art preview no longer looks like every cell is outlined by a grid.
+    draw_scaled_image_rect_cropped(
+        image,
+        tile,
+        ImageRect {
+            x: sx,
+            y: sy,
+            width: proj.cell_w,
+            height: proj.cell_h,
+        },
+        1.0,
+        2,
+    );
+    draw_faux_material_transitions(
+        image,
+        map,
+        tileset,
+        features,
+        FauxCellDraw { x, y, variant },
+        proj,
+    );
 
     let height_t = cell.height as f32 / 9.0;
-    let shade = 0.09 * (height_t - 0.45);
+    let shade = 0.07 * (height_t - 0.45);
     if shade > 0.0 {
         blend_rect_i32(image, sx, sy, proj.cell_w, proj.cell_h, Rgba8::WHITE, shade);
     } else {
@@ -1371,36 +1504,340 @@ fn draw_faux_top_surface(
         );
     }
 
-    if cell.trench_depth > 0 {
-        let inset = (proj.cell_w.min(proj.cell_h) / 7).max(3);
+    match feature.kind {
+        TerrainFeatureKind::Trench | TerrainFeatureKind::Ditch => {
+            draw_faux_trench_top(image, tileset, feature, sx, sy, proj);
+        }
+        TerrainFeatureKind::Berm => {
+            draw_faux_berm_top(image, tileset, feature, sx, sy, proj);
+        }
+        TerrainFeatureKind::Ledge => {
+            draw_faux_subtle_lip_hints(image, tileset, feature, sx, sy, proj, 0.22);
+        }
+        TerrainFeatureKind::Open | TerrainFeatureKind::Plateau => {}
+    }
+}
+
+fn draw_faux_material_transitions(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    tileset: &Tileset,
+    features: &TerrainFeatureMap,
+    cell: FauxCellDraw,
+    proj: FauxProjection,
+) {
+    let x = cell.x;
+    let y = cell.y;
+    let Some(feature) = features.cell(x, y) else {
+        return;
+    };
+    if !feature.material_edges.any() {
+        return;
+    }
+    let current = visual_material_for_cell(feature.material);
+    let (sx, sy) = proj.cell_top_left(map, x, y);
+    for (view_dx, view_dy, transition_edge) in [
+        (0, -1, TransitionEdge::North),
+        (0, 1, TransitionEdge::South),
+        (1, 0, TransitionEdge::East),
+        (-1, 0, TransitionEdge::West),
+    ] {
+        let (world_dx, world_dy) = faux_view_delta_to_world(proj.orientation, view_dx, view_dy);
+        let Some(dir) = CardinalDir::from_delta(world_dx, world_dy) else {
+            continue;
+        };
+        if !feature.material_edges.get(dir) {
+            continue;
+        }
+        let nx = x as i32 + world_dx;
+        let ny = y as i32 + world_dy;
+        if nx < 0 || ny < 0 || nx >= map.width as i32 || ny >= map.height as i32 {
+            continue;
+        }
+        let Some(neighbor) = map.cell(nx as u32, ny as u32) else {
+            continue;
+        };
+        let neighbor_material = visual_material_for_cell(neighbor.ground);
+        if current == neighbor_material {
+            continue;
+        }
+        if let Some(asset) =
+            tileset.transition_tile(current, neighbor_material, transition_edge, cell.variant)
+        {
+            draw_scaled_image_rect_cropped(
+                image,
+                &asset.image,
+                ImageRect {
+                    x: sx,
+                    y: sy,
+                    width: proj.cell_w,
+                    height: proj.cell_h,
+                },
+                0.92,
+                1,
+            );
+        } else {
+            draw_faux_transition_fallback(
+                image,
+                tileset,
+                neighbor_material,
+                sx,
+                sy,
+                proj,
+                transition_edge,
+            );
+        }
+    }
+}
+
+fn draw_faux_transition_fallback(
+    image: &mut PixelImage,
+    tileset: &Tileset,
+    material: GroundMaterial,
+    sx: i32,
+    sy: i32,
+    proj: FauxProjection,
+    edge: TransitionEdge,
+) {
+    let color = tileset.palette.sample(material.ramp(), 0.48);
+    let band = (proj.cell_w.min(proj.cell_h) / 7).max(4);
+    match edge {
+        TransitionEdge::North => blend_rect_i32(image, sx, sy, proj.cell_w, band, color, 0.32),
+        TransitionEdge::South => blend_rect_i32(
+            image,
+            sx,
+            sy + proj.cell_h as i32 - band as i32,
+            proj.cell_w,
+            band,
+            color,
+            0.32,
+        ),
+        TransitionEdge::East => blend_rect_i32(
+            image,
+            sx + proj.cell_w as i32 - band as i32,
+            sy,
+            band,
+            proj.cell_h,
+            color,
+            0.28,
+        ),
+        TransitionEdge::West => blend_rect_i32(image, sx, sy, band, proj.cell_h, color, 0.28),
+    }
+}
+
+fn draw_faux_trench_top(
+    image: &mut PixelImage,
+    tileset: &Tileset,
+    feature: &crate::feature::TerrainFeatureCell,
+    sx: i32,
+    sy: i32,
+    proj: FauxProjection,
+) {
+    let inset_x = (proj.cell_w / 7).max(4);
+    let inset_y = (proj.cell_h / 7).max(4);
+    let floor = tileset
+        .palette
+        .sample(GroundMaterial::TrenchFloor.ramp(), 0.32);
+    let wall = tileset
+        .palette
+        .sample(GroundMaterial::TrenchWall.ramp(), 0.42);
+    blend_rect_i32(
+        image,
+        sx + inset_x as i32,
+        sy + inset_y as i32,
+        proj.cell_w.saturating_sub(inset_x * 2),
+        proj.cell_h.saturating_sub(inset_y * 2),
+        floor,
+        0.42,
+    );
+    draw_faux_edge_lips(
+        image,
+        edge_mask_to_faux_view(feature.trench_edges, proj.orientation),
+        (sx, sy),
+        proj,
+        wall,
+        0.72,
+        true,
+    );
+}
+
+fn draw_faux_berm_top(
+    image: &mut PixelImage,
+    tileset: &Tileset,
+    feature: &crate::feature::TerrainFeatureCell,
+    sx: i32,
+    sy: i32,
+    proj: FauxProjection,
+) {
+    let crown = tileset.palette.sample(GroundMaterial::BermTop.ramp(), 0.68);
+    let edge = tileset
+        .palette
+        .sample(GroundMaterial::BermFace.ramp(), 0.46);
+    let pad = (proj.cell_w.min(proj.cell_h) / 8).max(4);
+    blend_rect_i32(
+        image,
+        sx + pad as i32,
+        sy + pad as i32,
+        proj.cell_w.saturating_sub(pad * 2),
+        proj.cell_h.saturating_sub(pad * 2),
+        crown,
+        0.18,
+    );
+    draw_faux_edge_lips(
+        image,
+        edge_mask_to_faux_view(feature.berm_edges, proj.orientation),
+        (sx, sy),
+        proj,
+        edge,
+        0.64,
+        false,
+    );
+}
+
+fn draw_faux_subtle_lip_hints(
+    image: &mut PixelImage,
+    tileset: &Tileset,
+    feature: &crate::feature::TerrainFeatureCell,
+    sx: i32,
+    sy: i32,
+    proj: FauxProjection,
+    alpha: f32,
+) {
+    let color = tileset
+        .palette
+        .sample(feature.visual_material.ramp(), 0.66)
+        .lighten(0.04);
+    draw_faux_edge_lips(
+        image,
+        edge_mask_to_faux_view(feature.ledge_edges, proj.orientation),
+        (sx, sy),
+        proj,
+        color,
+        alpha,
+        false,
+    );
+}
+
+fn draw_faux_edge_lips(
+    image: &mut PixelImage,
+    mask: crate::feature::EdgeMask,
+    origin: (i32, i32),
+    proj: FauxProjection,
+    color: Rgba8,
+    alpha: f32,
+    dark_inside: bool,
+) {
+    let (sx, sy) = origin;
+    let lip_h = (proj.cell_h / 13).max(3);
+    let lip_w = (proj.cell_w / 13).max(3);
+    if mask.north {
+        blend_rect_i32(image, sx, sy, proj.cell_w, lip_h, color, alpha);
+        if dark_inside {
+            blend_rect_i32(
+                image,
+                sx,
+                sy + lip_h as i32,
+                proj.cell_w,
+                lip_h,
+                Rgba8::BLACK,
+                alpha * 0.18,
+            );
+        }
+    }
+    if mask.south {
         blend_rect_i32(
             image,
-            sx + inset as i32,
-            sy + inset as i32,
-            proj.cell_w.saturating_sub(inset * 2),
-            proj.cell_h.saturating_sub(inset * 2),
-            Rgba8::opaque(17, 12, 10),
-            0.28,
+            sx,
+            sy + proj.cell_h as i32 - lip_h as i32,
+            proj.cell_w,
+            lip_h,
+            color.darken(0.10),
+            alpha,
         );
-        outline_rect_i32(
+        if dark_inside {
+            blend_rect_i32(
+                image,
+                sx,
+                sy + proj.cell_h as i32 - (lip_h * 2) as i32,
+                proj.cell_w,
+                lip_h,
+                Rgba8::BLACK,
+                alpha * 0.20,
+            );
+        }
+    }
+    if mask.east {
+        blend_rect_i32(
             image,
-            sx + inset as i32,
-            sy + inset as i32,
-            proj.cell_w.saturating_sub(inset * 2),
-            proj.cell_h.saturating_sub(inset * 2),
-            Rgba8::opaque(44, 29, 21),
+            sx + proj.cell_w as i32 - lip_w as i32,
+            sy,
+            lip_w,
+            proj.cell_h,
+            color.darken(0.08),
+            alpha * 0.85,
         );
     }
-    if cell.berm_height > 0 {
-        outline_rect_i32(
+    if mask.west {
+        blend_rect_i32(
             image,
             sx,
             sy,
-            proj.cell_w,
+            lip_w,
             proj.cell_h,
-            Rgba8::opaque(171, 123, 59),
+            color.darken(0.16),
+            alpha * 0.78,
         );
-        blend_rect_i32(image, sx, sy, proj.cell_w, proj.cell_h, Rgba8::WHITE, 0.05);
+    }
+}
+
+fn draw_faux_feature_surface_details(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    tileset: &Tileset,
+    features: &TerrainFeatureMap,
+    x: u32,
+    y: u32,
+    proj: FauxProjection,
+) {
+    let Some(feature) = features.cell(x, y) else {
+        return;
+    };
+    let (sx, sy) = proj.cell_top_left(map, x, y);
+    match feature.kind {
+        TerrainFeatureKind::Trench => {
+            let shadow_h = (proj.cell_h / 5).max(6);
+            draw_soft_pixel_shadow(
+                image,
+                sx + (proj.cell_w / 8) as i32,
+                sy + (proj.cell_h / 2) as i32,
+                proj.cell_w.saturating_sub(proj.cell_w / 4),
+                shadow_h,
+                0.18,
+            );
+        }
+        TerrainFeatureKind::Berm => {
+            let highlight = tileset.palette.sample(GroundMaterial::BermTop.ramp(), 0.72);
+            blend_rect_i32(
+                image,
+                sx + (proj.cell_w / 6) as i32,
+                sy + (proj.cell_h / 7) as i32,
+                proj.cell_w.saturating_sub(proj.cell_w / 3),
+                (proj.cell_h / 8).max(3),
+                highlight,
+                0.16,
+            );
+        }
+        TerrainFeatureKind::Ditch => {
+            draw_soft_pixel_shadow(
+                image,
+                sx + (proj.cell_w / 5) as i32,
+                sy + (proj.cell_h / 3) as i32,
+                proj.cell_w.saturating_sub(proj.cell_w / 3),
+                (proj.cell_h / 4).max(5),
+                0.12,
+            );
+        }
+        TerrainFeatureKind::Open | TerrainFeatureKind::Plateau | TerrainFeatureKind::Ledge => {}
     }
 }
 
@@ -1408,12 +1845,16 @@ fn draw_faux_exposed_faces(
     image: &mut PixelImage,
     map: &TerrainMap,
     tileset: &Tileset,
-    x: u32,
-    y: u32,
+    features: &TerrainFeatureMap,
+    cell: (u32, u32),
     proj: FauxProjection,
     options: &PreviewOptions,
 ) {
+    let (x, y) = cell;
     let Some(cell) = map.cell(x, y) else {
+        return;
+    };
+    let Some(feature) = features.cell(x, y) else {
         return;
     };
     let current = cell.effective_height();
@@ -1438,7 +1879,14 @@ fn draw_faux_exposed_faces(
         if delta <= 0.01 {
             continue;
         }
-        let face_h = ((delta * proj.height_step_px as f32).ceil() as u32).max(2);
+        let structural_boost = match feature.kind {
+            TerrainFeatureKind::Berm => 1.35,
+            TerrainFeatureKind::Trench | TerrainFeatureKind::Ditch => 1.18,
+            TerrainFeatureKind::Ledge => 1.22,
+            TerrainFeatureKind::Open | TerrainFeatureKind::Plateau => 1.10,
+        };
+        let face_h = ((delta * proj.height_step_px as f32 * structural_boost).ceil() as u32)
+            .max((proj.height_step_px / 2).max(3));
         let (x_offset, width) = match face {
             StructureFaceKind::Front | StructureFaceKind::Lip => (0, proj.cell_w),
             StructureFaceKind::Right => (
@@ -1602,12 +2050,16 @@ fn draw_faux_face_fallback(
 fn draw_faux_contact_shadow(
     image: &mut PixelImage,
     map: &TerrainMap,
+    features: &TerrainFeatureMap,
     x: u32,
     y: u32,
     proj: FauxProjection,
     shadow_strength: f32,
 ) {
     let Some(cell) = map.cell(x, y) else {
+        return;
+    };
+    let Some(feature) = features.cell(x, y) else {
         return;
     };
     let current = cell.effective_height();
@@ -1621,14 +2073,19 @@ fn draw_faux_contact_shadow(
     }
     let (sx, sy) = proj.cell_top_left(map, x, y);
     let shadow_h = ((delta * proj.height_step_px as f32).ceil() as u32).max(2);
-    blend_rect_i32(
+    let feature_boost = match feature.kind {
+        TerrainFeatureKind::Berm => 1.30,
+        TerrainFeatureKind::Trench | TerrainFeatureKind::Ditch => 0.85,
+        TerrainFeatureKind::Ledge => 1.15,
+        TerrainFeatureKind::Open | TerrainFeatureKind::Plateau => 1.0,
+    };
+    draw_soft_pixel_shadow(
         image,
-        sx + (proj.cell_w / 10) as i32,
-        sy + proj.cell_h as i32 + shadow_h as i32 / 2,
-        proj.cell_w,
-        (proj.cell_h / 5).max(4) + shadow_h / 3,
-        Rgba8::BLACK,
-        (0.08 + delta * 0.035).min(0.26) * shadow_strength.max(0.15),
+        sx + (proj.cell_w / 12) as i32,
+        sy + proj.cell_h as i32 + shadow_h as i32 / 3,
+        proj.cell_w + proj.side_face_w,
+        (proj.cell_h / 4).max(5) + shadow_h / 2,
+        (0.09 + delta * 0.040).min(0.30) * shadow_strength.max(0.15) * feature_boost,
     );
 }
 
@@ -1736,6 +2193,115 @@ fn draw_faux_path(
     }
 }
 
+fn draw_faux_feature_overlay(
+    image: &mut PixelImage,
+    map: &TerrainMap,
+    features: &TerrainFeatureMap,
+    proj: FauxProjection,
+    x: u32,
+    y: u32,
+) {
+    let Some(feature) = features.cell(x, y) else {
+        return;
+    };
+    let (sx, sy) = proj.cell_top_left(map, x, y);
+    let feature_color = match feature.kind {
+        TerrainFeatureKind::Trench => Rgba8::opaque(78, 178, 223),
+        TerrainFeatureKind::Ditch => Rgba8::opaque(76, 136, 190),
+        TerrainFeatureKind::Berm => Rgba8::opaque(236, 183, 86),
+        TerrainFeatureKind::Ledge => Rgba8::opaque(229, 115, 93),
+        TerrainFeatureKind::Plateau => Rgba8::opaque(115, 198, 118),
+        TerrainFeatureKind::Open => Rgba8::opaque(164, 164, 164),
+    };
+    if feature.has_structural_edge() {
+        blend_rect_i32(
+            image,
+            sx,
+            sy,
+            proj.cell_w,
+            proj.cell_h,
+            feature_color,
+            0.055,
+        );
+    }
+    draw_faux_mask_lines(
+        image,
+        edge_mask_to_faux_view(feature.material_edges, proj.orientation),
+        sx,
+        sy,
+        proj,
+        Rgba8::opaque(42, 49, 56),
+        0.45,
+    );
+    draw_faux_mask_lines(
+        image,
+        edge_mask_to_faux_view(feature.ledge_edges, proj.orientation),
+        sx,
+        sy,
+        proj,
+        Rgba8::opaque(230, 84, 62),
+        0.72,
+    );
+    draw_faux_mask_lines(
+        image,
+        edge_mask_to_faux_view(feature.trench_edges, proj.orientation),
+        sx,
+        sy,
+        proj,
+        Rgba8::opaque(80, 184, 224),
+        0.78,
+    );
+    draw_faux_mask_lines(
+        image,
+        edge_mask_to_faux_view(feature.berm_edges, proj.orientation),
+        sx,
+        sy,
+        proj,
+        Rgba8::opaque(235, 184, 86),
+        0.78,
+    );
+}
+
+fn draw_faux_mask_lines(
+    image: &mut PixelImage,
+    mask: EdgeMask,
+    sx: i32,
+    sy: i32,
+    proj: FauxProjection,
+    color: Rgba8,
+    alpha: f32,
+) {
+    let line = 2;
+    if mask.north {
+        blend_rect_i32(image, sx, sy, proj.cell_w, line, color, alpha);
+    }
+    if mask.south {
+        blend_rect_i32(
+            image,
+            sx,
+            sy + proj.cell_h as i32 - line as i32,
+            proj.cell_w,
+            line,
+            color,
+            alpha,
+        );
+    }
+    if mask.east {
+        blend_rect_i32(
+            image,
+            sx + proj.cell_w as i32 - line as i32,
+            sy,
+            line,
+            proj.cell_h,
+            color,
+            alpha,
+        );
+    }
+    if mask.west {
+        blend_rect_i32(image, sx, sy, line, proj.cell_h, color, alpha);
+    }
+}
+
 fn draw_faux_grid_cell(
     image: &mut PixelImage,
     map: &TerrainMap,
@@ -1785,7 +2351,8 @@ fn point_in_faux_faces(
         if delta <= 0.01 {
             continue;
         }
-        let face_h = ((delta * proj.height_step_px as f32).ceil() as u32).max(2);
+        let face_h = ((delta * proj.height_step_px as f32 * 1.15).ceil() as u32)
+            .max((proj.height_step_px / 2).max(3));
         let (x_offset, width) = match face {
             StructureFaceKind::Front | StructureFaceKind::Lip => (0, proj.cell_w),
             StructureFaceKind::Right => (
@@ -1836,6 +2403,34 @@ fn faux_view_delta_to_world(
         ViewOrientation::NorthWest => (-view_dx, -view_dy),
         ViewOrientation::NorthEast => (view_dy, -view_dx),
     }
+}
+
+fn world_delta_to_faux_view(
+    orientation: ViewOrientation,
+    world_dx: i32,
+    world_dy: i32,
+) -> (i32, i32) {
+    match orientation {
+        ViewOrientation::SouthEast => (world_dx, world_dy),
+        ViewOrientation::SouthWest => (world_dy, -world_dx),
+        ViewOrientation::NorthWest => (-world_dx, -world_dy),
+        ViewOrientation::NorthEast => (-world_dy, world_dx),
+    }
+}
+
+fn edge_mask_to_faux_view(mask: EdgeMask, orientation: ViewOrientation) -> EdgeMask {
+    let mut out = EdgeMask::empty();
+    for dir in CardinalDir::ALL {
+        if !mask.get(dir) {
+            continue;
+        }
+        let (world_dx, world_dy) = dir.delta();
+        let (view_dx, view_dy) = world_delta_to_faux_view(orientation, world_dx, world_dy);
+        if let Some(view_dir) = CardinalDir::from_delta(view_dx, view_dy) {
+            out.set(view_dir, true);
+        }
+    }
+    out
 }
 
 fn faux_neighbor_height_in_view_direction(

@@ -90,7 +90,7 @@ Implemented in this drop.
 - `ProjectionKind::FauxPerspective2D` added and made the default
 - `PreviewMode::FauxPerspectiveTerrain` added and made the default workbench view
 - default screen cell footprint set to `64x64 px`
-- default faux height step set to `18 px`
+- default faux height step set to `18 px` initially
 - rectangular top-down renderer using sprite-stacked terrain faces/lips/shadows
 - orientation-aware picking and 90-degree rotation retained in the faux view
 - hover cutaway/selection support in faux view
@@ -102,7 +102,26 @@ This milestone is a visual-direction pivot, not a gameplay expansion. It preserv
 asset pipeline, pathing, LOS, validation, and experimental angled renderer while changing the main
 visual projection to “actually 2D, but drawn to look 3D.”
 
-## Milestone 4.2 — Art-directed faux terrain pass
+## Milestone 4.2 — Terrain feature sprite system
+
+Implemented in this drop.
+
+- default demo terrain replaced with an art-directed preview map
+- noisy renderer stress-test terrain preserved as `TerrainMap::stress_test`
+- `TerrainFeatureMap` derives material, ledge, trench, and berm edge masks
+- faux renderer uses generated transition tiles in the actual map preview
+- top-tile sampling crops generated tile edges to reduce debug-grid appearance
+- stronger faux-perspective front faces and contact shadows
+- dedicated trench top, trench lip, berm top, berm lip, and feature-detail passes
+- optional feature-mask overlay in the workbench
+- CLI/app export target defaults to `exports/milestone_04_2`
+- export bundle writes comparison views: `terrain_preview_faux_debug.png`,
+  `terrain_preview_faux_art.png`, and `terrain_preview_faux_features.png`
+
+This milestone is still software-preview rendering, but it moves the visual model from cell-by-cell
+height strips toward coherent terrain features.
+
+## Milestone 4.3 — Feature run and corner art
 
 Recommended next.
 
@@ -110,8 +129,8 @@ Recommended next.
 - cliff cap/lip variants
 - trench inside corners and outside corners
 - berm corner lips
+- continuous feature-run rendering rather than per-cell feature accents
 - face seam validation by face kind and orientation
-- better region transitions in faux view
 - hidden-object x-ray silhouettes in the software preview
 
 ## Milestone 5 — Custom renderer/runtime
