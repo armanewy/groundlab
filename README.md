@@ -4,17 +4,19 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: Milestone 4.8R — target-look editable scene renderer
+## Current status: Milestone 4.9 — target-look terrain composition
 
-Milestone 4.8R keeps editable terrain as the source of truth and changes the default visual renderer
-from row-merged rectangles to target-style stamps. The renderer resolves connected terrain features
-into art-directed stamp definitions, then draws organic grass, dirt-road, trench, berm, stone, mud,
-shadow, and dressing passes from the existing terrain grid, art kit, and hero scene.
+Milestone 4.9 keeps editable terrain as the source of truth and moves the default visual renderer to
+`target_look::render_target_look_scene`. The renderer still resolves connected terrain features into
+target-style stamps, but now composes feature-specific grass fields, dirt roads, trenches, berms,
+stone platforms, hero-scene dressing, and final lighting from the current `TerrainMap`.
 
 New in this milestone:
 
 - `TerrainStampResolver` derives target-style stamps from `TerrainMap` + `TerrainFeatureMap`
 - `TerrainStampDefinition` / `StampPiece` bridge editable terrain to art-directed sprite groups
+- `target_look.rs` adds the active target-look composition renderer
+- superseded 4.8R perspective-scene helper code was removed rather than retained as fallback logic
 - `terrain_stamps.json` exports the resolved stamp list for debugging/decomposition
 - `assets/artkits/dry_upland_outpost/manifest.ron` now describes 50 source art pieces
 - `assets/artkits/dry_upland_outpost/pieces/*.png` contains authored-looking variants, props, caps, and shadows
@@ -25,11 +27,11 @@ New in this milestone:
 - art-kit validation reports missing pieces, duplicate ids, bad footprints, and size mismatches
 - `terrain_artkit_atlas.png`, `terrain_artkit_manifest.json`, and `terrain_artkit_validation.json` are exported with the bundle
 - `terrain_preview_visual_target_no_overlay.png` is exported for judging art without route/marker overlays
-- perspective scene rendering now uses the target-style stamp pass instead of big visual rectangles
+- perspective scene rendering now uses the target-look composition pass instead of the older softened stamp pass
 - roads, trenches, berms, grass, stone, and mud draw with organic software masks and stamp groups
 - `PreviewMode::PerspectiveSpriteScene` remains the default view, now labeled target-style editable scene
 - `VisualScene` and `VisualTerrainForm` still export larger forms derived from the terrain grid
-- CLI/app export target defaults to `exports/milestone_04_8r`
+- CLI/app export target defaults to `exports/milestone_04_9`
 
 The prior faux, angled, erected, and flat previews remain available as debug views. The design goal
 remains terrain-first: trenches, berms, elevation, line of sight, route shaping, movement cost, and
@@ -57,13 +59,13 @@ between runs.
 ## CLI export
 
 ```bash
-cargo run -p ground_cli -- export exports/milestone_04_8r
+cargo run -p ground_cli -- export exports/milestone_04_9
 ```
 
 Optional explicit files:
 
 ```bash
-cargo run -p ground_cli -- export exports/milestone_04_8r recipes/dry_upland_outpost.ron palettes/muted_field_32.ron
+cargo run -p ground_cli -- export exports/milestone_04_9 recipes/dry_upland_outpost.ron palettes/muted_field_32.ron
 ```
 
 Validation only:
@@ -74,7 +76,7 @@ cargo run -p ground_cli -- validate
 
 ## Export bundle
 
-Milestone 4.8R writes:
+Milestone 4.9 writes:
 
 ```txt
 terrain_atlas.png
@@ -128,5 +130,5 @@ crates/
 
 ## Important scope note
 
-This is still not the final game runtime. Milestone 4.8R is a renderer/art-kit correction: the target
+This is still not the final game runtime. Milestone 4.9 is a renderer/art-kit correction: the target
 image remains a reference, while the editable GroundLab terrain remains the source of truth.

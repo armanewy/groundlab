@@ -212,6 +212,20 @@ Implemented in this drop.
 The target image is now treated as a style reference, not a backdrop. Editable GroundLab terrain
 remains the source of truth.
 
+## Milestone 4.9 — Target-look terrain composition
+
+Implemented in this drop.
+
+- `target_look.rs` added as the active perspective-scene renderer
+- `PreviewMode::PerspectiveSpriteScene` now calls the target-look composition pass directly
+- superseded 4.8R perspective-scene helper code removed rather than kept as dormant fallback logic
+- target-look picking added through `target_look_pixel_to_cell`
+- roads, trenches, berms, stone platforms, mud, grass, hero dressing, and final lighting are composed from editable terrain
+- CLI/app export target defaults to `exports/milestone_04_9`
+
+The generated target image remains a style reference. GroundLab terrain data remains the editable
+source of truth for rendering, pathing, LOS, and debug overlays.
+
 ## Milestone 5 — Custom renderer/runtime
 
 - introduce `ground_render`

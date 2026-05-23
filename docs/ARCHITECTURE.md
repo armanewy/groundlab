@@ -16,8 +16,9 @@ for one future game family: terrain-first prepared-ground defense.
 - Seam/palette/structure validation
 - Software preview renderer
 - Faux-perspective 2D terrain preview with sprite-stacked faces/lips/shadows
-- Experimental angled terrain preview and legacy 2.5D erected preview
+- Experimental angled terrain preview and diagnostic 2.5D erected preview
 - Target-style stamp resolver for editable terrain features
+- Target-look composition renderer for the active perspective scene
 - Hero-scene dressing overlay for visual art-direction passes
 - A* route query
 - Line-of-sight query
@@ -201,3 +202,18 @@ overlays continue to query the same terrain map.
 The export bundle now writes both `terrain_forms.json` and `terrain_stamps.json`. Forms remain useful
 for high-level inspection, while stamps are the bridge toward target-look assets such as organic road
 patches, trench bodies, berm mounds, stone platforms, prop clusters, and cast shadows.
+
+## Milestone 4.9 target-look terrain composition note
+
+Milestone 4.9 keeps the same source-of-truth rule but makes the default perspective scene call
+`target_look::render_target_look_scene`:
+
+```txt
+editable terrain -> target-style stamps -> feature-specific composition -> hero dressing -> lighting -> overlays
+```
+
+The new renderer is still driven by `TerrainMap`; it does not draw a static generated backdrop.
+Roads, trenches, berms, mud, grass, and stone platforms each get dedicated composition code for worn
+edges, planks, lips, steps, soil/stone detail, shadows, and final scene lighting. Picking routes
+through `target_look_pixel_to_cell`, so brush editing remains tied to the terrain grid while the
+rendered output chases the target image's art grammar.

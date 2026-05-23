@@ -217,7 +217,7 @@ impl fmt::Display for LightDirection {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ProjectionKind {
-    /// Legacy square-map/debug view. Kept for command maps, masks, and schematic overlays.
+    /// Square-map/debug view for command maps, masks, and schematic overlays.
     SquareTopDown,
     /// Screen-aligned 2D terrain whose sprite stack implies depth, height, and perspective.
     FauxPerspective2D,

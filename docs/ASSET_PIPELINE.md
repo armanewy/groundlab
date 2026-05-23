@@ -176,3 +176,14 @@ The export bundle writes `terrain_stamps.json` so the stamp decomposition can be
 `terrain_forms.json`. This is the bridge toward target-look assets such as road segments, trench
 bodies, berm mounds, stone platforms, shadows, and dressing while preserving terrain brushes, pathing,
 LOS, and debug overlays.
+
+## Milestone 4.9 target-look composition note
+
+Milestone 4.9 makes `target_look.rs` the active perspective-scene composition layer. It still consumes
+editable terrain-derived stamps, but feature-specific code now composes the final scene: organic
+field wash, worn dirt roads, dark plank trenches, dirt lips, berm mounds, stone platform faces and
+steps, hero-scene dressing, and final lighting.
+
+The superseded 4.8R perspective helper path was removed instead of retained as fallback code. Debug
+previews remain explicit preview modes; the default visual target path is now the target-look
+composition renderer.

@@ -127,7 +127,7 @@ impl GroundLabApp {
             dirty_assets: true,
             dirty_preview: true,
             last_preview_size: [1, 1],
-            status: "Ready. Milestone 4.8R target-look renderer is active: editable terrain resolves into art-directed stamps before overlays.".to_string(),
+            status: "Ready. Milestone 4.9 target-look terrain composition is active: roads, trenches, berms, stone platforms, lighting, and hero dressing render from editable terrain.".to_string(),
         };
         app.refresh_if_dirty(&cc.egui_ctx);
         app
@@ -686,9 +686,9 @@ impl GroundLabApp {
                 &self.tileset,
                 &self.palette,
                 &self.terrain,
-                "exports/milestone_04_8r",
+                "exports/milestone_04_9",
             ) {
-                Ok(()) => self.status = "Exported to exports/milestone_04_8r".to_string(),
+                Ok(()) => self.status = "Exported to exports/milestone_04_9".to_string(),
                 Err(err) => self.status = format!("Export failed: {err}"),
             }
         }
@@ -819,7 +819,7 @@ impl GroundLabApp {
             }
         }
 
-        ui.label("Left-drag paints. Right-click sets LOS source. Hovering in sprite/faux/angled/legacy views drives a local cutaway lens. Blue = spawn, yellow = objective.");
+        ui.label("Left-drag paints. Right-click sets LOS source. Hovering in sprite/faux/angled views drives a local cutaway lens. Blue = spawn, yellow = objective.");
     }
 }
 
