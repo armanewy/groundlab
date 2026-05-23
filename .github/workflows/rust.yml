@@ -35,3 +35,6 @@ jobs:
 
       - name: Export smoke test
         run: cargo run -p ground_cli -- export exports/ci_check
+
+      - name: Sprite generator smoke test
+        run: cargo run -p ground_sprite_cli -- export exports/artgen_ci_check

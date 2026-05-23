@@ -4,7 +4,40 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: Milestone 4.12 — edit patch stress tests and cover patches
+## Current status: ArtGen 1 — cozy grass and dirt sprite generator
+
+GroundLab's active visual work has pivoted away from the large editable scene renderer. The current
+focus is a dedicated, fast terrain sprite generator that produces simple, cozy, top-down pixel
+terrain primitives from built-in recipes, palettes, and art rules. It does not require reference
+images.
+
+ArtGen 1 generates:
+
+- tileable grass variants
+- tileable dirt variants
+- grass-to-dirt transition edges
+- contact sheets
+- grass, dirt, and transition repeat previews
+- palette previews
+- seam/noise validation reports
+- art-kit-compatible PNG pieces and `manifest.ron`
+
+Run the sprite workbench:
+
+```bash
+cargo run -p ground_sprite_app
+```
+
+Export the sprite bundle:
+
+```bash
+cargo run -p ground_sprite_cli -- export exports/artgen_01
+```
+
+The full-scene terrain renderer remains in the repository as downstream infrastructure for terrain
+data, pathing, LOS, and future art-kit composition, but it is paused as the visual feedback loop.
+
+## Previous status: Milestone 4.12 — edit patch stress tests and cover patches
 
 Milestone 4.12 tests whether the target-derived scene survives editing. It adds scripted edit
 scenarios, cover/erase patch handling for subtractive edits, patch quality metrics, and workbench
@@ -163,6 +196,8 @@ crates/
   ground_core/   # engine-owned data, terrain, art kits, visual forms, generation, masks, validation, preview, path/LOS, export
   ground_app/    # desktop workbench shell; not a game engine
   ground_cli/    # deterministic asset/export/validation command
+  ground_sprite_app/ # fast terrain sprite generator workbench
+  ground_sprite_cli/ # deterministic sprite export command
 ```
 
 ## Important scope note

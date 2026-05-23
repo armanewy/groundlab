@@ -1,0 +1,10 @@
+[package]
+name = "ground_sprite_app"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+eframe.workspace = true
+ground_core = { path = "../ground_core" }

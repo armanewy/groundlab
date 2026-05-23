@@ -1,0 +1,10 @@
+[package]
+name = "ground_sprite_cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+ground_core = { path = "../ground_core" }

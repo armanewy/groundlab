@@ -3,6 +3,8 @@ members = [
     "crates/ground_core",
     "crates/ground_app",
     "crates/ground_cli",
+    "crates/ground_sprite_app",
+    "crates/ground_sprite_cli",
 ]
 resolver = "2"
 

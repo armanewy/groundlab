@@ -1362,6 +1362,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "ground_sprite_app"
+version = "0.1.0"
+dependencies = [
+ "eframe",
+ "ground_core",
+]
+
+[[package]]
+name = "ground_sprite_cli"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "ground_core",
+]
+
+[[package]]
 name = "half"
 version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
