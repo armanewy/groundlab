@@ -53,22 +53,27 @@ pub fn generate_grass_tile(recipe: &TerrainSpriteRecipe, variant: u32) -> PixelI
     let palette = &style.palette;
     let seed = sprite_seed(recipe.seed, variant, 0x101);
     let mut image = PixelImage::new(size, size, palette.grass_mid);
-    if variant == 1 {
-        return image;
-    }
 
     let mut occupied = Vec::new();
-    let cell = (size / 4).max(3);
-    let dark_chance = style.grass.dark_cluster_density * 0.95;
-    let light_chance = style.grass.highlight_cluster_density * 0.90;
-    let blade_chance = style.grass.blade_cluster_density * 0.85;
+    let cell = (size / 5).max(3);
+    let variant_weight = if variant == 1 { 0.70 } else { 1.0 };
+    let dark_chance = style.grass.dark_cluster_density * 0.95 * variant_weight;
+    let light_chance = style.grass.highlight_cluster_density * 0.90 * variant_weight;
+    let blade_chance = style.grass.blade_cluster_density * 0.85 * variant_weight;
 
     scatter_motifs(
         &mut image,
         seed ^ 0x201,
         cell,
         dark_chance,
-        &[DARK_CLUMP_A, DARK_CLUMP_B, SHADOW_POCKET_A, SHADOW_POCKET_B],
+        &[
+            DARK_CLUMP_A,
+            DARK_CLUMP_B,
+            DARK_CLUMP_C,
+            SOFT_GRASS_DARK_A,
+            SHADOW_POCKET_A,
+            SHADOW_POCKET_B,
+        ],
         &grass_color_picker(recipe, false),
         &mut occupied,
     );
@@ -77,7 +82,14 @@ pub fn generate_grass_tile(recipe: &TerrainSpriteRecipe, variant: u32) -> PixelI
         seed ^ 0x301,
         cell,
         light_chance,
-        &[LIGHT_LEAF_A, LIGHT_LEAF_B, LIGHT_SPECK_A, LIGHT_SPECK_B],
+        &[
+            LIGHT_LEAF_A,
+            LIGHT_LEAF_B,
+            LIGHT_LEAF_C,
+            LIGHT_SPECK_A,
+            LIGHT_SPECK_B,
+            SEED_FLECK_A,
+        ],
         &grass_color_picker(recipe, true),
         &mut occupied,
     );
@@ -86,21 +98,26 @@ pub fn generate_grass_tile(recipe: &TerrainSpriteRecipe, variant: u32) -> PixelI
         seed ^ 0x401,
         cell,
         blade_chance,
-        &[BLADE_A, BLADE_B, BLADE_C, BLADE_D],
+        &[BLADE_A, BLADE_B, BLADE_C, BLADE_D, BLADE_E, BLADE_F],
         &grass_color_picker(recipe, true),
         &mut occupied,
     );
 
+    if style.pixel.avoid_single_pixel_noise {
+        soften_isolated_pixels(&mut image);
+    }
     let flower_count = ((size * size) as f32 * style.grass.flower_density).round() as u32;
     for i in 0..flower_count {
         if let Some((x, y)) = find_spaced_point(seed ^ 0x501, i, size, 4, &occupied) {
-            set_wrapped(&mut image, x, y, palette.grass_flower);
+            draw_motif(
+                &mut image,
+                x,
+                y,
+                FLOWER_FLECK_A,
+                &grass_color_picker(recipe, true),
+            );
             occupied.push((x as i32, y as i32));
         }
-    }
-
-    if style.pixel.avoid_single_pixel_noise {
-        soften_isolated_pixels(&mut image);
     }
     enforce_palette(&mut image, &style.palette.all_colors());
     image
@@ -112,18 +129,22 @@ pub fn generate_dirt_tile(recipe: &TerrainSpriteRecipe, variant: u32) -> PixelIm
     let palette = &style.palette;
     let seed = sprite_seed(recipe.seed, variant, 0x601);
     let mut image = PixelImage::new(size, size, palette.dirt_mid);
-    if variant == 1 {
-        return image;
-    }
 
     let mut occupied = Vec::new();
-    let cell = (size / 4).max(3);
+    let cell = (size / 6).max(2);
+    let variant_weight = if variant == 1 { 0.90 } else { 1.0 };
     scatter_motifs(
         &mut image,
         seed ^ 0x701,
         cell,
-        style.dirt.dust_patch_density * 0.70,
-        &[DUST_SMEAR_A, DUST_SMEAR_B, DUST_SMEAR_C],
+        style.dirt.dust_patch_density * 1.60 * variant_weight,
+        &[
+            DUST_SMEAR_A,
+            DUST_SMEAR_B,
+            DUST_SMEAR_C,
+            DUST_SMEAR_D,
+            DUST_SMEAR_E,
+        ],
         &dirt_color_picker(recipe, true),
         &mut occupied,
     );
@@ -131,8 +152,8 @@ pub fn generate_dirt_tile(recipe: &TerrainSpriteRecipe, variant: u32) -> PixelIm
         &mut image,
         seed ^ 0x801,
         cell,
-        style.dirt.compact_shadow_density * 0.70,
-        &[DIRT_DENT_A, DIRT_DENT_B, DIRT_DENT_C],
+        style.dirt.compact_shadow_density * 0.90 * variant_weight,
+        &[DIRT_DENT_A, DIRT_DENT_B, DIRT_DENT_C, DIRT_DENT_D],
         &dirt_color_picker(recipe, false),
         &mut occupied,
     );
@@ -140,13 +161,14 @@ pub fn generate_dirt_tile(recipe: &TerrainSpriteRecipe, variant: u32) -> PixelIm
         &mut image,
         seed ^ 0x901,
         cell,
-        style.dirt.rut_density * 0.60,
-        &[RUT_A, RUT_B, RUT_C],
+        style.dirt.rut_density * 0.25 * variant_weight,
+        &[RUT_A, RUT_B, RUT_C, RUT_D, RUT_E],
         &dirt_color_picker(recipe, false),
         &mut occupied,
     );
 
-    let pebble_count = ((size * size) as f32 * style.dirt.pebble_density * 0.75).round() as u32;
+    let pebble_count =
+        ((size * size) as f32 * style.dirt.pebble_density * 0.55 * variant_weight).round() as u32;
     for i in 0..pebble_count {
         if let Some((x, y)) = find_spaced_point(seed ^ 0xa01, i, size, 3, &occupied) {
             set_wrapped(&mut image, x, y, palette.pebble);
@@ -178,7 +200,9 @@ pub fn generate_transition_tile(
     let dirt = generate_dirt_tile(recipe, variant);
     let mut image = grass.clone();
     let jitter = style.transition.edge_jitter_px as i32;
-    let edge_width = (size as f32 * 0.18).round().max(2.0) as i32;
+    let edge_width = (size as f32 * (0.14 + style.transition.edge_softness * 0.18))
+        .round()
+        .max(2.0) as i32;
 
     for y in 0..size {
         for x in 0..size {
@@ -192,13 +216,13 @@ pub fn generate_transition_tile(
                 let color = dirt.get(x, y);
                 if distance <= edge_width {
                     let grass_mix = 1.0 - distance as f32 / edge_width as f32;
-                    image.set(x, y, color.blend(palette.grass_mid, grass_mix * 0.22));
+                    image.set(x, y, color.blend(palette.grass_mid, grass_mix * 0.34));
                 } else {
                     image.set(x, y, color);
                 }
             } else if distance <= edge_width {
                 let chance = hash01(seed ^ 0xc03 ^ ((x as u64) << 16) ^ y as u64);
-                if chance < style.transition.dirt_speckle_density * 0.55 {
+                if chance < style.transition.dirt_speckle_density * 0.45 {
                     image.set(x, y, palette.dirt_light);
                 }
             }
@@ -223,7 +247,8 @@ pub fn generate_transition_tile(
         };
         let (x, y) = transition_point(kind, along, across);
         if spaced(x as i32, y as i32, 3, &occupied) {
-            draw_motif(&mut image, x, y, BLADE_A, &grass_color_picker(recipe, true));
+            let motif = if i % 2 == 0 { BLADE_A } else { LIGHT_LEAF_C };
+            draw_motif(&mut image, x, y, motif, &grass_color_picker(recipe, true));
             occupied.push((x as i32, y as i32));
         }
     }
@@ -257,8 +282,8 @@ fn scatter_motifs(
     occupied: &mut Vec<(i32, i32)>,
 ) {
     let size = image.width.min(image.height);
-    let count = ((size * size) as f32 * chance / 9.0).round().max(1.0) as u32;
-    let min_distance = cell.max(3) as i32;
+    let count = ((size * size) as f32 * chance / 7.5).round().max(1.0) as u32;
+    let min_distance = cell.max(2) as i32;
     for i in 0..count {
         if let Some((x, y)) = find_spaced_point(seed, i, size, min_distance, occupied) {
             let motif = motifs[(hash(seed ^ (i as u64 * 0x517c)) % motifs.len() as u64) as usize];
@@ -293,8 +318,12 @@ fn find_spaced_point(
     occupied: &[(i32, i32)],
 ) -> Option<(u32, u32)> {
     for attempt in 0..8 {
-        let x = (hash(seed ^ (index as u64 * 0x9e37) ^ attempt) % size as u64) as u32;
-        let y = (hash(seed ^ (index as u64 * 0x85eb) ^ (attempt << 8)) % size as u64) as u32;
+        let sample = hash(
+            seed ^ (index as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15)
+                ^ (attempt as u64).wrapping_mul(0xbf58_476d_1ce4_e5b9),
+        );
+        let x = (hash(sample ^ 0xd1b5_4a32_d192_ed03) % size as u64) as u32;
+        let y = (hash(sample ^ 0x94d0_49bb_1331_11eb) % size as u64) as u32;
         if spaced(x as i32, y as i32, min_distance, occupied) {
             return Some((x, y));
         }
@@ -529,6 +558,42 @@ const BLADE_D: &[MotifPixel] = &[
     },
 ];
 
+const BLADE_E: &[MotifPixel] = &[
+    MotifPixel {
+        dx: 0,
+        dy: 0,
+        shade: 1,
+    },
+    MotifPixel {
+        dx: 0,
+        dy: -1,
+        shade: 1,
+    },
+    MotifPixel {
+        dx: -1,
+        dy: 0,
+        shade: -1,
+    },
+];
+
+const BLADE_F: &[MotifPixel] = &[
+    MotifPixel {
+        dx: 0,
+        dy: 0,
+        shade: -1,
+    },
+    MotifPixel {
+        dx: 1,
+        dy: -1,
+        shade: 1,
+    },
+    MotifPixel {
+        dx: 2,
+        dy: -1,
+        shade: 1,
+    },
+];
+
 const DARK_CLUMP_A: &[MotifPixel] = &[
     MotifPixel {
         dx: 0,
@@ -561,6 +626,37 @@ const DARK_CLUMP_B: &[MotifPixel] = &[
     MotifPixel {
         dx: 0,
         dy: -1,
+        shade: -1,
+    },
+];
+
+const DARK_CLUMP_C: &[MotifPixel] = &[
+    MotifPixel {
+        dx: 0,
+        dy: 0,
+        shade: -1,
+    },
+    MotifPixel {
+        dx: -1,
+        dy: 1,
+        shade: -2,
+    },
+    MotifPixel {
+        dx: 1,
+        dy: 1,
+        shade: -1,
+    },
+];
+
+const SOFT_GRASS_DARK_A: &[MotifPixel] = &[
+    MotifPixel {
+        dx: 0,
+        dy: 0,
+        shade: -1,
+    },
+    MotifPixel {
+        dx: 1,
+        dy: 1,
         shade: -1,
     },
 ];
@@ -617,6 +713,24 @@ const LIGHT_LEAF_B: &[MotifPixel] = &[
     },
 ];
 
+const LIGHT_LEAF_C: &[MotifPixel] = &[
+    MotifPixel {
+        dx: 0,
+        dy: 0,
+        shade: 1,
+    },
+    MotifPixel {
+        dx: -1,
+        dy: 0,
+        shade: 1,
+    },
+    MotifPixel {
+        dx: -1,
+        dy: 1,
+        shade: 0,
+    },
+];
+
 const LIGHT_SPECK_A: &[MotifPixel] = &[MotifPixel {
     dx: 0,
     dy: 0,
@@ -636,12 +750,7 @@ const LIGHT_SPECK_B: &[MotifPixel] = &[
     },
 ];
 
-const DUST_SMEAR_A: &[MotifPixel] = &[
-    MotifPixel {
-        dx: -1,
-        dy: 0,
-        shade: 1,
-    },
+const SEED_FLECK_A: &[MotifPixel] = &[
     MotifPixel {
         dx: 0,
         dy: 0,
@@ -650,11 +759,24 @@ const DUST_SMEAR_A: &[MotifPixel] = &[
     MotifPixel {
         dx: 1,
         dy: 0,
+        shade: 0,
+    },
+];
+
+const FLOWER_FLECK_A: &[MotifPixel] = &[
+    MotifPixel {
+        dx: 0,
+        dy: 0,
+        shade: 2,
+    },
+    MotifPixel {
+        dx: 1,
+        dy: 0,
         shade: 1,
     },
 ];
 
-const DUST_SMEAR_B: &[MotifPixel] = &[
+const DUST_SMEAR_A: &[MotifPixel] = &[
     MotifPixel {
         dx: 0,
         dy: 0,
@@ -668,7 +790,25 @@ const DUST_SMEAR_B: &[MotifPixel] = &[
     MotifPixel {
         dx: 0,
         dy: 1,
+        shade: 0,
+    },
+];
+
+const DUST_SMEAR_B: &[MotifPixel] = &[
+    MotifPixel {
+        dx: 0,
+        dy: 0,
         shade: 1,
+    },
+    MotifPixel {
+        dx: -1,
+        dy: 0,
+        shade: 1,
+    },
+    MotifPixel {
+        dx: 1,
+        dy: 1,
+        shade: 0,
     },
 ];
 
@@ -681,6 +821,37 @@ const DUST_SMEAR_C: &[MotifPixel] = &[
     MotifPixel {
         dx: -1,
         dy: 1,
+        shade: 0,
+    },
+];
+
+const DUST_SMEAR_D: &[MotifPixel] = &[
+    MotifPixel {
+        dx: -1,
+        dy: 0,
+        shade: 1,
+    },
+    MotifPixel {
+        dx: 0,
+        dy: 0,
+        shade: 1,
+    },
+    MotifPixel {
+        dx: 1,
+        dy: 1,
+        shade: 0,
+    },
+];
+
+const DUST_SMEAR_E: &[MotifPixel] = &[
+    MotifPixel {
+        dx: 0,
+        dy: 0,
+        shade: 1,
+    },
+    MotifPixel {
+        dx: 1,
+        dy: -1,
         shade: 1,
     },
 ];
@@ -717,6 +888,19 @@ const DIRT_DENT_C: &[MotifPixel] = &[MotifPixel {
     shade: -1,
 }];
 
+const DIRT_DENT_D: &[MotifPixel] = &[
+    MotifPixel {
+        dx: 0,
+        dy: 0,
+        shade: -1,
+    },
+    MotifPixel {
+        dx: 1,
+        dy: 1,
+        shade: 0,
+    },
+];
+
 const RUT_A: &[MotifPixel] = &[
     MotifPixel {
         dx: 0,
@@ -725,13 +909,13 @@ const RUT_A: &[MotifPixel] = &[
     },
     MotifPixel {
         dx: 1,
-        dy: 0,
+        dy: 1,
         shade: -1,
     },
     MotifPixel {
-        dx: 2,
-        dy: 0,
-        shade: 1,
+        dx: 1,
+        dy: -1,
+        shade: 0,
     },
 ];
 
@@ -755,8 +939,39 @@ const RUT_C: &[MotifPixel] = &[
         shade: 1,
     },
     MotifPixel {
-        dx: 1,
+        dx: -1,
+        dy: 1,
+        shade: -1,
+    },
+];
+
+const RUT_D: &[MotifPixel] = &[
+    MotifPixel {
+        dx: -1,
         dy: 0,
         shade: -1,
+    },
+    MotifPixel {
+        dx: 0,
+        dy: 0,
+        shade: 0,
+    },
+    MotifPixel {
+        dx: 1,
+        dy: 1,
+        shade: -1,
+    },
+];
+
+const RUT_E: &[MotifPixel] = &[
+    MotifPixel {
+        dx: 0,
+        dy: 0,
+        shade: -1,
+    },
+    MotifPixel {
+        dx: 1,
+        dy: -1,
+        shade: 0,
     },
 ];

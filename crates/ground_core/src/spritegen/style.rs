@@ -131,10 +131,10 @@ pub struct GrassRules {
 impl Default for GrassRules {
     fn default() -> Self {
         Self {
-            blade_cluster_density: 0.14,
-            dark_cluster_density: 0.045,
-            highlight_cluster_density: 0.035,
-            flower_density: 0.004,
+            blade_cluster_density: 0.30,
+            dark_cluster_density: 0.085,
+            highlight_cluster_density: 0.070,
+            flower_density: 0.005,
         }
     }
 }
@@ -151,10 +151,10 @@ pub struct DirtRules {
 impl Default for DirtRules {
     fn default() -> Self {
         Self {
-            pebble_density: 0.020,
+            pebble_density: 0.018,
             rut_density: 0.026,
-            dust_patch_density: 0.055,
-            compact_shadow_density: 0.040,
+            dust_patch_density: 0.115,
+            compact_shadow_density: 0.060,
         }
     }
 }
@@ -172,9 +172,9 @@ impl Default for TransitionRules {
     fn default() -> Self {
         Self {
             edge_jitter_px: 3,
-            grass_intrusion_density: 0.22,
-            dirt_speckle_density: 0.12,
-            edge_softness: 0.32,
+            grass_intrusion_density: 0.32,
+            dirt_speckle_density: 0.08,
+            edge_softness: 0.48,
         }
     }
 }
