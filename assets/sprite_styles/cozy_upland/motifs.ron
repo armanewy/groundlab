@@ -1,0 +1,56 @@
+(
+    id: "cozy_upland_motifs",
+    grass_dark: [
+        (id: "dark_clump_a", pixels: [(dx: -1, dy: 0, shade: -1), (dx: 0, dy: 0, shade: -1), (dx: 0, dy: 1, shade: -2)]),
+        (id: "dark_clump_b", pixels: [(dx: 0, dy: 0, shade: -2), (dx: -1, dy: 0, shade: -1), (dx: 0, dy: -1, shade: -1)]),
+        (id: "dark_clump_c", pixels: [(dx: 0, dy: 0, shade: -1), (dx: -1, dy: 1, shade: -2), (dx: 1, dy: 1, shade: -1)]),
+        (id: "soft_dark_a", pixels: [(dx: 0, dy: 0, shade: -1), (dx: 1, dy: 1, shade: -1)]),
+        (id: "shadow_pocket_a", pixels: [(dx: 0, dy: 0, shade: -2), (dx: 1, dy: 0, shade: -1)]),
+        (id: "shadow_pocket_b", pixels: [(dx: 0, dy: 0, shade: -1), (dx: 0, dy: 1, shade: -2)]),
+    ],
+    grass_light: [
+        (id: "light_leaf_a", pixels: [(dx: 0, dy: 0, shade: 1), (dx: 1, dy: 0, shade: 1)]),
+        (id: "light_leaf_b", pixels: [(dx: 0, dy: 0, shade: 1), (dx: 0, dy: -1, shade: 1)]),
+        (id: "light_leaf_c", pixels: [(dx: 0, dy: 0, shade: 1), (dx: -1, dy: 0, shade: 1), (dx: -1, dy: 1, shade: 0)]),
+        (id: "light_speck_a", pixels: [(dx: 0, dy: 0, shade: 1)]),
+        (id: "light_speck_b", pixels: [(dx: 0, dy: 0, shade: 1), (dx: 1, dy: 1, shade: 0)]),
+        (id: "seed_fleck_a", pixels: [(dx: 0, dy: 0, shade: 1), (dx: 1, dy: 0, shade: 0)]),
+    ],
+    grass_blades: [
+        (id: "blade_a", pixels: [(dx: 0, dy: 0, shade: 1), (dx: 1, dy: -1, shade: 1), (dx: 1, dy: 0, shade: -1)]),
+        (id: "blade_b", pixels: [(dx: 0, dy: 0, shade: 1), (dx: -1, dy: -1, shade: 1), (dx: 0, dy: 1, shade: -1)]),
+        (id: "blade_c", pixels: [(dx: 0, dy: 0, shade: -1), (dx: 1, dy: 0, shade: 1), (dx: 2, dy: -1, shade: 1)]),
+        (id: "blade_d", pixels: [(dx: 0, dy: 0, shade: -1), (dx: -1, dy: 1, shade: 1)]),
+        (id: "blade_e", pixels: [(dx: 0, dy: 0, shade: 1), (dx: 0, dy: -1, shade: 1), (dx: -1, dy: 0, shade: -1)]),
+        (id: "blade_f", pixels: [(dx: 0, dy: 0, shade: -1), (dx: 1, dy: -1, shade: 1), (dx: 2, dy: -1, shade: 1)]),
+    ],
+    grass_flowers: [
+        (id: "flower_fleck_a", allow_flip_y: false, pixels: [(dx: 0, dy: 0, shade: 2), (dx: 1, dy: 0, shade: 1)]),
+    ],
+    dirt_dust: [
+        (id: "dust_smear_a", pixels: [(dx: 0, dy: 0, shade: 1), (dx: 1, dy: 0, shade: 1), (dx: 0, dy: 1, shade: 0)]),
+        (id: "dust_smear_b", pixels: [(dx: 0, dy: 0, shade: 1), (dx: -1, dy: 0, shade: 1), (dx: 1, dy: 1, shade: 0)]),
+        (id: "dust_smear_c", pixels: [(dx: 0, dy: 0, shade: 1), (dx: -1, dy: 1, shade: 0)]),
+        (id: "dust_smear_d", pixels: [(dx: -1, dy: 0, shade: 1), (dx: 0, dy: 0, shade: 1), (dx: 1, dy: 1, shade: 0)]),
+        (id: "dust_smear_e", pixels: [(dx: 0, dy: 0, shade: 1), (dx: 1, dy: -1, shade: 1)]),
+    ],
+    dirt_dents: [
+        (id: "dirt_dent_a", pixels: [(dx: 0, dy: 0, shade: -1), (dx: 1, dy: 0, shade: -1)]),
+        (id: "dirt_dent_b", pixels: [(dx: 0, dy: 0, shade: -1), (dx: 0, dy: 1, shade: -1)]),
+        (id: "dirt_dent_c", pixels: [(dx: 0, dy: 0, shade: -1)]),
+        (id: "dirt_dent_d", pixels: [(dx: 0, dy: 0, shade: -1), (dx: 1, dy: 1, shade: 0)]),
+    ],
+    dirt_ruts: [
+        (id: "rut_a", pixels: [(dx: 0, dy: 0, shade: -1), (dx: 1, dy: 1, shade: -1), (dx: 1, dy: -1, shade: 0)]),
+        (id: "rut_b", pixels: [(dx: 0, dy: 0, shade: -1), (dx: 1, dy: 1, shade: -1)]),
+        (id: "rut_c", pixels: [(dx: 0, dy: 0, shade: 1), (dx: -1, dy: 1, shade: -1)]),
+        (id: "rut_d", pixels: [(dx: -1, dy: 0, shade: -1), (dx: 0, dy: 0, shade: 0), (dx: 1, dy: 1, shade: -1)]),
+        (id: "rut_e", pixels: [(dx: 0, dy: 0, shade: -1), (dx: 1, dy: -1, shade: 0)]),
+    ],
+    transition_intrusion: [
+        (id: "edge_blade_a", pixels: [(dx: 0, dy: 0, shade: 1), (dx: 1, dy: -1, shade: 1), (dx: 1, dy: 0, shade: -1)]),
+        (id: "edge_blade_d", pixels: [(dx: 0, dy: 0, shade: -1), (dx: -1, dy: 1, shade: 1)]),
+        (id: "edge_leaf_c", pixels: [(dx: 0, dy: 0, shade: 1), (dx: -1, dy: 0, shade: 1), (dx: -1, dy: 1, shade: 0)]),
+        (id: "edge_shadow_a", pixels: [(dx: 0, dy: 0, shade: -1), (dx: 1, dy: 1, shade: -1)]),
+    ],
+)

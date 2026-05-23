@@ -7,7 +7,7 @@ use ground_core::{
     build_sprite_contact_sheet, build_transition_edges_preview, build_transition_repeat_preview,
     build_variant_repeat_preview, export_terrain_sprite_bundle, generate_terrain_sprites,
     scale_nearest, GeneratedTerrainSprite, PixelImage, TerrainSpriteKind, TerrainSpriteRecipe,
-    DEFAULT_SPRITEGEN_EXPORT_DIR,
+    BUILTIN_SPRITE_STYLE_PROFILES, DEFAULT_SPRITEGEN_EXPORT_DIR,
 };
 
 fn main() -> eframe::Result {
@@ -98,6 +98,7 @@ impl PreviewPanel {
 
 struct SpriteForgeApp {
     recipe: TerrainSpriteRecipe,
+    selected_profile_index: usize,
     export_dir: String,
     sprites: Vec<GeneratedTerrainSprite>,
     selected_kind: TerrainSpriteKind,
@@ -130,7 +131,8 @@ struct SpriteForgeApp {
 impl SpriteForgeApp {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let mut app = Self {
-            recipe: TerrainSpriteRecipe::default(),
+            recipe: TerrainSpriteRecipe::from_default_style_profile(),
+            selected_profile_index: 0,
             export_dir: DEFAULT_SPRITEGEN_EXPORT_DIR.to_string(),
             sprites: Vec::new(),
             selected_kind: TerrainSpriteKind::GrassTile,
@@ -328,8 +330,34 @@ impl SpriteForgeApp {
 
     fn show_controls(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.heading("Pixel Terrain Forge");
-        ui.label("ArtGen 1.2b: cozy grass, dirt, and polished path autotiles.");
+        ui.label("ArtGen 1.3: swappable grass, dirt, and path style profiles.");
         ui.separator();
+        let selected_profile = BUILTIN_SPRITE_STYLE_PROFILES
+            .get(self.selected_profile_index)
+            .map(|(id, _)| *id)
+            .unwrap_or("custom");
+        egui::ComboBox::from_label("Style profile")
+            .selected_text(selected_profile)
+            .show_ui(ui, |ui| {
+                for (index, (id, path)) in BUILTIN_SPRITE_STYLE_PROFILES.iter().enumerate() {
+                    if ui
+                        .selectable_value(&mut self.selected_profile_index, index, *id)
+                        .clicked()
+                    {
+                        match TerrainSpriteRecipe::from_style_profile_path(path) {
+                            Ok(recipe) => {
+                                self.recipe = recipe;
+                                self.dirty = true;
+                                self.status = format!("Loaded style profile {id}.");
+                                self.refresh(ctx);
+                            }
+                            Err(err) => {
+                                self.status = format!("Failed to load style profile {id}: {err}");
+                            }
+                        }
+                    }
+                }
+            });
         ui.label("Export directory");
         ui.text_edit_singleline(&mut self.export_dir);
 

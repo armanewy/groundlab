@@ -12,6 +12,7 @@ pub struct TerrainSpriteStyle {
     pub grass: GrassRules,
     pub dirt: DirtRules,
     pub transition: TransitionRules,
+    pub path: PathRules,
 }
 
 impl Default for TerrainSpriteStyle {
@@ -24,6 +25,7 @@ impl Default for TerrainSpriteStyle {
             grass: GrassRules::default(),
             dirt: DirtRules::default(),
             transition: TransitionRules::default(),
+            path: PathRules::default(),
         }
     }
 }
@@ -152,9 +154,9 @@ impl Default for DirtRules {
     fn default() -> Self {
         Self {
             pebble_density: 0.018,
-            rut_density: 0.026,
-            dust_patch_density: 0.115,
-            compact_shadow_density: 0.060,
+            rut_density: 0.014,
+            dust_patch_density: 0.090,
+            compact_shadow_density: 0.045,
         }
     }
 }
@@ -177,4 +179,145 @@ impl Default for TransitionRules {
             edge_softness: 0.48,
         }
     }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct PathRules {
+    pub width_px: f32,
+    pub core_width_px: f32,
+    pub corner_rounding: f32,
+    pub edge_noise: f32,
+}
+
+impl Default for PathRules {
+    fn default() -> Self {
+        Self {
+            width_px: 5.8,
+            core_width_px: 6.7,
+            corner_rounding: 0.55,
+            edge_noise: 0.85,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TerrainMotifLibrary {
+    pub id: String,
+    pub grass_dark: Vec<TerrainMotif>,
+    pub grass_light: Vec<TerrainMotif>,
+    pub grass_blades: Vec<TerrainMotif>,
+    pub grass_flowers: Vec<TerrainMotif>,
+    pub dirt_dust: Vec<TerrainMotif>,
+    pub dirt_dents: Vec<TerrainMotif>,
+    pub dirt_ruts: Vec<TerrainMotif>,
+    pub transition_intrusion: Vec<TerrainMotif>,
+}
+
+impl Default for TerrainMotifLibrary {
+    fn default() -> Self {
+        Self {
+            id: "cozy_upland_motifs".to_string(),
+            grass_dark: vec![
+                TerrainMotif::new("dark_clump_a", &[(-1, 0, -1), (0, 0, -1), (0, 1, -2)]),
+                TerrainMotif::new("dark_clump_b", &[(0, 0, -2), (-1, 0, -1), (0, -1, -1)]),
+                TerrainMotif::new("dark_clump_c", &[(0, 0, -1), (-1, 1, -2), (1, 1, -1)]),
+                TerrainMotif::new("soft_dark_a", &[(0, 0, -1), (1, 1, -1)]),
+                TerrainMotif::new("shadow_pocket_a", &[(0, 0, -2), (1, 0, -1)]),
+                TerrainMotif::new("shadow_pocket_b", &[(0, 0, -1), (0, 1, -2)]),
+            ],
+            grass_light: vec![
+                TerrainMotif::new("light_leaf_a", &[(0, 0, 1), (1, 0, 1)]),
+                TerrainMotif::new("light_leaf_b", &[(0, 0, 1), (0, -1, 1)]),
+                TerrainMotif::new("light_leaf_c", &[(0, 0, 1), (-1, 0, 1), (-1, 1, 0)]),
+                TerrainMotif::new("light_speck_a", &[(0, 0, 1)]),
+                TerrainMotif::new("light_speck_b", &[(0, 0, 1), (1, 1, 0)]),
+                TerrainMotif::new("seed_fleck_a", &[(0, 0, 1), (1, 0, 0)]),
+            ],
+            grass_blades: vec![
+                TerrainMotif::new("blade_a", &[(0, 0, 1), (1, -1, 1), (1, 0, -1)]),
+                TerrainMotif::new("blade_b", &[(0, 0, 1), (-1, -1, 1), (0, 1, -1)]),
+                TerrainMotif::new("blade_c", &[(0, 0, -1), (1, 0, 1), (2, -1, 1)]),
+                TerrainMotif::new("blade_d", &[(0, 0, -1), (-1, 1, 1)]),
+                TerrainMotif::new("blade_e", &[(0, 0, 1), (0, -1, 1), (-1, 0, -1)]),
+                TerrainMotif::new("blade_f", &[(0, 0, -1), (1, -1, 1), (2, -1, 1)]),
+            ],
+            grass_flowers: vec![TerrainMotif::new("flower_fleck_a", &[(0, 0, 2), (1, 0, 1)])],
+            dirt_dust: vec![
+                TerrainMotif::new("dust_smear_a", &[(0, 0, 1), (1, 0, 1), (0, 1, 0)]),
+                TerrainMotif::new("dust_smear_b", &[(0, 0, 1), (-1, 0, 1), (1, 1, 0)]),
+                TerrainMotif::new("dust_smear_c", &[(0, 0, 1), (-1, 1, 0)]),
+                TerrainMotif::new("dust_smear_d", &[(-1, 0, 1), (0, 0, 1), (1, 1, 0)]),
+                TerrainMotif::new("dust_smear_e", &[(0, 0, 1), (1, -1, 1)]),
+            ],
+            dirt_dents: vec![
+                TerrainMotif::new("dirt_dent_a", &[(0, 0, -1), (1, 0, -1)]),
+                TerrainMotif::new("dirt_dent_b", &[(0, 0, -1), (0, 1, -1)]),
+                TerrainMotif::new("dirt_dent_c", &[(0, 0, -1)]),
+                TerrainMotif::new("dirt_dent_d", &[(0, 0, -1), (1, 1, 0)]),
+            ],
+            dirt_ruts: vec![
+                TerrainMotif::new("rut_a", &[(0, 0, -1), (1, 1, -1), (1, -1, 0)]),
+                TerrainMotif::new("rut_b", &[(0, 0, -1), (1, 1, -1)]),
+                TerrainMotif::new("rut_c", &[(0, 0, 1), (-1, 1, -1)]),
+                TerrainMotif::new("rut_d", &[(-1, 0, -1), (0, 0, 0), (1, 1, -1)]),
+                TerrainMotif::new("rut_e", &[(0, 0, -1), (1, -1, 0)]),
+            ],
+            transition_intrusion: vec![
+                TerrainMotif::new("edge_blade_a", &[(0, 0, 1), (1, -1, 1), (1, 0, -1)]),
+                TerrainMotif::new("edge_blade_d", &[(0, 0, -1), (-1, 1, 1)]),
+                TerrainMotif::new("edge_leaf_c", &[(0, 0, 1), (-1, 0, 1), (-1, 1, 0)]),
+                TerrainMotif::new("edge_shadow_a", &[(0, 0, -1), (1, 1, -1)]),
+            ],
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TerrainMotif {
+    pub id: String,
+    pub weight: f32,
+    pub allow_flip_x: bool,
+    pub allow_flip_y: bool,
+    pub pixels: Vec<TerrainMotifPixel>,
+}
+
+impl TerrainMotif {
+    fn new(id: &str, pixels: &[(i32, i32, i8)]) -> Self {
+        Self {
+            id: id.to_string(),
+            weight: 1.0,
+            allow_flip_x: true,
+            allow_flip_y: false,
+            pixels: pixels
+                .iter()
+                .map(|(dx, dy, shade)| TerrainMotifPixel {
+                    dx: *dx,
+                    dy: *dy,
+                    shade: *shade,
+                })
+                .collect(),
+        }
+    }
+}
+
+impl Default for TerrainMotif {
+    fn default() -> Self {
+        Self {
+            id: "motif".to_string(),
+            weight: 1.0,
+            allow_flip_x: true,
+            allow_flip_y: false,
+            pixels: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TerrainMotifPixel {
+    pub dx: i32,
+    pub dy: i32,
+    pub shade: i8,
 }

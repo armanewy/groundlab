@@ -1,9 +1,26 @@
+use std::fs;
+use std::path::{Path, PathBuf};
+
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::pixel_image::PixelImage;
-use crate::spritegen::TerrainSpriteStyle;
+use crate::spritegen::{TerrainMotifLibrary, TerrainSpriteStyle};
 
-pub const DEFAULT_SPRITEGEN_EXPORT_DIR: &str = "exports/artgen_01_2b";
+pub const DEFAULT_SPRITEGEN_EXPORT_DIR: &str = "exports/artgen_01_3";
+pub const DEFAULT_SPRITE_STYLE_PATH: &str = "assets/sprite_styles/cozy_upland/style.ron";
+
+pub const BUILTIN_SPRITE_STYLE_PROFILES: [(&str, &str); 3] = [
+    ("cozy_upland", "assets/sprite_styles/cozy_upland/style.ron"),
+    (
+        "cozy_upland_lush",
+        "assets/sprite_styles/cozy_upland_lush/style.ron",
+    ),
+    (
+        "cozy_upland_sparse",
+        "assets/sprite_styles/cozy_upland_sparse/style.ron",
+    ),
+];
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -13,6 +30,7 @@ pub struct TerrainSpriteRecipe {
     pub seed: u64,
     pub variant_count: u32,
     pub style: TerrainSpriteStyle,
+    pub motifs: TerrainMotifLibrary,
 }
 
 impl Default for TerrainSpriteRecipe {
@@ -23,6 +41,7 @@ impl Default for TerrainSpriteRecipe {
             seed: 0x5eed_7101,
             variant_count: 4,
             style: TerrainSpriteStyle::default(),
+            motifs: TerrainMotifLibrary::default(),
         }
     }
 }
@@ -63,6 +82,119 @@ impl TerrainSpriteRecipe {
         self.style.transition.dirt_speckle_density =
             self.style.transition.dirt_speckle_density.clamp(0.0, 1.0);
         self.style.transition.edge_softness = self.style.transition.edge_softness.clamp(0.0, 1.0);
+        self.style.path.width_px = self.style.path.width_px.clamp(2.0, self.tile_size as f32);
+        self.style.path.core_width_px = self
+            .style
+            .path
+            .core_width_px
+            .max(self.style.path.width_px)
+            .clamp(2.0, self.tile_size as f32);
+        self.style.path.corner_rounding = self.style.path.corner_rounding.clamp(0.0, 1.0);
+        self.style.path.edge_noise = self.style.path.edge_noise.clamp(0.0, 3.0);
+        self.motifs.sanitize();
+    }
+
+    pub fn from_style_profile_path(path: impl AsRef<Path>) -> Result<Self> {
+        let path = path.as_ref();
+        let text = fs::read_to_string(path)?;
+        let profile: TerrainSpriteStyleProfile = ron::from_str(&text)?;
+        profile.into_recipe(path.parent().unwrap_or_else(|| Path::new(".")))
+    }
+
+    pub fn from_default_style_profile() -> Self {
+        Self::from_style_profile_path(DEFAULT_SPRITE_STYLE_PATH).unwrap_or_default()
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TerrainSpriteStyleProfile {
+    pub id: String,
+    pub tile_size: u32,
+    pub seed: u64,
+    pub variant_count: u32,
+    pub style: TerrainSpriteStyle,
+    pub motifs: String,
+}
+
+impl Default for TerrainSpriteStyleProfile {
+    fn default() -> Self {
+        Self {
+            id: "cozy_upland".to_string(),
+            tile_size: 16,
+            seed: 0x5eed_7101,
+            variant_count: 4,
+            style: TerrainSpriteStyle::default(),
+            motifs: "motifs.ron".to_string(),
+        }
+    }
+}
+
+impl TerrainSpriteStyleProfile {
+    pub fn into_recipe(self, base_dir: &Path) -> Result<TerrainSpriteRecipe> {
+        let motif_path = resolve_profile_path(base_dir, &self.motifs);
+        let motif_text = fs::read_to_string(motif_path)?;
+        let motifs: TerrainMotifLibrary = ron::from_str(&motif_text)?;
+        let mut recipe = TerrainSpriteRecipe {
+            id: self.id,
+            tile_size: self.tile_size,
+            seed: self.seed,
+            variant_count: self.variant_count,
+            style: self.style,
+            motifs,
+        };
+        recipe.sanitize();
+        Ok(recipe)
+    }
+}
+
+impl TerrainMotifLibrary {
+    pub fn sanitize(&mut self) {
+        self.grass_dark.retain(|motif| !motif.pixels.is_empty());
+        self.grass_light.retain(|motif| !motif.pixels.is_empty());
+        self.grass_blades.retain(|motif| !motif.pixels.is_empty());
+        self.grass_flowers.retain(|motif| !motif.pixels.is_empty());
+        self.dirt_dust.retain(|motif| !motif.pixels.is_empty());
+        self.dirt_dents.retain(|motif| !motif.pixels.is_empty());
+        self.dirt_ruts.retain(|motif| !motif.pixels.is_empty());
+        self.transition_intrusion
+            .retain(|motif| !motif.pixels.is_empty());
+        let fallback = TerrainMotifLibrary::default();
+        self.grass_dark = with_fallback(std::mem::take(&mut self.grass_dark), fallback.grass_dark);
+        self.grass_light =
+            with_fallback(std::mem::take(&mut self.grass_light), fallback.grass_light);
+        self.grass_blades = with_fallback(
+            std::mem::take(&mut self.grass_blades),
+            fallback.grass_blades,
+        );
+        self.grass_flowers = with_fallback(
+            std::mem::take(&mut self.grass_flowers),
+            fallback.grass_flowers,
+        );
+        self.dirt_dust = with_fallback(std::mem::take(&mut self.dirt_dust), fallback.dirt_dust);
+        self.dirt_dents = with_fallback(std::mem::take(&mut self.dirt_dents), fallback.dirt_dents);
+        self.dirt_ruts = with_fallback(std::mem::take(&mut self.dirt_ruts), fallback.dirt_ruts);
+        self.transition_intrusion = with_fallback(
+            std::mem::take(&mut self.transition_intrusion),
+            fallback.transition_intrusion,
+        );
+    }
+}
+
+fn with_fallback<T>(value: Vec<T>, fallback: Vec<T>) -> Vec<T> {
+    if value.is_empty() {
+        fallback
+    } else {
+        value
+    }
+}
+
+fn resolve_profile_path(base_dir: &Path, value: &str) -> PathBuf {
+    let path = PathBuf::from(value);
+    if path.is_absolute() {
+        path
+    } else {
+        base_dir.join(path)
     }
 }
 

@@ -1,6 +1,7 @@
 use anyhow::{bail, Result};
 use ground_core::{
     export_terrain_sprite_bundle, TerrainSpriteRecipe, DEFAULT_SPRITEGEN_EXPORT_DIR,
+    DEFAULT_SPRITE_STYLE_PATH,
 };
 
 fn main() -> Result<()> {
@@ -15,7 +16,10 @@ fn main() -> Result<()> {
             let out_dir = args
                 .next()
                 .unwrap_or_else(|| DEFAULT_SPRITEGEN_EXPORT_DIR.to_string());
-            let recipe = TerrainSpriteRecipe::default();
+            let profile_path = args
+                .next()
+                .unwrap_or_else(|| DEFAULT_SPRITE_STYLE_PATH.to_string());
+            let recipe = TerrainSpriteRecipe::from_style_profile_path(&profile_path)?;
             let summary = export_terrain_sprite_bundle(&out_dir, &recipe)?;
             println!(
                 "Exported cozy terrain sprite bundle to {}.",
@@ -37,5 +41,5 @@ fn print_help() {
     eprintln!("GroundLab SpriteGen CLI");
     eprintln!();
     eprintln!("Usage:");
-    eprintln!("  cargo run -p ground_sprite_cli -- export [out_dir]");
+    eprintln!("  cargo run -p ground_sprite_cli -- export [out_dir] [style_profile]");
 }

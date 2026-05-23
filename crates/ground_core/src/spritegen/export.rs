@@ -113,7 +113,7 @@ pub fn export_terrain_sprite_bundle(
 pub fn export_default_terrain_sprite_bundle() -> Result<TerrainSpriteExportSummary> {
     export_terrain_sprite_bundle(
         DEFAULT_SPRITEGEN_EXPORT_DIR,
-        &TerrainSpriteRecipe::default(),
+        &TerrainSpriteRecipe::from_default_style_profile(),
     )
 }
 

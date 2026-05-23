@@ -1,13 +1,8 @@
 use crate::color::Rgba8;
 use crate::pixel_image::PixelImage;
-use crate::spritegen::{GeneratedTerrainSprite, TerrainSpriteKind, TerrainSpriteRecipe};
-
-#[derive(Clone, Copy, Debug)]
-struct MotifPixel {
-    dx: i32,
-    dy: i32,
-    shade: i8,
-}
+use crate::spritegen::{
+    GeneratedTerrainSprite, TerrainMotif, TerrainSpriteKind, TerrainSpriteRecipe,
+};
 
 pub fn generate_terrain_sprites(recipe: &TerrainSpriteRecipe) -> Vec<GeneratedTerrainSprite> {
     let mut recipe = recipe.clone();
@@ -75,14 +70,7 @@ pub fn generate_grass_tile(recipe: &TerrainSpriteRecipe, variant: u32) -> PixelI
         seed ^ 0x201,
         cell,
         dark_chance,
-        &[
-            DARK_CLUMP_A,
-            DARK_CLUMP_B,
-            DARK_CLUMP_C,
-            SOFT_GRASS_DARK_A,
-            SHADOW_POCKET_A,
-            SHADOW_POCKET_B,
-        ],
+        &recipe.motifs.grass_dark,
         &grass_color_picker(recipe, false),
         &mut occupied,
     );
@@ -91,14 +79,7 @@ pub fn generate_grass_tile(recipe: &TerrainSpriteRecipe, variant: u32) -> PixelI
         seed ^ 0x301,
         cell,
         light_chance,
-        &[
-            LIGHT_LEAF_A,
-            LIGHT_LEAF_B,
-            LIGHT_LEAF_C,
-            LIGHT_SPECK_A,
-            LIGHT_SPECK_B,
-            SEED_FLECK_A,
-        ],
+        &recipe.motifs.grass_light,
         &grass_color_picker(recipe, true),
         &mut occupied,
     );
@@ -107,7 +88,7 @@ pub fn generate_grass_tile(recipe: &TerrainSpriteRecipe, variant: u32) -> PixelI
         seed ^ 0x401,
         cell,
         blade_chance,
-        &[BLADE_A, BLADE_B, BLADE_C, BLADE_D, BLADE_E, BLADE_F],
+        &recipe.motifs.grass_blades,
         &grass_color_picker(recipe, true),
         &mut occupied,
     );
@@ -118,11 +99,12 @@ pub fn generate_grass_tile(recipe: &TerrainSpriteRecipe, variant: u32) -> PixelI
     let flower_count = ((size * size) as f32 * style.grass.flower_density).round() as u32;
     for i in 0..flower_count {
         if let Some((x, y)) = find_spaced_point(seed ^ 0x501, i, size, 4, &occupied) {
-            draw_motif(
+            draw_motif_from_set(
                 &mut image,
                 x,
                 y,
-                FLOWER_FLECK_A,
+                &recipe.motifs.grass_flowers,
+                seed ^ 0x511 ^ i as u64,
                 &grass_color_picker(recipe, true),
             );
             occupied.push((x as i32, y as i32));
@@ -147,13 +129,7 @@ pub fn generate_dirt_tile(recipe: &TerrainSpriteRecipe, variant: u32) -> PixelIm
         seed ^ 0x701,
         cell,
         style.dirt.dust_patch_density * 1.60 * variant_weight,
-        &[
-            DUST_SMEAR_A,
-            DUST_SMEAR_B,
-            DUST_SMEAR_C,
-            DUST_SMEAR_D,
-            DUST_SMEAR_E,
-        ],
+        &recipe.motifs.dirt_dust,
         &dirt_color_picker(recipe, true),
         &mut occupied,
     );
@@ -162,7 +138,7 @@ pub fn generate_dirt_tile(recipe: &TerrainSpriteRecipe, variant: u32) -> PixelIm
         seed ^ 0x801,
         cell,
         style.dirt.compact_shadow_density * 0.90 * variant_weight,
-        &[DIRT_DENT_A, DIRT_DENT_B, DIRT_DENT_C, DIRT_DENT_D],
+        &recipe.motifs.dirt_dents,
         &dirt_color_picker(recipe, false),
         &mut occupied,
     );
@@ -171,7 +147,7 @@ pub fn generate_dirt_tile(recipe: &TerrainSpriteRecipe, variant: u32) -> PixelIm
         seed ^ 0x901,
         cell,
         style.dirt.rut_density * 0.25 * variant_weight,
-        &[RUT_A, RUT_B, RUT_C, RUT_D, RUT_E],
+        &recipe.motifs.dirt_ruts,
         &dirt_color_picker(recipe, false),
         &mut occupied,
     );
@@ -256,8 +232,14 @@ pub fn generate_transition_tile(
         };
         let (x, y) = transition_point(kind, along, across);
         if spaced(x as i32, y as i32, 3, &occupied) {
-            let motif = if i % 2 == 0 { BLADE_A } else { LIGHT_LEAF_C };
-            draw_motif(&mut image, x, y, motif, &grass_color_picker(recipe, true));
+            draw_motif_from_set(
+                &mut image,
+                x,
+                y,
+                &recipe.motifs.transition_intrusion,
+                seed ^ 0xd11 ^ i as u64,
+                &grass_color_picker(recipe, true),
+            );
             occupied.push((x as i32, y as i32));
         }
     }
@@ -283,7 +265,7 @@ pub fn generate_path_mask_tile(recipe: &TerrainSpriteRecipe, mask: u8) -> PixelI
 
     for y in 0..size {
         for x in 0..size {
-            let signed = path_mask_signed_distance(mask, x, y, size, seed);
+            let signed = path_mask_signed_distance(recipe, mask, x, y, size, seed);
             if signed <= 0.0 {
                 let color = dirt.get(x, y);
                 if signed.abs() <= soft_edge {
@@ -341,28 +323,37 @@ fn add_path_edge_intrusions(
         for attempt in 0..10 {
             let x = (hash(sample ^ attempt as u64 ^ 0x1b02) % size as u64) as u32;
             let y = (hash(sample ^ (attempt as u64 * 0x85eb) ^ 0x1b03) % size as u64) as u32;
-            let signed = path_mask_signed_distance(mask, x, y, size, seed);
+            let signed = path_mask_signed_distance(recipe, mask, x, y, size, seed);
             if (-1.0..=2.5).contains(&signed) && spaced(x as i32, y as i32, 3, &occupied) {
                 best = Some((x, y));
                 break;
             }
         }
         if let Some((x, y)) = best {
-            let motif = match hash(sample ^ 0x1b04) % 4 {
-                0 => BLADE_A,
-                1 => BLADE_D,
-                2 => LIGHT_LEAF_C,
-                _ => SOFT_GRASS_DARK_A,
-            };
-            draw_motif(image, x, y, motif, &grass_color_picker(recipe, true));
+            draw_motif_from_set(
+                image,
+                x,
+                y,
+                &recipe.motifs.transition_intrusion,
+                sample ^ 0x1b04,
+                &grass_color_picker(recipe, true),
+            );
             occupied.push((x as i32, y as i32));
         }
     }
 }
 
-fn path_mask_signed_distance(mask: u8, x: u32, y: u32, size: u32, seed: u64) -> f32 {
-    let arm_half = (size as f32 * 0.18).max(2.7);
-    let core_half = (size as f32 * 0.21).max(3.2);
+fn path_mask_signed_distance(
+    recipe: &TerrainSpriteRecipe,
+    mask: u8,
+    x: u32,
+    y: u32,
+    size: u32,
+    seed: u64,
+) -> f32 {
+    let path = &recipe.style.path;
+    let arm_half = (path.width_px * 0.5).max(1.5);
+    let core_half = (path.core_width_px * 0.5 + path.corner_rounding * 0.35).max(arm_half);
     let center = (size as f32 - 1.0) * 0.5;
     let xf = x as f32 + 0.5;
     let yf = y as f32 + 0.5;
@@ -419,7 +410,7 @@ fn path_mask_signed_distance(mask: u8, x: u32, y: u32, size: u32, seed: u64) -> 
         let dy = yf - center;
         distance = (dx * dx + dy * dy).sqrt() - size as f32 * 0.24;
     }
-    let organic = path_edge_noise(seed, x, y) * 0.85;
+    let organic = path_edge_noise(seed, x, y) * path.edge_noise;
     distance + organic
 }
 
@@ -457,7 +448,7 @@ fn scatter_motifs(
     seed: u64,
     cell: u32,
     chance: f32,
-    motifs: &[&[MotifPixel]],
+    motifs: &[TerrainMotif],
     color_picker: &dyn Fn(i8) -> Rgba8,
     occupied: &mut Vec<(i32, i32)>,
 ) {
@@ -466,28 +457,61 @@ fn scatter_motifs(
     let min_distance = cell.max(2) as i32;
     for i in 0..count {
         if let Some((x, y)) = find_spaced_point(seed, i, size, min_distance, occupied) {
-            let motif = motifs[(hash(seed ^ (i as u64 * 0x517c)) % motifs.len() as u64) as usize];
-            draw_motif(image, x, y, motif, color_picker);
+            draw_motif_from_set(
+                image,
+                x,
+                y,
+                motifs,
+                seed ^ (i as u64 * 0x517c),
+                color_picker,
+            );
             occupied.push((x as i32, y as i32));
         }
     }
 }
 
-fn draw_motif(
+fn draw_motif_from_set(
     image: &mut PixelImage,
     origin_x: u32,
     origin_y: u32,
-    motif: &[MotifPixel],
+    motifs: &[TerrainMotif],
+    seed: u64,
     color_picker: &dyn Fn(i8) -> Rgba8,
 ) {
-    for pixel in motif {
+    if motifs.is_empty() {
+        return;
+    }
+    let motif = choose_motif(motifs, seed);
+    let flip_x = motif.allow_flip_x && hash(seed ^ 0x51f1).is_multiple_of(2);
+    let flip_y = motif.allow_flip_y && hash(seed ^ 0x71f1).is_multiple_of(2);
+    for pixel in &motif.pixels {
+        let dx = if flip_x { -pixel.dx } else { pixel.dx };
+        let dy = if flip_y { -pixel.dy } else { pixel.dy };
         set_wrapped(
             image,
-            origin_x.wrapping_add_signed(pixel.dx),
-            origin_y.wrapping_add_signed(pixel.dy),
+            origin_x.wrapping_add_signed(dx),
+            origin_y.wrapping_add_signed(dy),
             color_picker(pixel.shade),
         );
     }
+}
+
+fn choose_motif(motifs: &[TerrainMotif], seed: u64) -> &TerrainMotif {
+    let total = motifs
+        .iter()
+        .map(|motif| motif.weight.max(0.0))
+        .sum::<f32>();
+    if total <= f32::EPSILON {
+        return &motifs[(hash(seed) % motifs.len() as u64) as usize];
+    }
+    let mut target = hash01(seed) * total;
+    for motif in motifs {
+        target -= motif.weight.max(0.0);
+        if target <= 0.0 {
+            return motif;
+        }
+    }
+    &motifs[motifs.len() - 1]
 }
 
 fn find_spaced_point(
@@ -670,488 +694,3 @@ fn hash(mut x: u64) -> u64 {
     x = x.wrapping_mul(0x94d0_49bb_1331_11eb);
     x ^ (x >> 31)
 }
-
-const BLADE_A: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: 1,
-    },
-    MotifPixel {
-        dx: 1,
-        dy: -1,
-        shade: 1,
-    },
-    MotifPixel {
-        dx: 1,
-        dy: 0,
-        shade: -1,
-    },
-];
-
-const BLADE_B: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: 1,
-    },
-    MotifPixel {
-        dx: -1,
-        dy: -1,
-        shade: 1,
-    },
-    MotifPixel {
-        dx: 0,
-        dy: 1,
-        shade: -1,
-    },
-];
-
-const BLADE_C: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: -1,
-    },
-    MotifPixel {
-        dx: 1,
-        dy: 0,
-        shade: 1,
-    },
-    MotifPixel {
-        dx: 2,
-        dy: -1,
-        shade: 1,
-    },
-];
-
-const BLADE_D: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: -1,
-    },
-    MotifPixel {
-        dx: -1,
-        dy: 1,
-        shade: 1,
-    },
-];
-
-const BLADE_E: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: 1,
-    },
-    MotifPixel {
-        dx: 0,
-        dy: -1,
-        shade: 1,
-    },
-    MotifPixel {
-        dx: -1,
-        dy: 0,
-        shade: -1,
-    },
-];
-
-const BLADE_F: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: -1,
-    },
-    MotifPixel {
-        dx: 1,
-        dy: -1,
-        shade: 1,
-    },
-    MotifPixel {
-        dx: 2,
-        dy: -1,
-        shade: 1,
-    },
-];
-
-const DARK_CLUMP_A: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: -1,
-    },
-    MotifPixel {
-        dx: 1,
-        dy: 0,
-        shade: -1,
-    },
-    MotifPixel {
-        dx: 0,
-        dy: 1,
-        shade: -2,
-    },
-];
-
-const DARK_CLUMP_B: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: -2,
-    },
-    MotifPixel {
-        dx: -1,
-        dy: 0,
-        shade: -1,
-    },
-    MotifPixel {
-        dx: 0,
-        dy: -1,
-        shade: -1,
-    },
-];
-
-const DARK_CLUMP_C: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: -1,
-    },
-    MotifPixel {
-        dx: -1,
-        dy: 1,
-        shade: -2,
-    },
-    MotifPixel {
-        dx: 1,
-        dy: 1,
-        shade: -1,
-    },
-];
-
-const SOFT_GRASS_DARK_A: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: -1,
-    },
-    MotifPixel {
-        dx: 1,
-        dy: 1,
-        shade: -1,
-    },
-];
-
-const SHADOW_POCKET_A: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: -2,
-    },
-    MotifPixel {
-        dx: 1,
-        dy: 0,
-        shade: -1,
-    },
-];
-
-const SHADOW_POCKET_B: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: -1,
-    },
-    MotifPixel {
-        dx: 0,
-        dy: 1,
-        shade: -2,
-    },
-];
-
-const LIGHT_LEAF_A: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: 1,
-    },
-    MotifPixel {
-        dx: 1,
-        dy: 0,
-        shade: 1,
-    },
-];
-
-const LIGHT_LEAF_B: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: 1,
-    },
-    MotifPixel {
-        dx: 0,
-        dy: -1,
-        shade: 1,
-    },
-];
-
-const LIGHT_LEAF_C: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: 1,
-    },
-    MotifPixel {
-        dx: -1,
-        dy: 0,
-        shade: 1,
-    },
-    MotifPixel {
-        dx: -1,
-        dy: 1,
-        shade: 0,
-    },
-];
-
-const LIGHT_SPECK_A: &[MotifPixel] = &[MotifPixel {
-    dx: 0,
-    dy: 0,
-    shade: 1,
-}];
-
-const LIGHT_SPECK_B: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: 1,
-    },
-    MotifPixel {
-        dx: 1,
-        dy: 1,
-        shade: 0,
-    },
-];
-
-const SEED_FLECK_A: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: 1,
-    },
-    MotifPixel {
-        dx: 1,
-        dy: 0,
-        shade: 0,
-    },
-];
-
-const FLOWER_FLECK_A: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: 2,
-    },
-    MotifPixel {
-        dx: 1,
-        dy: 0,
-        shade: 1,
-    },
-];
-
-const DUST_SMEAR_A: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: 1,
-    },
-    MotifPixel {
-        dx: 1,
-        dy: 0,
-        shade: 1,
-    },
-    MotifPixel {
-        dx: 0,
-        dy: 1,
-        shade: 0,
-    },
-];
-
-const DUST_SMEAR_B: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: 1,
-    },
-    MotifPixel {
-        dx: -1,
-        dy: 0,
-        shade: 1,
-    },
-    MotifPixel {
-        dx: 1,
-        dy: 1,
-        shade: 0,
-    },
-];
-
-const DUST_SMEAR_C: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: 1,
-    },
-    MotifPixel {
-        dx: -1,
-        dy: 1,
-        shade: 0,
-    },
-];
-
-const DUST_SMEAR_D: &[MotifPixel] = &[
-    MotifPixel {
-        dx: -1,
-        dy: 0,
-        shade: 1,
-    },
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: 1,
-    },
-    MotifPixel {
-        dx: 1,
-        dy: 1,
-        shade: 0,
-    },
-];
-
-const DUST_SMEAR_E: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: 1,
-    },
-    MotifPixel {
-        dx: 1,
-        dy: -1,
-        shade: 1,
-    },
-];
-
-const DIRT_DENT_A: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: -1,
-    },
-    MotifPixel {
-        dx: 1,
-        dy: 0,
-        shade: -1,
-    },
-];
-
-const DIRT_DENT_B: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: -1,
-    },
-    MotifPixel {
-        dx: 0,
-        dy: 1,
-        shade: -1,
-    },
-];
-
-const DIRT_DENT_C: &[MotifPixel] = &[MotifPixel {
-    dx: 0,
-    dy: 0,
-    shade: -1,
-}];
-
-const DIRT_DENT_D: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: -1,
-    },
-    MotifPixel {
-        dx: 1,
-        dy: 1,
-        shade: 0,
-    },
-];
-
-const RUT_A: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: -1,
-    },
-    MotifPixel {
-        dx: 1,
-        dy: 1,
-        shade: -1,
-    },
-    MotifPixel {
-        dx: 1,
-        dy: -1,
-        shade: 0,
-    },
-];
-
-const RUT_B: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: -1,
-    },
-    MotifPixel {
-        dx: 1,
-        dy: 1,
-        shade: -1,
-    },
-];
-
-const RUT_C: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: 1,
-    },
-    MotifPixel {
-        dx: -1,
-        dy: 1,
-        shade: -1,
-    },
-];
-
-const RUT_D: &[MotifPixel] = &[
-    MotifPixel {
-        dx: -1,
-        dy: 0,
-        shade: -1,
-    },
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: 0,
-    },
-    MotifPixel {
-        dx: 1,
-        dy: 1,
-        shade: -1,
-    },
-];
-
-const RUT_E: &[MotifPixel] = &[
-    MotifPixel {
-        dx: 0,
-        dy: 0,
-        shade: -1,
-    },
-    MotifPixel {
-        dx: 1,
-        dy: -1,
-        shade: 0,
-    },
-];

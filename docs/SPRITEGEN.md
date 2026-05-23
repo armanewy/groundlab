@@ -8,18 +8,33 @@ The generator does not require reference images. It uses:
 
 - `TerrainSpriteRecipe`
 - `TerrainSpriteStyle`
-- built-in cozy palette ramps
-- grass, dirt, transition, and pixel-cluster rules
+- swappable `TerrainSpriteStyleProfile` files in `assets/sprite_styles/`
+- external `motifs.ron` pixel-cluster motif libraries
+- cozy palette ramps
+- grass, dirt, transition, path, and pixel-cluster rules
 - deterministic seeds
 - contact sheets and repeat previews
 - seam/noise validation
 - art-kit-compatible PNG piece export
 
-ArtGen 1.2b polishes the first topology layer over the 1.1b material baseline: a 16-mask grass/dirt
-path autotile set, more consistent path width, softer corners and junctions, sparse/dense/loop/
-junction connected-path previews, mask-debug preview, path neighbor seam heatmap, path mask coverage
-validation, single-tile and variant repeat previews, seam heatmaps, motif heatmaps, and validation
-for visible repetition.
+ArtGen 1.3 keeps the ArtGen 1.2b path topology and externalizes the style layer. The generator now
+loads palette ramps, grass/dirt/transition/path rules, validation-facing output settings, and motif
+libraries from profile folders:
+
+```txt
+assets/sprite_styles/
+  cozy_upland/
+    style.ron
+    motifs.ron
+  cozy_upland_lush/
+    style.ron
+    motifs.ron
+  cozy_upland_sparse/
+    style.ron
+    motifs.ron
+```
+
+This keeps future terrain materials from baking the cozy look directly into Rust code.
 
 Run the fast workbench:
 
@@ -30,13 +45,13 @@ cargo run -p ground_sprite_app
 Export the deterministic bundle:
 
 ```bash
-cargo run -p ground_sprite_cli -- export exports/artgen_01_2b
+cargo run -p ground_sprite_cli -- export exports/artgen_01_3 assets/sprite_styles/cozy_upland/style.ron
 ```
 
 Export output:
 
 ```txt
-exports/artgen_01_2b/
+exports/artgen_01_3/
   manifest.ron
   recipe.ron
   contact_sheet.png
