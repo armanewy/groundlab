@@ -15,10 +15,11 @@ The generator does not require reference images. It uses:
 - seam/noise validation
 - art-kit-compatible PNG piece export
 
-ArtGen 1.2 adds the first topology layer over the 1.1b material baseline: a 16-mask grass/dirt path
-autotile set, random connected-path preview, mask-debug preview, path mask coverage validation,
-single-tile and variant repeat previews, seam heatmaps, motif heatmaps, and validation for visible
-repetition.
+ArtGen 1.2b polishes the first topology layer over the 1.1b material baseline: a 16-mask grass/dirt
+path autotile set, more consistent path width, softer corners and junctions, sparse/dense/loop/
+junction connected-path previews, mask-debug preview, path neighbor seam heatmap, path mask coverage
+validation, single-tile and variant repeat previews, seam heatmaps, motif heatmaps, and validation
+for visible repetition.
 
 Run the fast workbench:
 
@@ -29,19 +30,24 @@ cargo run -p ground_sprite_app
 Export the deterministic bundle:
 
 ```bash
-cargo run -p ground_sprite_cli -- export exports/artgen_01_2
+cargo run -p ground_sprite_cli -- export exports/artgen_01_2b
 ```
 
 Export output:
 
 ```txt
-exports/artgen_01_2/
+exports/artgen_01_2b/
   manifest.ron
   recipe.ron
   contact_sheet.png
   path_autotile_sheet.png
   path_preview_random.png
+  path_preview_random_sparse.png
+  path_preview_random_dense.png
+  path_preview_loop.png
+  path_preview_junctions.png
   path_preview_mask_debug.png
+  path_neighbor_seam_heatmap.png
   repeat_preview_grass_single.png
   repeat_preview_grass_variants.png
   repeat_preview_dirt_single.png

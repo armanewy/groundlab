@@ -7,11 +7,13 @@ use ron::ser::PrettyConfig;
 use crate::recipe::{GroundMaterial, TransitionEdge};
 use crate::spritegen::{
     build_motif_heatmap, build_palette_preview, build_path_autotile_sheet,
-    build_path_mask_debug_preview, build_path_preview_random, build_repeat_preview,
-    build_seam_heatmap, build_single_repeat_preview, build_sprite_contact_sheet,
-    build_transition_edges_preview, build_transition_repeat_preview, build_variant_repeat_preview,
-    generate_terrain_sprites, validate_terrain_sprites, GeneratedTerrainSprite, TerrainSpriteKind,
-    TerrainSpriteRecipe, DEFAULT_SPRITEGEN_EXPORT_DIR,
+    build_path_mask_debug_preview, build_path_neighbor_seam_heatmap, build_path_preview_dense,
+    build_path_preview_junctions, build_path_preview_loop, build_path_preview_random,
+    build_path_preview_sparse, build_repeat_preview, build_seam_heatmap,
+    build_single_repeat_preview, build_sprite_contact_sheet, build_transition_edges_preview,
+    build_transition_repeat_preview, build_variant_repeat_preview, generate_terrain_sprites,
+    validate_terrain_sprites, GeneratedTerrainSprite, TerrainSpriteKind, TerrainSpriteRecipe,
+    DEFAULT_SPRITEGEN_EXPORT_DIR,
 };
 use crate::terrain_artkit::{
     TerrainArtKitFile, TerrainArtOcclusion, TerrainArtOrientationSupport, TerrainArtPiece,
@@ -77,7 +79,16 @@ pub fn export_terrain_sprite_bundle(
         .save_png(out_dir.join("path_autotile_sheet.png"))?;
     build_path_preview_random(&sprites, &recipe)
         .save_png(out_dir.join("path_preview_random.png"))?;
+    build_path_preview_sparse(&sprites, &recipe)
+        .save_png(out_dir.join("path_preview_random_sparse.png"))?;
+    build_path_preview_dense(&sprites, &recipe)
+        .save_png(out_dir.join("path_preview_random_dense.png"))?;
+    build_path_preview_loop(&sprites, &recipe).save_png(out_dir.join("path_preview_loop.png"))?;
+    build_path_preview_junctions(&sprites, &recipe)
+        .save_png(out_dir.join("path_preview_junctions.png"))?;
     build_path_mask_debug_preview(&recipe).save_png(out_dir.join("path_preview_mask_debug.png"))?;
+    build_path_neighbor_seam_heatmap(&sprites, &recipe)
+        .save_png(out_dir.join("path_neighbor_seam_heatmap.png"))?;
     build_seam_heatmap(&sprites, &recipe).save_png(out_dir.join("seam_heatmap.png"))?;
     build_motif_heatmap(&sprites, &recipe).save_png(out_dir.join("motif_heatmap.png"))?;
     build_repeat_preview(&sprites, TerrainSpriteKind::GrassTile, &recipe)

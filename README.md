@@ -4,25 +4,28 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: ArtGen 1.2 — path autotile system
+## Current status: ArtGen 1.2b — path autotile polish
 
 GroundLab's active visual work has pivoted away from the large editable scene renderer. The current
 focus is a dedicated, fast terrain sprite generator that produces simple, cozy, top-down pixel
 terrain primitives from built-in recipes, palettes, and art rules. It does not require reference
 images.
 
-ArtGen 1.2 keeps the cozy grass/dirt generator focused and adds the first topology step: a complete
-4-bit grass/dirt path mask set, path autotile sheet, random connected-path preview, mask-debug
-preview, single-tile and variant repeat previews, seam heatmaps, motif heatmaps, and validation for
-motif repetition, diagonal-pattern risk, variant similarity, edge continuity, and path mask coverage.
+ArtGen 1.2b keeps the cozy grass/dirt generator focused and polishes the first topology step: a
+complete 4-bit grass/dirt path mask set, more consistent path width, softer corners and junctions,
+path autotile sheet, sparse/dense/loop/junction connected-path previews, mask-debug preview,
+neighbor seam heatmap, single-tile and variant repeat previews, seam heatmaps, motif heatmaps, and
+validation for motif repetition, diagonal-pattern risk, variant similarity, edge continuity, path
+mask coverage, and path neighbor seams.
 
-ArtGen 1.2 generates:
+ArtGen 1.2b generates:
 
 - tileable grass variants
 - tileable dirt variants
 - grass-to-dirt transition edges
 - `path_mask_00` through `path_mask_15`
-- path autotile and random path-map previews
+- path autotile and multiple path-map previews
+- neighbor seam heatmap
 - contact sheets
 - grass, dirt, and transition repeat previews
 - palette previews
@@ -38,7 +41,7 @@ cargo run -p ground_sprite_app
 Export the sprite bundle:
 
 ```bash
-cargo run -p ground_sprite_cli -- export exports/artgen_01_2
+cargo run -p ground_sprite_cli -- export exports/artgen_01_2b
 ```
 
 The full-scene terrain renderer remains in the repository as downstream infrastructure for terrain

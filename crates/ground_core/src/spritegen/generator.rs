@@ -279,7 +279,7 @@ pub fn generate_path_mask_tile(recipe: &TerrainSpriteRecipe, mask: u8) -> PixelI
     let grass = generate_grass_tile(recipe, grass_variant);
     let dirt = generate_dirt_tile(recipe, dirt_variant);
     let mut image = grass.clone();
-    let soft_edge = (size as f32 * (0.08 + style.transition.edge_softness * 0.08)).max(1.6);
+    let soft_edge = (size as f32 * (0.06 + style.transition.edge_softness * 0.07)).max(1.4);
 
     for y in 0..size {
         for x in 0..size {
@@ -361,45 +361,46 @@ fn add_path_edge_intrusions(
 }
 
 fn path_mask_signed_distance(mask: u8, x: u32, y: u32, size: u32, seed: u64) -> f32 {
-    let half = (size as f32 * 0.19).max(2.8);
+    let arm_half = (size as f32 * 0.18).max(2.7);
+    let core_half = (size as f32 * 0.21).max(3.2);
     let center = (size as f32 - 1.0) * 0.5;
     let xf = x as f32 + 0.5;
     let yf = y as f32 + 0.5;
     let mut distance = rect_signed_distance(
         xf,
         yf,
-        center - half,
-        center + half,
-        center - half,
-        center + half,
+        center - core_half,
+        center + core_half,
+        center - core_half,
+        center + core_half,
     );
     if mask & 1 != 0 {
         distance = distance.min(rect_signed_distance(
             xf,
             yf,
-            center - half,
-            center + half,
+            center - arm_half,
+            center + arm_half,
             -1.0,
-            center + half,
+            center + core_half,
         ));
     }
     if mask & 2 != 0 {
         distance = distance.min(rect_signed_distance(
             xf,
             yf,
-            center - half,
+            center - core_half,
             size as f32 + 1.0,
-            center - half,
-            center + half,
+            center - arm_half,
+            center + arm_half,
         ));
     }
     if mask & 4 != 0 {
         distance = distance.min(rect_signed_distance(
             xf,
             yf,
-            center - half,
-            center + half,
-            center - half,
+            center - arm_half,
+            center + arm_half,
+            center - core_half,
             size as f32 + 1.0,
         ));
     }
@@ -408,9 +409,9 @@ fn path_mask_signed_distance(mask: u8, x: u32, y: u32, size: u32, seed: u64) -> 
             xf,
             yf,
             -1.0,
-            center + half,
-            center - half,
-            center + half,
+            center + core_half,
+            center - arm_half,
+            center + arm_half,
         ));
     }
     if mask == 0 {
@@ -418,7 +419,7 @@ fn path_mask_signed_distance(mask: u8, x: u32, y: u32, size: u32, seed: u64) -> 
         let dy = yf - center;
         distance = (dx * dx + dy * dy).sqrt() - size as f32 * 0.24;
     }
-    let organic = path_edge_noise(seed, x, y) * 1.35;
+    let organic = path_edge_noise(seed, x, y) * 0.85;
     distance + organic
 }
 

@@ -7,6 +7,7 @@ pub struct TerrainSpriteValidationReport {
     pub sprite_count: usize,
     pub path_mask_coverage: usize,
     pub missing_path_masks: Vec<u8>,
+    pub path_neighbor_seam_score: f32,
     pub average_seam_score: f32,
     pub average_single_pixel_noise: f32,
     pub average_motif_repetition_score: f32,
@@ -145,6 +146,14 @@ pub fn validate_terrain_sprites(
 
     let count = sprites.len().max(1) as f32;
     let variant_similarity_score = variant_similarity_score(sprites);
+    let path_neighbor_seam_score = path_neighbor_seam_score(sprites);
+    if path_neighbor_seam_score > 0.32 {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Warning,
+            sprite_id: None,
+            message: "path masks have visible neighbor seam discontinuity".to_string(),
+        });
+    }
     if variant_similarity_score > 0.985 {
         issues.push(TerrainSpriteValidationIssue {
             severity: TerrainSpriteValidationSeverity::Warning,
@@ -156,6 +165,7 @@ pub fn validate_terrain_sprites(
         sprite_count: sprites.len(),
         path_mask_coverage: 16 - missing_path_masks.len(),
         missing_path_masks,
+        path_neighbor_seam_score,
         average_seam_score: seam_total / count,
         average_single_pixel_noise: noise_total / count,
         average_motif_repetition_score: motif_total / count,
@@ -321,6 +331,66 @@ fn variant_similarity_score(sprites: &[GeneratedTerrainSprite]) -> f32 {
     } else {
         total / count
     }
+}
+
+fn path_neighbor_seam_score(sprites: &[GeneratedTerrainSprite]) -> f32 {
+    let mut total = 0.0;
+    let mut count = 0.0;
+    for sprite in sprites.iter().filter(|sprite| sprite.kind.is_path_mask()) {
+        let Some(mask) = sprite.kind.path_mask() else {
+            continue;
+        };
+        for (direction, opposite) in [(1, 4), (2, 8), (4, 1), (8, 2)] {
+            if mask & direction == 0 {
+                continue;
+            }
+            let Some(neighbor) = sprites
+                .iter()
+                .find(|candidate| candidate.kind.path_mask() == Some(opposite))
+            else {
+                continue;
+            };
+            total += path_edge_difference(sprite, neighbor, direction);
+            count += 1.0;
+        }
+    }
+    if count == 0.0 {
+        0.0
+    } else {
+        total / count
+    }
+}
+
+fn path_edge_difference(
+    sprite: &GeneratedTerrainSprite,
+    neighbor: &GeneratedTerrainSprite,
+    direction: u8,
+) -> f32 {
+    let tile = sprite.image.width.min(sprite.image.height);
+    let mut total = 0.0;
+    for i in 0..tile {
+        let (a, b) = match direction {
+            1 => (
+                sprite.image.get(i, 0),
+                neighbor.image.get(i, neighbor.image.height - 1),
+            ),
+            2 => (
+                sprite.image.get(sprite.image.width - 1, i),
+                neighbor.image.get(0, i),
+            ),
+            4 => (
+                sprite.image.get(i, sprite.image.height - 1),
+                neighbor.image.get(i, 0),
+            ),
+            8 => (
+                sprite.image.get(0, i),
+                neighbor.image.get(neighbor.image.width - 1, i),
+            ),
+            _ => (sprite.image.get(i, 0), sprite.image.get(i, 0)),
+        };
+        total += a.rgb_distance(b).min(120.0) / 120.0;
+    }
+    total / tile.max(1) as f32
 }
 
 fn image_similarity(a: &GeneratedTerrainSprite, b: &GeneratedTerrainSprite) -> f32 {

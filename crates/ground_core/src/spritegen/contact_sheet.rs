@@ -244,11 +244,47 @@ pub fn build_path_preview_random(
     sprites: &[GeneratedTerrainSprite],
     recipe: &TerrainSpriteRecipe,
 ) -> PixelImage {
+    build_path_preview_for_pattern(sprites, recipe, PathPreviewPattern::Random)
+}
+
+pub fn build_path_preview_sparse(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    build_path_preview_for_pattern(sprites, recipe, PathPreviewPattern::Sparse)
+}
+
+pub fn build_path_preview_dense(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    build_path_preview_for_pattern(sprites, recipe, PathPreviewPattern::Dense)
+}
+
+pub fn build_path_preview_loop(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    build_path_preview_for_pattern(sprites, recipe, PathPreviewPattern::Loop)
+}
+
+pub fn build_path_preview_junctions(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    build_path_preview_for_pattern(sprites, recipe, PathPreviewPattern::Junctions)
+}
+
+fn build_path_preview_for_pattern(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+    pattern: PathPreviewPattern,
+) -> PixelImage {
     let scale = recipe.style.display_scale.max(1);
     let tile = recipe.tile_size;
     let width = 12;
     let height = 8;
-    let map = sample_path_map(width, height);
+    let map = sample_path_map(width, height, pattern);
     let mut preview = PixelImage::transparent(tile * width, tile * height);
     let grass = sprites
         .iter()
@@ -268,6 +304,51 @@ pub fn build_path_preview_random(
         }
     }
     scale_nearest(&preview, scale)
+}
+
+pub fn build_path_neighbor_seam_heatmap(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    let scale = recipe.style.display_scale.max(1);
+    let tile = recipe.tile_size;
+    let mut image = PixelImage::new(tile * 4, tile * 4, Rgba8::opaque(15, 18, 16));
+    for mask in 0..16 {
+        let ox = mask as u32 % 4 * tile;
+        let oy = mask as u32 / 4 * tile;
+        let Some(sprite) = path_mask_sprite(sprites, mask) else {
+            continue;
+        };
+        for x in 0..tile {
+            let v = if mask & 1 != 0 {
+                connected_edge_score(sprite, sprites, mask, 1, x)
+            } else {
+                0.0
+            };
+            image.set(ox + x, oy, heat(v));
+            let v = if mask & 4 != 0 {
+                connected_edge_score(sprite, sprites, mask, 4, x)
+            } else {
+                0.0
+            };
+            image.set(ox + x, oy + tile - 1, heat(v));
+        }
+        for y in 0..tile {
+            let v = if mask & 8 != 0 {
+                connected_edge_score(sprite, sprites, mask, 8, y)
+            } else {
+                0.0
+            };
+            image.set(ox, oy + y, heat(v));
+            let v = if mask & 2 != 0 {
+                connected_edge_score(sprite, sprites, mask, 2, y)
+            } else {
+                0.0
+            };
+            image.set(ox + tile - 1, oy + y, heat(v));
+        }
+    }
+    scale_nearest(&image, scale)
 }
 
 pub fn build_path_mask_debug_preview(recipe: &TerrainSpriteRecipe) -> PixelImage {
@@ -407,8 +488,28 @@ fn path_mask_sprite(
         .find(|sprite| sprite.kind.path_mask() == Some(mask))
 }
 
-fn sample_path_map(width: u32, height: u32) -> Vec<bool> {
+#[derive(Clone, Copy)]
+enum PathPreviewPattern {
+    Random,
+    Sparse,
+    Dense,
+    Loop,
+    Junctions,
+}
+
+fn sample_path_map(width: u32, height: u32, pattern: PathPreviewPattern) -> Vec<bool> {
     let mut map = vec![false; (width * height) as usize];
+    match pattern {
+        PathPreviewPattern::Random => sample_random_path_map(&mut map, width, height),
+        PathPreviewPattern::Sparse => sample_sparse_path_map(&mut map, width, height),
+        PathPreviewPattern::Dense => sample_dense_path_map(&mut map, width, height),
+        PathPreviewPattern::Loop => sample_loop_path_map(&mut map, width, height),
+        PathPreviewPattern::Junctions => sample_junction_path_map(&mut map, width, height),
+    }
+    map
+}
+
+fn sample_random_path_map(map: &mut [bool], width: u32, height: u32) {
     let mut y = height / 2;
     for x in 0..width {
         if x == 3 {
@@ -417,25 +518,79 @@ fn sample_path_map(width: u32, height: u32) -> Vec<bool> {
         if x == 7 {
             y = (y + 1).min(height - 2);
         }
-        set_path(&mut map, width, x, y);
+        set_path(map, width, x, y);
         if x == 2 || x == 8 {
-            set_path(&mut map, width, x, y.saturating_sub(1));
+            set_path(map, width, x, y.saturating_sub(1));
         }
         if x == 5 {
             for by in y..height.saturating_sub(1) {
-                set_path(&mut map, width, x, by);
+                set_path(map, width, x, by);
             }
         }
         if x == 9 {
             for by in 1..=y {
-                set_path(&mut map, width, x, by);
+                set_path(map, width, x, by);
             }
         }
     }
-    set_path(&mut map, width, 1, height.saturating_sub(2));
-    set_path(&mut map, width, 2, height.saturating_sub(2));
-    set_path(&mut map, width, 2, height.saturating_sub(3));
-    map
+    set_path(map, width, 1, height.saturating_sub(2));
+    set_path(map, width, 2, height.saturating_sub(2));
+    set_path(map, width, 2, height.saturating_sub(3));
+}
+
+fn sample_sparse_path_map(map: &mut [bool], width: u32, height: u32) {
+    for x in 1..width.saturating_sub(1) {
+        let y = if x < width / 3 {
+            height / 2
+        } else if x < width * 2 / 3 {
+            height / 2 - 1
+        } else {
+            height / 2
+        };
+        set_path(map, width, x, y);
+    }
+    for y in 1..height / 2 {
+        set_path(map, width, width.saturating_sub(3), y);
+    }
+}
+
+fn sample_dense_path_map(map: &mut [bool], width: u32, height: u32) {
+    sample_random_path_map(map, width, height);
+    for x in 2..width.saturating_sub(2) {
+        set_path(map, width, x, 1);
+    }
+    for y in 2..height.saturating_sub(1) {
+        set_path(map, width, 3, y);
+        set_path(map, width, width.saturating_sub(4), y);
+    }
+}
+
+fn sample_loop_path_map(map: &mut [bool], width: u32, height: u32) {
+    for x in 2..width.saturating_sub(2) {
+        set_path(map, width, x, 2);
+        set_path(map, width, x, height.saturating_sub(3));
+    }
+    for y in 2..height.saturating_sub(2) {
+        set_path(map, width, 2, y);
+        set_path(map, width, width.saturating_sub(3), y);
+    }
+    for x in 0..=2 {
+        set_path(map, width, x, height / 2);
+    }
+}
+
+fn sample_junction_path_map(map: &mut [bool], width: u32, height: u32) {
+    let cy = height / 2;
+    for x in 1..width.saturating_sub(1) {
+        set_path(map, width, x, cy);
+    }
+    for y in 1..height.saturating_sub(1) {
+        set_path(map, width, width / 3, y);
+        set_path(map, width, width * 2 / 3, y);
+    }
+    for x in 2..5 {
+        set_path(map, width, x, 1);
+    }
 }
 
 fn set_path(map: &mut [bool], width: u32, x: u32, y: u32) {
@@ -460,6 +615,47 @@ fn path_neighbor_mask(map: &[bool], width: u32, height: u32, x: u32, y: u32) -> 
         mask |= 8;
     }
     mask
+}
+
+fn connected_edge_score(
+    sprite: &GeneratedTerrainSprite,
+    sprites: &[GeneratedTerrainSprite],
+    mask: u8,
+    direction: u8,
+    offset: u32,
+) -> f32 {
+    let opposite = match direction {
+        1 => 4,
+        2 => 8,
+        4 => 1,
+        8 => 2,
+        _ => return 0.0,
+    };
+    let Some(neighbor) = path_mask_sprite(sprites, opposite) else {
+        return 1.0;
+    };
+    let tile = sprite.image.width;
+    let (a, b) = match direction {
+        1 => (
+            sprite.image.get(offset, 0),
+            neighbor.image.get(offset, tile - 1),
+        ),
+        4 => (
+            sprite.image.get(offset, tile - 1),
+            neighbor.image.get(offset, 0),
+        ),
+        8 => (
+            sprite.image.get(0, offset),
+            neighbor.image.get(tile - 1, offset),
+        ),
+        2 => (
+            sprite.image.get(tile - 1, offset),
+            neighbor.image.get(0, offset),
+        ),
+        _ => return 0.0,
+    };
+    let connection_weight = if mask & direction != 0 { 1.0 } else { 0.25 };
+    (a.rgb_distance(b).min(120.0) / 120.0) * connection_weight
 }
 
 fn variant_index(x: u32, y: u32, len: usize) -> usize {

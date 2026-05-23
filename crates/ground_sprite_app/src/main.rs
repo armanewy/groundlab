@@ -1,11 +1,13 @@
 use eframe::egui;
 use ground_core::{
     build_motif_heatmap, build_palette_preview, build_path_autotile_sheet,
-    build_path_mask_debug_preview, build_path_preview_random, build_seam_heatmap,
-    build_single_repeat_preview, build_sprite_contact_sheet, build_transition_edges_preview,
-    build_transition_repeat_preview, build_variant_repeat_preview, export_terrain_sprite_bundle,
-    generate_terrain_sprites, scale_nearest, GeneratedTerrainSprite, PixelImage, TerrainSpriteKind,
-    TerrainSpriteRecipe, DEFAULT_SPRITEGEN_EXPORT_DIR,
+    build_path_mask_debug_preview, build_path_neighbor_seam_heatmap, build_path_preview_dense,
+    build_path_preview_junctions, build_path_preview_loop, build_path_preview_random,
+    build_path_preview_sparse, build_seam_heatmap, build_single_repeat_preview,
+    build_sprite_contact_sheet, build_transition_edges_preview, build_transition_repeat_preview,
+    build_variant_repeat_preview, export_terrain_sprite_bundle, generate_terrain_sprites,
+    scale_nearest, GeneratedTerrainSprite, PixelImage, TerrainSpriteKind, TerrainSpriteRecipe,
+    DEFAULT_SPRITEGEN_EXPORT_DIR,
 };
 
 fn main() -> eframe::Result {
@@ -35,14 +37,19 @@ enum PreviewPanel {
     TransitionEdges,
     PathAutotileSheet,
     PathRandomPreview,
+    PathSparsePreview,
+    PathDensePreview,
+    PathLoopPreview,
+    PathJunctionPreview,
     PathMaskDebug,
+    PathNeighborSeam,
     SeamHeatmap,
     MotifHeatmap,
     Palette,
 }
 
 impl PreviewPanel {
-    const ALL: [PreviewPanel; 14] = [
+    const ALL: [PreviewPanel; 19] = [
         PreviewPanel::Selected,
         PreviewPanel::ContactSheet,
         PreviewPanel::GrassSingleRepeat,
@@ -53,7 +60,12 @@ impl PreviewPanel {
         PreviewPanel::TransitionEdges,
         PreviewPanel::PathAutotileSheet,
         PreviewPanel::PathRandomPreview,
+        PreviewPanel::PathSparsePreview,
+        PreviewPanel::PathDensePreview,
+        PreviewPanel::PathLoopPreview,
+        PreviewPanel::PathJunctionPreview,
         PreviewPanel::PathMaskDebug,
+        PreviewPanel::PathNeighborSeam,
         PreviewPanel::SeamHeatmap,
         PreviewPanel::MotifHeatmap,
         PreviewPanel::Palette,
@@ -71,7 +83,12 @@ impl PreviewPanel {
             PreviewPanel::TransitionEdges => "Transition edges",
             PreviewPanel::PathAutotileSheet => "Path autotile sheet",
             PreviewPanel::PathRandomPreview => "Random path preview",
+            PreviewPanel::PathSparsePreview => "Sparse path preview",
+            PreviewPanel::PathDensePreview => "Dense path preview",
+            PreviewPanel::PathLoopPreview => "Loop path preview",
+            PreviewPanel::PathJunctionPreview => "Junction path preview",
             PreviewPanel::PathMaskDebug => "Path mask debug",
+            PreviewPanel::PathNeighborSeam => "Path neighbor seams",
             PreviewPanel::SeamHeatmap => "Seam heatmap",
             PreviewPanel::MotifHeatmap => "Motif heatmap",
             PreviewPanel::Palette => "Palette",
@@ -97,7 +114,12 @@ struct SpriteForgeApp {
     transition_edges_texture: Option<egui::TextureHandle>,
     path_autotile_texture: Option<egui::TextureHandle>,
     path_random_texture: Option<egui::TextureHandle>,
+    path_sparse_texture: Option<egui::TextureHandle>,
+    path_dense_texture: Option<egui::TextureHandle>,
+    path_loop_texture: Option<egui::TextureHandle>,
+    path_junction_texture: Option<egui::TextureHandle>,
     path_mask_debug_texture: Option<egui::TextureHandle>,
+    path_neighbor_seam_texture: Option<egui::TextureHandle>,
     seam_heatmap_texture: Option<egui::TextureHandle>,
     motif_heatmap_texture: Option<egui::TextureHandle>,
     palette_texture: Option<egui::TextureHandle>,
@@ -125,7 +147,12 @@ impl SpriteForgeApp {
             transition_edges_texture: None,
             path_autotile_texture: None,
             path_random_texture: None,
+            path_sparse_texture: None,
+            path_dense_texture: None,
+            path_loop_texture: None,
+            path_junction_texture: None,
             path_mask_debug_texture: None,
+            path_neighbor_seam_texture: None,
             seam_heatmap_texture: None,
             motif_heatmap_texture: None,
             palette_texture: None,
@@ -239,12 +266,47 @@ impl SpriteForgeApp {
             "path_random_preview",
             &path_random,
         );
+        let path_sparse = build_path_preview_sparse(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.path_sparse_texture,
+            "path_sparse_preview",
+            &path_sparse,
+        );
+        let path_dense = build_path_preview_dense(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.path_dense_texture,
+            "path_dense_preview",
+            &path_dense,
+        );
+        let path_loop = build_path_preview_loop(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.path_loop_texture,
+            "path_loop_preview",
+            &path_loop,
+        );
+        let path_junction = build_path_preview_junctions(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.path_junction_texture,
+            "path_junction_preview",
+            &path_junction,
+        );
         let path_mask_debug = build_path_mask_debug_preview(&self.recipe);
         put_texture(
             ctx,
             &mut self.path_mask_debug_texture,
             "path_mask_debug",
             &path_mask_debug,
+        );
+        let path_neighbor_seam = build_path_neighbor_seam_heatmap(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.path_neighbor_seam_texture,
+            "path_neighbor_seams",
+            &path_neighbor_seam,
         );
         let seam_heatmap = build_seam_heatmap(&self.sprites, &self.recipe);
         put_texture(
@@ -266,7 +328,7 @@ impl SpriteForgeApp {
 
     fn show_controls(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.heading("Pixel Terrain Forge");
-        ui.label("ArtGen 1.2: cozy grass, dirt, and path autotiles.");
+        ui.label("ArtGen 1.2b: cozy grass, dirt, and polished path autotiles.");
         ui.separator();
         ui.label("Export directory");
         ui.text_edit_singleline(&mut self.export_dir);
@@ -480,12 +542,52 @@ impl SpriteForgeApp {
                     "No path preview",
                 );
             }
+            PreviewPanel::PathSparsePreview => {
+                show_texture(
+                    ui,
+                    self.path_sparse_texture.as_ref(),
+                    1.0,
+                    "No sparse path preview",
+                );
+            }
+            PreviewPanel::PathDensePreview => {
+                show_texture(
+                    ui,
+                    self.path_dense_texture.as_ref(),
+                    1.0,
+                    "No dense path preview",
+                );
+            }
+            PreviewPanel::PathLoopPreview => {
+                show_texture(
+                    ui,
+                    self.path_loop_texture.as_ref(),
+                    1.0,
+                    "No loop path preview",
+                );
+            }
+            PreviewPanel::PathJunctionPreview => {
+                show_texture(
+                    ui,
+                    self.path_junction_texture.as_ref(),
+                    1.0,
+                    "No junction path preview",
+                );
+            }
             PreviewPanel::PathMaskDebug => {
                 show_texture(
                     ui,
                     self.path_mask_debug_texture.as_ref(),
                     1.0,
                     "No path mask debug preview",
+                );
+            }
+            PreviewPanel::PathNeighborSeam => {
+                show_texture(
+                    ui,
+                    self.path_neighbor_seam_texture.as_ref(),
+                    1.0,
+                    "No path neighbor seam heatmap",
                 );
             }
             PreviewPanel::SeamHeatmap => {
