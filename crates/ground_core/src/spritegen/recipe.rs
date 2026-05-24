@@ -2,12 +2,13 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
+use ron::ser::PrettyConfig;
 use serde::{Deserialize, Serialize};
 
 use crate::pixel_image::PixelImage;
 use crate::spritegen::{ObliqueProjectionProfile, TerrainMotifLibrary, TerrainSpriteStyle};
 
-pub const DEFAULT_SPRITEGEN_EXPORT_DIR: &str = "exports/artgen_03_1";
+pub const DEFAULT_SPRITEGEN_EXPORT_DIR: &str = "exports/artgen_03_2";
 pub const DEFAULT_SPRITE_STYLE_PATH: &str = "assets/sprite_styles/cozy_upland/style.ron";
 
 pub const BUILTIN_SPRITE_STYLE_PROFILES: [(&str, &str); 3] = [
@@ -151,6 +152,28 @@ impl TerrainSpriteRecipe {
 
     pub fn from_default_style_profile() -> Self {
         Self::from_style_profile_path(DEFAULT_SPRITE_STYLE_PATH).unwrap_or_default()
+    }
+
+    pub fn save_style_profile_path(&self, path: impl AsRef<Path>) -> Result<()> {
+        let path = path.as_ref();
+        let base_dir = path.parent().unwrap_or_else(|| Path::new("."));
+        fs::create_dir_all(base_dir)?;
+        let profile = TerrainSpriteStyleProfile {
+            id: self.id.clone(),
+            tile_size: self.tile_size,
+            seed: self.seed,
+            variant_count: self.variant_count,
+            overrides: profile_relative_path(base_dir, &self.override_dir, "overrides"),
+            style: self.style.clone(),
+            motifs: "motifs.ron".to_string(),
+        };
+        let profile_text = ron::ser::to_string_pretty(&profile, PrettyConfig::new())?;
+        fs::write(path, profile_text)?;
+
+        let motif_path = resolve_profile_path(base_dir, &profile.motifs);
+        let motif_text = ron::ser::to_string_pretty(&self.motifs, PrettyConfig::new())?;
+        fs::write(motif_path, motif_text)?;
+        Ok(())
     }
 }
 
@@ -297,6 +320,68 @@ fn resolve_profile_path(base_dir: &Path, value: &str) -> PathBuf {
         path
     } else {
         base_dir.join(path)
+    }
+}
+
+fn profile_relative_path(base_dir: &Path, value: &str, fallback: &str) -> String {
+    if value.trim().is_empty() {
+        return fallback.to_string();
+    }
+
+    let value_path = PathBuf::from(value);
+    if let Ok(path) = value_path.strip_prefix(base_dir) {
+        return normalize_profile_path(path);
+    }
+
+    if let (Ok(base), Ok(path)) = (
+        fs::canonicalize(base_dir),
+        fs::canonicalize(if value_path.is_absolute() {
+            value_path.clone()
+        } else {
+            PathBuf::from(value)
+        }),
+    ) {
+        if let Ok(path) = path.strip_prefix(base) {
+            return normalize_profile_path(path);
+        }
+    }
+
+    if value_path.is_absolute() {
+        normalize_profile_path(&value_path)
+    } else {
+        normalize_profile_path(Path::new(value))
+    }
+}
+
+fn normalize_profile_path(path: &Path) -> String {
+    path.to_string_lossy().replace('\\', "/")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn saved_style_profile_round_trips() {
+        let dir = std::env::temp_dir().join(format!(
+            "groundlab_sprite_profile_save_test_{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("style.ron");
+
+        let recipe = TerrainSpriteRecipe::default();
+        recipe.save_style_profile_path(&path).unwrap();
+
+        let loaded = TerrainSpriteRecipe::from_style_profile_path(&path).unwrap();
+        assert_eq!(loaded.id, recipe.id);
+        assert_eq!(loaded.tile_size, recipe.tile_size);
+        assert_eq!(loaded.variant_count, recipe.variant_count);
+        assert_eq!(loaded.style.display_scale, recipe.style.display_scale);
+        assert!(dir.join("motifs.ron").exists());
+
+        fs::remove_dir_all(&dir).unwrap();
     }
 }
 

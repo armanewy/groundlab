@@ -5,7 +5,8 @@ editable scene renderer. The generator first produces cozy top-surface terrain p
 dirt, grass-to-dirt transitions, and connected dirt path masks. ArtGen 2.1b extends that foundation
 with polished connected oblique trench masks; ArtGen 3.0c formalizes the art override workflow so
 rough generated sprites can be replaced by better authored PNGs without changing metadata or
-renderer contracts; and ArtGen 3.1 adds connected berm/mound topology.
+renderer contracts; ArtGen 3.1 adds connected berm/mound topology; and ArtGen 3.2 turns Forge into a
+native primitive style tuning studio.
 
 The generator does not require reference images. It uses:
 
@@ -25,7 +26,7 @@ The generator does not require reference images. It uses:
 - generated/effective/override/diff contact sheets
 - override compatibility validation
 
-ArtGen 3.1 keeps the ArtGen 1.2b path topology, ArtGen 1.3 style profiles, ArtGen 1.4
+ArtGen 3.2 keeps the ArtGen 1.2b path topology, ArtGen 1.3 style profiles, ArtGen 1.4
 projection-aware sprite contract, ArtGen 2.0b trench polish, and ArtGen 2.1b connected trench
 topology. Grass/dirt/path pieces are still top-surface material primitives, trench pieces include
 both the base role pieces and `trench_mask_00` through `trench_mask_15`, and berm pieces now include
@@ -72,6 +73,18 @@ assets/sprite_styles/
 This keeps future terrain materials from baking the cozy look or the projection assumptions directly
 into Rust code.
 
+ArtGen 3.2 makes those profile fields editable in Forge through primitive-specific panels:
+
+- Grass: grass ramp, blades, dark clumps, highlights, flowers, motif counts
+- Dirt: dirt ramp, dust, compaction shadows, pebbles, ruts, motif counts
+- Path / transition: path width, core width, corner rounding, edge jitter, softness, intrusion, speckles
+- Trench: floor darkness, wall/inner/contact shadows, wall/floor detail, wood, lip, spoil, grass intrusion
+- Berm: mound height, face/contact shadow, top grass blend, lip highlight, edge irregularity, spoil, grass intrusion
+- Projection / global: seed, tile size, variants, display scale, cluster discipline, oblique cell/face/shadow sizing
+
+The app can save the active `style.ron`/`motifs.ron`, reload the selected profile, save to a new path
+as a clone, ignore overrides for generated-only tuning, or promote generated sprites into overrides.
+
 Run the fast workbench:
 
 ```bash
@@ -81,7 +94,7 @@ cargo run -p ground_sprite_app
 Export the deterministic bundle:
 
 ```bash
-cargo run -p ground_sprite_cli -- export exports/artgen_03_1 assets/sprite_styles/cozy_upland/style.ron
+cargo run -p ground_sprite_cli -- export exports/artgen_03_2 assets/sprite_styles/cozy_upland/style.ron
 ```
 
 Copy the current generated sprites into a profile's override folder so they can be edited or
@@ -94,7 +107,7 @@ cargo run -p ground_sprite_cli -- promote-overrides assets/sprite_styles/cozy_up
 Export output:
 
 ```txt
-exports/artgen_03_1/
+exports/artgen_03_2/
   manifest.ron
   sprite_manifest.ron
   sprite_manifest.json

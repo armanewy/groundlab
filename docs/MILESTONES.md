@@ -372,6 +372,24 @@ This is the raised-terrain topology counterpart to the trench 2.1b pass. It keep
 replaceable through the 3.0c override workflow while proving that berms can connect into straights,
 corners, dead ends, loops, T-junctions, and crosses without baking internal faces into shared edges.
 
+## ArtGen 3.2 — Primitive style tuning studio
+
+Implemented in this drop.
+
+- Pixel Terrain Forge now presents native primitive panels for grass, dirt, path/transition, trench, berm, and projection/global tuning
+- grass and dirt panels expose their color ramps plus density/detail controls
+- path tuning exposes path width, core width, corner rounding, edge noise, edge jitter, softness, grass intrusion, and dirt speckle controls
+- trench tuning exposes floor darkness, inner/contact/wall shadows, floor/wall detail, wood plank/knot density, lip irregularity, spoil, and grass intrusion
+- berm tuning exposes mound height, face/contact shadow, top grass blend, lip highlight, edge irregularity, spoil, and grass intrusion
+- projection/global tuning exposes seed, tile size, variant count, export scale, cluster discipline, and high-oblique cell/face/shadow sizing
+- Forge can save the current style profile, reload/revert it, or clone it by changing the profile save path
+- Forge can ignore override PNGs while tuning generated style and can promote generated sprites into overrides from the same UI
+- sprite CLI/app default export target is `exports/artgen_03_2`
+
+This is a tool milestone, not a new sprite-family milestone. It makes the current primitive families
+tunable without Rust edits or manual RON patching while preserving deterministic generation,
+metadata, validation, overrides, and art-kit-compatible export.
+
 ## Milestone 5 — Custom renderer/runtime
 
 - introduce `ground_render`

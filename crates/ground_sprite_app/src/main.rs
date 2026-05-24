@@ -20,9 +20,9 @@ use ground_core::{
     build_trench_oblique_straight_preview, build_trench_preview_dense,
     build_trench_preview_junctions, build_trench_preview_loop, build_trench_preview_sparse,
     build_variant_repeat_preview, export_terrain_sprite_bundle, generate_effective_terrain_sprites,
-    scale_nearest, GeneratedTerrainSprite, PixelImage, TerrainSpriteKind,
-    TerrainSpriteOverrideReport, TerrainSpriteRecipe, BUILTIN_SPRITE_STYLE_PROFILES,
-    DEFAULT_SPRITEGEN_EXPORT_DIR,
+    promote_terrain_sprite_overrides, scale_nearest, GeneratedTerrainSprite, PixelImage, Rgba8,
+    TerrainSpriteKind, TerrainSpriteOverrideReport, TerrainSpriteRecipe,
+    BUILTIN_SPRITE_STYLE_PROFILES, DEFAULT_SPRITEGEN_EXPORT_DIR,
 };
 
 const MAX_UI_TEXTURE_SIDE: usize = 2048;
@@ -218,10 +218,56 @@ impl PreviewPanel {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PrimitivePanel {
+    Grass,
+    Dirt,
+    Path,
+    Trench,
+    Berm,
+    Projection,
+}
+
+impl PrimitivePanel {
+    const ALL: [PrimitivePanel; 6] = [
+        PrimitivePanel::Grass,
+        PrimitivePanel::Dirt,
+        PrimitivePanel::Path,
+        PrimitivePanel::Trench,
+        PrimitivePanel::Berm,
+        PrimitivePanel::Projection,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            PrimitivePanel::Grass => "Grass",
+            PrimitivePanel::Dirt => "Dirt",
+            PrimitivePanel::Path => "Path / transition",
+            PrimitivePanel::Trench => "Trench",
+            PrimitivePanel::Berm => "Berm",
+            PrimitivePanel::Projection => "Projection / global",
+        }
+    }
+
+    fn default_preview(self) -> PreviewPanel {
+        match self {
+            PrimitivePanel::Grass => PreviewPanel::GrassVariantRepeat,
+            PrimitivePanel::Dirt => PreviewPanel::DirtVariantRepeat,
+            PrimitivePanel::Path => PreviewPanel::PathAutotileSheet,
+            PrimitivePanel::Trench => PreviewPanel::TrenchAutotileSheet,
+            PrimitivePanel::Berm => PreviewPanel::BermAutotileSheet,
+            PrimitivePanel::Projection => PreviewPanel::ObliqueMaterialPreview,
+        }
+    }
+}
+
 struct SpriteForgeApp {
     recipe: TerrainSpriteRecipe,
     selected_profile_index: usize,
+    profile_save_path: String,
     export_dir: String,
+    primitive_panel: PrimitivePanel,
+    use_overrides: bool,
     generated_sprites: Vec<GeneratedTerrainSprite>,
     sprites: Vec<GeneratedTerrainSprite>,
     override_report: TerrainSpriteOverrideReport,
@@ -292,7 +338,10 @@ impl SpriteForgeApp {
         let mut app = Self {
             recipe: TerrainSpriteRecipe::from_default_style_profile(),
             selected_profile_index: 0,
+            profile_save_path: BUILTIN_SPRITE_STYLE_PROFILES[0].1.to_string(),
             export_dir: DEFAULT_SPRITEGEN_EXPORT_DIR.to_string(),
+            primitive_panel: PrimitivePanel::Grass,
+            use_overrides: true,
             generated_sprites: Vec::new(),
             sprites: Vec::new(),
             override_report: TerrainSpriteOverrideReport {
@@ -374,7 +423,8 @@ impl SpriteForgeApp {
             return;
         }
         self.recipe.sanitize();
-        let effective = generate_effective_terrain_sprites(&self.recipe);
+        let active_recipe = self.active_recipe();
+        let effective = generate_effective_terrain_sprites(&active_recipe);
         self.generated_sprites = effective.generated;
         self.sprites = effective.effective;
         self.override_report = effective.report;
@@ -385,12 +435,25 @@ impl SpriteForgeApp {
             .unwrap_or(0);
         self.refresh_textures(ctx);
         self.status = format!(
-            "Generated {} effective sprites · {} override(s) · {} override issue(s).",
+            "Generated {} effective sprites · {} override(s) · {} override issue(s){}.",
             self.sprites.len(),
             self.override_report.overridden_count,
-            self.override_report.issue_count()
+            self.override_report.issue_count(),
+            if self.use_overrides {
+                ""
+            } else {
+                " · overrides ignored"
+            }
         );
         self.dirty = false;
+    }
+
+    fn active_recipe(&self) -> TerrainSpriteRecipe {
+        let mut recipe = self.recipe.clone();
+        if !self.use_overrides {
+            recipe.override_dir.clear();
+        }
+        recipe
     }
 
     fn refresh_textures(&mut self, ctx: &egui::Context) {
@@ -792,7 +855,7 @@ impl SpriteForgeApp {
 
     fn show_controls(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.heading("Pixel Terrain Forge");
-        ui.label("ArtGen 3.1: berm autotile / mound topology.");
+        ui.label("ArtGen 3.2: primitive style tuning studio.");
         ui.separator();
         let selected_profile = BUILTIN_SPRITE_STYLE_PROFILES
             .get(self.selected_profile_index)
@@ -809,6 +872,7 @@ impl SpriteForgeApp {
                         match TerrainSpriteRecipe::from_style_profile_path(path) {
                             Ok(recipe) => {
                                 self.recipe = recipe;
+                                self.profile_save_path = (*path).to_string();
                                 self.dirty = true;
                                 self.status = format!("Loaded style profile {id}.");
                                 self.refresh(ctx);
@@ -820,8 +884,16 @@ impl SpriteForgeApp {
                     }
                 }
             });
+        ui.label("Profile save path");
+        ui.text_edit_singleline(&mut self.profile_save_path);
         ui.label("Export directory");
         ui.text_edit_singleline(&mut self.export_dir);
+        if ui
+            .checkbox(&mut self.use_overrides, "Use overrides")
+            .changed()
+        {
+            self.dirty = true;
+        }
         ui.label(format!(
             "Override directory: {}",
             if self.recipe.override_dir.trim().is_empty() {
@@ -830,6 +902,46 @@ impl SpriteForgeApp {
                 self.recipe.override_dir.as_str()
             }
         ));
+
+        ui.horizontal(|ui| {
+            if ui.button("Save profile").clicked() {
+                match self.recipe.save_style_profile_path(&self.profile_save_path) {
+                    Ok(()) => {
+                        self.status = format!("Saved style profile to {}.", self.profile_save_path);
+                    }
+                    Err(err) => self.status = format!("Save failed: {err}"),
+                }
+            }
+            if ui.button("Revert profile").clicked() {
+                match TerrainSpriteRecipe::from_style_profile_path(&self.profile_save_path) {
+                    Ok(recipe) => {
+                        self.recipe = recipe;
+                        self.dirty = true;
+                        self.status =
+                            format!("Reloaded style profile from {}.", self.profile_save_path);
+                        self.refresh(ctx);
+                    }
+                    Err(err) => self.status = format!("Revert failed: {err}"),
+                }
+            }
+        });
+        if ui.button("Promote generated to overrides").clicked() {
+            match self
+                .recipe
+                .save_style_profile_path(&self.profile_save_path)
+                .and_then(|_| promote_terrain_sprite_overrides(&self.profile_save_path))
+            {
+                Ok(summary) => {
+                    self.dirty = true;
+                    self.status = format!(
+                        "Promoted {} generated sprites into overrides at {}.",
+                        summary.sprite_count, summary.out_dir
+                    );
+                    self.refresh(ctx);
+                }
+                Err(err) => self.status = format!("Promote failed: {err}"),
+            }
+        }
 
         egui::ComboBox::from_label("Sprite")
             .selected_text(self.selected_kind.label())
@@ -848,6 +960,18 @@ impl SpriteForgeApp {
                     }
                 }
             });
+        egui::ComboBox::from_label("Primitive")
+            .selected_text(self.primitive_panel.label())
+            .show_ui(ui, |ui| {
+                for primitive in PrimitivePanel::ALL {
+                    if ui
+                        .selectable_value(&mut self.primitive_panel, primitive, primitive.label())
+                        .changed()
+                    {
+                        self.panel = primitive.default_preview();
+                    }
+                }
+            });
         egui::ComboBox::from_label("Preview")
             .selected_text(self.panel.label())
             .show_ui(ui, |ui| {
@@ -857,6 +981,383 @@ impl SpriteForgeApp {
             });
 
         ui.separator();
+        let mut changed = false;
+        changed |= self.show_primitive_tuning(ui);
+        if changed {
+            self.dirty = true;
+        }
+        ui.add(egui::Slider::new(&mut self.zoom, 2.0..=16.0).text("selected zoom"));
+
+        ui.horizontal(|ui| {
+            if ui.button("Regenerate").clicked() {
+                self.dirty = true;
+                self.refresh(ctx);
+            }
+            if ui.button("Export").clicked() {
+                let recipe = self.active_recipe();
+                match export_terrain_sprite_bundle(&self.export_dir, &recipe) {
+                    Ok(summary) => {
+                        self.status = format!(
+                            "Exported {} sprites to {} with {} validation issue(s), {} override(s).",
+                            summary.sprite_count,
+                            summary.out_dir,
+                            summary.validation_issue_count,
+                            summary.overridden_count
+                        );
+                    }
+                    Err(err) => self.status = format!("Export failed: {err}"),
+                }
+            }
+        });
+
+        ui.separator();
+        if !self.use_overrides {
+            ui.label("Override art is ignored for preview/export until Use overrides is enabled.");
+        } else if self.override_report.overridden_count > 0 {
+            ui.label(
+                "Overridden PNGs are locked art and only respond to metadata/preview changes.",
+            );
+        }
+        ui.label(&self.status);
+    }
+
+    fn show_primitive_tuning(&mut self, ui: &mut egui::Ui) -> bool {
+        let mut changed = false;
+        match self.primitive_panel {
+            PrimitivePanel::Grass => changed |= self.show_grass_tuning(ui),
+            PrimitivePanel::Dirt => changed |= self.show_dirt_tuning(ui),
+            PrimitivePanel::Path => changed |= self.show_path_tuning(ui),
+            PrimitivePanel::Trench => changed |= self.show_trench_tuning(ui),
+            PrimitivePanel::Berm => changed |= self.show_berm_tuning(ui),
+            PrimitivePanel::Projection => changed |= self.show_projection_tuning(ui),
+        }
+        changed
+    }
+
+    fn show_grass_tuning(&mut self, ui: &mut egui::Ui) -> bool {
+        ui.label("Grass color ramp");
+        let mut changed = false;
+        changed |= edit_color(ui, "shadow", &mut self.recipe.style.palette.grass_shadow);
+        changed |= edit_color(ui, "dark", &mut self.recipe.style.palette.grass_dark);
+        changed |= edit_color(ui, "mid", &mut self.recipe.style.palette.grass_mid);
+        changed |= edit_color(ui, "light", &mut self.recipe.style.palette.grass_light);
+        changed |= edit_color(ui, "flower", &mut self.recipe.style.palette.grass_flower);
+        ui.separator();
+        ui.label("Grass cluster rules");
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.grass.blade_cluster_density,
+            0.0..=1.0,
+            "blade clusters",
+        );
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.grass.dark_cluster_density,
+            0.0..=1.0,
+            "dark clumps",
+        );
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.grass.highlight_cluster_density,
+            0.0..=1.0,
+            "highlights",
+        );
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.grass.flower_density,
+            0.0..=0.08,
+            "flower flecks",
+        );
+        ui.label(format!(
+            "Motifs: {} dark · {} light · {} blade · {} flower",
+            self.recipe.motifs.grass_dark.len(),
+            self.recipe.motifs.grass_light.len(),
+            self.recipe.motifs.grass_blades.len(),
+            self.recipe.motifs.grass_flowers.len()
+        ));
+        if ui.button("Reset grass rules").clicked() {
+            self.recipe.style.grass = Default::default();
+            changed = true;
+        }
+        changed
+    }
+
+    fn show_dirt_tuning(&mut self, ui: &mut egui::Ui) -> bool {
+        ui.label("Dirt color ramp");
+        let mut changed = false;
+        changed |= edit_color(ui, "shadow", &mut self.recipe.style.palette.dirt_shadow);
+        changed |= edit_color(ui, "dark", &mut self.recipe.style.palette.dirt_dark);
+        changed |= edit_color(ui, "mid", &mut self.recipe.style.palette.dirt_mid);
+        changed |= edit_color(ui, "light", &mut self.recipe.style.palette.dirt_light);
+        changed |= edit_color(ui, "pebble", &mut self.recipe.style.palette.pebble);
+        ui.separator();
+        ui.label("Dirt texture rules");
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.dirt.dust_patch_density,
+            0.0..=1.0,
+            "dust patches",
+        );
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.dirt.compact_shadow_density,
+            0.0..=1.0,
+            "compaction shadows",
+        );
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.dirt.pebble_density,
+            0.0..=0.25,
+            "pebbles",
+        );
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.dirt.rut_density,
+            0.0..=0.30,
+            "ruts",
+        );
+        ui.label(format!(
+            "Motifs: {} dust · {} dents · {} ruts",
+            self.recipe.motifs.dirt_dust.len(),
+            self.recipe.motifs.dirt_dents.len(),
+            self.recipe.motifs.dirt_ruts.len()
+        ));
+        if ui.button("Reset dirt rules").clicked() {
+            self.recipe.style.dirt = Default::default();
+            changed = true;
+        }
+        changed
+    }
+
+    fn show_path_tuning(&mut self, ui: &mut egui::Ui) -> bool {
+        ui.label("Path shape rules");
+        let mut changed = false;
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.path.width_px,
+            2.0..=self.recipe.tile_size as f32,
+            "path width",
+        );
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.path.core_width_px,
+            2.0..=self.recipe.tile_size as f32,
+            "core width",
+        );
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.path.corner_rounding,
+            0.0..=1.0,
+            "corner rounding",
+        );
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.path.edge_noise,
+            0.0..=3.0,
+            "edge noise",
+        );
+        ui.separator();
+        ui.label("Grass/dirt edge behavior");
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.recipe.style.transition.edge_jitter_px, 0..=8)
+                    .text("edge jitter"),
+            )
+            .changed();
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.transition.edge_softness,
+            0.0..=1.0,
+            "edge softness",
+        );
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.transition.grass_intrusion_density,
+            0.0..=1.0,
+            "grass intrusion",
+        );
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.transition.dirt_speckle_density,
+            0.0..=1.0,
+            "dirt speckles",
+        );
+        ui.label(format!(
+            "Motifs: {} transition intrusion",
+            self.recipe.motifs.transition_intrusion.len()
+        ));
+        if ui.button("Reset path / transition rules").clicked() {
+            self.recipe.style.path = Default::default();
+            self.recipe.style.transition = Default::default();
+            changed = true;
+        }
+        changed
+    }
+
+    fn show_trench_tuning(&mut self, ui: &mut egui::Ui) -> bool {
+        ui.label("Trench depth and lighting");
+        let mut changed = false;
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.trench.floor_darkness,
+            0.0..=1.0,
+            "floor darkness",
+        );
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.trench.inner_shadow_strength,
+            0.0..=1.0,
+            "inner shadow",
+        );
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.trench.contact_shadow_strength,
+            0.0..=1.0,
+            "contact shadow",
+        );
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.trench.wall_shadow_strength,
+            0.0..=1.0,
+            "wall shadow",
+        );
+        ui.separator();
+        ui.label("Trench detail");
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.trench.floor_detail_density,
+            0.0..=1.0,
+            "floor detail",
+        );
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.trench.wall_detail_density,
+            0.0..=1.0,
+            "wall detail",
+        );
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.trench.wood_plank_density,
+            0.0..=1.0,
+            "wood planks",
+        );
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.trench.wood_knot_density,
+            0.0..=1.0,
+            "wood knots",
+        );
+        ui.separator();
+        ui.label("Trench lip and spoil");
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.trench.lip_highlight_strength,
+            0.0..=1.0,
+            "lip highlight",
+        );
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.recipe.style.trench.lip_irregularity_px, 0..=12)
+                    .text("lip irregularity"),
+            )
+            .changed();
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.trench.spoil_density,
+            0.0..=1.0,
+            "spoil",
+        );
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.trench.grass_intrusion_density,
+            0.0..=1.0,
+            "grass intrusion",
+        );
+        ui.label(format!(
+            "Motifs: {} wood · {} shadow · {} lip · {} spoil · {} grass",
+            self.recipe.motifs.trench_wood.len(),
+            self.recipe.motifs.trench_wall_shadow.len(),
+            self.recipe.motifs.trench_lip.len(),
+            self.recipe.motifs.trench_spoil.len(),
+            self.recipe.motifs.trench_grass_overhang.len()
+        ));
+        if ui.button("Reset trench rules").clicked() {
+            self.recipe.style.trench = Default::default();
+            changed = true;
+        }
+        changed
+    }
+
+    fn show_berm_tuning(&mut self, ui: &mut egui::Ui) -> bool {
+        ui.label("Berm mound and lighting");
+        let mut changed = false;
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.berm.mound_height_strength,
+            0.0..=1.0,
+            "mound height",
+        );
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.berm.face_shadow_strength,
+            0.0..=1.0,
+            "face shadow",
+        );
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.berm.contact_shadow_strength,
+            0.0..=1.0,
+            "contact shadow",
+        );
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.berm.top_grass_blend,
+            0.0..=1.0,
+            "top grass blend",
+        );
+        ui.separator();
+        ui.label("Berm lip and disturbance");
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.berm.lip_highlight_strength,
+            0.0..=1.0,
+            "lip highlight",
+        );
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.recipe.style.berm.edge_irregularity_px, 0..=12)
+                    .text("edge irregularity"),
+            )
+            .changed();
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.berm.spoil_density,
+            0.0..=1.0,
+            "spoil",
+        );
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.berm.grass_intrusion_density,
+            0.0..=1.0,
+            "grass intrusion",
+        );
+        ui.label(format!(
+            "Motifs: {} soil · {} grass · {} face · {} edge · {} spoil",
+            self.recipe.motifs.berm_soil_clump.len(),
+            self.recipe.motifs.berm_grass_overhang.len(),
+            self.recipe.motifs.berm_face_shadow.len(),
+            self.recipe.motifs.berm_edge_highlight.len(),
+            self.recipe.motifs.berm_spoil.len()
+        ));
+        if ui.button("Reset berm rules").clicked() {
+            self.recipe.style.berm = Default::default();
+            changed = true;
+        }
+        changed
+    }
+
+    fn show_projection_tuning(&mut self, ui: &mut egui::Ui) -> bool {
+        ui.label("Recipe");
         let mut changed = false;
         changed |= ui
             .add(egui::DragValue::new(&mut self.recipe.seed).prefix("seed "))
@@ -873,6 +1374,14 @@ impl SpriteForgeApp {
                     .text("export scale"),
             )
             .changed();
+        ui.separator();
+        ui.label("Pixel discipline");
+        changed |= ui
+            .checkbox(
+                &mut self.recipe.style.pixel.avoid_single_pixel_noise,
+                "avoid single-pixel noise",
+            )
+            .changed();
         changed |= ui
             .add(
                 egui::Slider::new(&mut self.recipe.style.pixel.min_cluster_size, 1..=8)
@@ -885,55 +1394,26 @@ impl SpriteForgeApp {
                     .text("max cluster"),
             )
             .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.recipe.style.pixel.detail_density, 0.0..=1.0)
-                    .text("detail"),
-            )
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(
-                    &mut self.recipe.style.grass.blade_cluster_density,
-                    0.0..=1.0,
-                )
-                .text("grass blades"),
-            )
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.recipe.style.grass.flower_density, 0.0..=0.08)
-                    .text("flowers"),
-            )
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.recipe.style.dirt.pebble_density, 0.0..=0.25)
-                    .text("pebbles"),
-            )
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.recipe.style.dirt.rut_density, 0.0..=0.30).text("ruts"),
-            )
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.recipe.style.transition.edge_jitter_px, 0..=8)
-                    .text("edge jitter"),
-            )
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(
-                    &mut self.recipe.style.transition.grass_intrusion_density,
-                    0.0..=1.0,
-                )
-                .text("grass intrusion"),
-            )
-            .changed();
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.pixel.detail_density,
+            0.0..=1.0,
+            "detail density",
+        );
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.pixel.highlight_density,
+            0.0..=1.0,
+            "highlight density",
+        );
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.pixel.shadow_density,
+            0.0..=1.0,
+            "shadow density",
+        );
         ui.separator();
-        ui.label("Oblique projection");
+        ui.label("High-oblique projection");
         changed |= ui
             .add(
                 egui::Slider::new(&mut self.recipe.style.projection.cell_width_px, 32..=160)
@@ -952,104 +1432,25 @@ impl SpriteForgeApp {
                     .text("face height"),
             )
             .changed();
-        ui.separator();
-        ui.label("Trench rules");
         changed |= ui
             .add(
-                egui::Slider::new(&mut self.recipe.style.trench.floor_darkness, 0.0..=1.0)
-                    .text("floor darkness"),
-            )
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.recipe.style.trench.wall_detail_density, 0.0..=1.0)
-                    .text("wall detail"),
-            )
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.recipe.style.trench.wood_plank_density, 0.0..=1.0)
-                    .text("wood planks"),
-            )
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.recipe.style.trench.spoil_density, 0.0..=1.0)
-                    .text("spoil"),
+                egui::Slider::new(
+                    &mut self.recipe.style.projection.shadow_offset_px.0,
+                    -64..=64,
+                )
+                .text("shadow x"),
             )
             .changed();
         changed |= ui
             .add(
                 egui::Slider::new(
-                    &mut self.recipe.style.trench.contact_shadow_strength,
-                    0.0..=1.0,
+                    &mut self.recipe.style.projection.shadow_offset_px.1,
+                    -32..=96,
                 )
-                .text("contact shadow"),
+                .text("shadow y"),
             )
             .changed();
-        ui.separator();
-        ui.label("Berm rules");
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.recipe.style.berm.mound_height_strength, 0.0..=1.0)
-                    .text("mound height"),
-            )
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.recipe.style.berm.face_shadow_strength, 0.0..=1.0)
-                    .text("face shadow"),
-            )
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.recipe.style.berm.top_grass_blend, 0.0..=1.0)
-                    .text("top grass blend"),
-            )
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(&mut self.recipe.style.berm.spoil_density, 0.0..=1.0)
-                    .text("berm spoil"),
-            )
-            .changed();
-        changed |= ui
-            .add(
-                egui::Slider::new(
-                    &mut self.recipe.style.berm.contact_shadow_strength,
-                    0.0..=1.0,
-                )
-                .text("berm contact shadow"),
-            )
-            .changed();
-        if changed {
-            self.dirty = true;
-        }
-        ui.add(egui::Slider::new(&mut self.zoom, 2.0..=16.0).text("selected zoom"));
-
-        ui.horizontal(|ui| {
-            if ui.button("Regenerate").clicked() {
-                self.dirty = true;
-                self.refresh(ctx);
-            }
-            if ui.button("Export").clicked() {
-                match export_terrain_sprite_bundle(&self.export_dir, &self.recipe) {
-                    Ok(summary) => {
-                        self.status = format!(
-                            "Exported {} sprites to {} with {} validation issue(s), {} override(s).",
-                            summary.sprite_count,
-                            summary.out_dir,
-                            summary.validation_issue_count,
-                            summary.overridden_count
-                        );
-                    }
-                    Err(err) => self.status = format!("Export failed: {err}"),
-                }
-            }
-        });
-
-        ui.separator();
-        ui.label(&self.status);
+        changed
     }
 
     fn show_preview(&mut self, ui: &mut egui::Ui) {
@@ -1516,6 +1917,41 @@ impl eframe::App for SpriteForgeApp {
                 .show(ui, |ui| self.show_preview(ui));
         });
     }
+}
+
+fn slider_f32(
+    ui: &mut egui::Ui,
+    value: &mut f32,
+    range: std::ops::RangeInclusive<f32>,
+    text: &str,
+) -> bool {
+    ui.add(egui::Slider::new(value, range).text(text)).changed()
+}
+
+fn edit_color(ui: &mut egui::Ui, label: &str, color: &mut Rgba8) -> bool {
+    let mut changed = false;
+    let swatch = egui::RichText::new("■").color(egui::Color32::from_rgba_unmultiplied(
+        color.r, color.g, color.b, color.a,
+    ));
+    ui.horizontal(|ui| {
+        ui.label(swatch);
+        ui.label(format!(
+            "{label} #{:02x}{:02x}{:02x}",
+            color.r, color.g, color.b
+        ));
+    });
+    ui.indent(label, |ui| {
+        changed |= ui
+            .add(egui::Slider::new(&mut color.r, 0..=255).text("R"))
+            .changed();
+        changed |= ui
+            .add(egui::Slider::new(&mut color.g, 0..=255).text("G"))
+            .changed();
+        changed |= ui
+            .add(egui::Slider::new(&mut color.b, 0..=255).text("B"))
+            .changed();
+    });
+    changed
 }
 
 fn put_temp_image(ui: &mut egui::Ui, image: &PixelImage) {

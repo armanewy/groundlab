@@ -4,20 +4,19 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: ArtGen 3.1 — berm autotile / mound topology
+## Current status: ArtGen 3.2 — primitive style tuning studio
 
 GroundLab's active visual work has pivoted away from the large editable scene renderer. The current
 focus is a dedicated, fast terrain sprite generator that produces simple, cozy, top-down pixel
 terrain primitives from swappable style profiles, palettes, motif libraries, and art rules. It does
 not require reference images.
 
-ArtGen 3.1 keeps the override workflow from 3.0c and turns the berm kit into connected mound
-topology. The sprite generator now exports `berm_mask_00` through `berm_mask_15`, sparse/dense/loop
-berm previews, dead-end and corner previews, continuity heatmaps, and worst-neighbor diagnostics.
-Each style profile can still point at an `overrides/` folder. If `overrides/{sprite_id}.png` exists
-and matches the generated sprite size, Forge uses that PNG as the effective sprite while preserving
-the generated metadata: sprite role, anchor, footprint, z-bias, occlusion intent, and projection
-data. If no override exists, the generated sprite remains active.
+ArtGen 3.2 keeps the generated/effective/override workflow from 3.0c and the berm topology from
+3.1, but makes style tuning native in Pixel Terrain Forge. The app now has a primitive selector for
+grass, dirt, path/transition, trench, berm, and projection/global controls. Each panel exposes the
+relevant color ramps, lighting, density, edge, shadow, and detail settings without editing RON by
+hand. Style profiles can be saved, reverted, cloned by changing the save path, exported, and promoted
+into override PNGs from the same workbench.
 
 The style profiles remain data-driven under `assets/sprite_styles/`. The current built-in profiles
 are:
@@ -30,7 +29,7 @@ Each profile has a `style.ron` for palette/rule/projection tuning, a `motifs.ron
 pixel-cluster motifs, and an `overrides/` folder for optional replacement PNGs. The Forge app can
 switch profiles from a dropdown, and the CLI can export with an explicit profile path.
 
-ArtGen 3.1 exports:
+ArtGen 3.2 exports:
 
 - tileable grass variants
 - tileable dirt variants
@@ -75,7 +74,7 @@ cargo run -p ground_sprite_app
 Export the sprite bundle:
 
 ```bash
-cargo run -p ground_sprite_cli -- export exports/artgen_03_1 assets/sprite_styles/cozy_upland/style.ron
+cargo run -p ground_sprite_cli -- export exports/artgen_03_2 assets/sprite_styles/cozy_upland/style.ron
 ```
 
 Promote the current generated sprites into a profile's override folder as editable starting art:
