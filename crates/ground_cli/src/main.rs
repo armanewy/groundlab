@@ -5,7 +5,8 @@ use ground_core::{
     DEFAULT_RECIPE_PATH,
 };
 use ground_game::{
-    export_assault_run, export_generated_mission_batch, export_generated_mission_pack_with_curve,
+    export_assault_run, export_generated_mission_batch,
+    export_generated_mission_pack_playtest_from_file, export_generated_mission_pack_with_curve,
     export_generated_mission_theme_batch, export_hazard_sandbox_run, export_mission_balance_run,
     export_mission_visuals, export_order_script_run, export_road_below_seed,
     export_theme_calibration_report, load_mission_spec, load_work_order_script,
@@ -259,7 +260,7 @@ fn main() -> Result<()> {
             if let Some(theme) = theme {
                 generator.theme = theme;
                 let report = export_generated_mission_batch(&out_dir, generator, count)?;
-                println!("Exported ProcGen 6 mission batch to {out_dir}.");
+                println!("Exported ProcGen 7 mission batch to {out_dir}.");
                 println!(
                     "Generated {} candidate(s): {} accepted, {} rejected.",
                     report.generated_count, report.accepted_count, report.rejected_count
@@ -277,7 +278,7 @@ fn main() -> Result<()> {
                     count,
                     &MissionTheme::GENERATABLE,
                 )?;
-                println!("Exported ProcGen 6 all-theme mission batch to {out_dir}.");
+                println!("Exported ProcGen 7 all-theme mission batch to {out_dir}.");
                 println!(
                     "Generated {} candidate(s): {} accepted, {} rejected across {} theme(s).",
                     report.total_generated_count,
@@ -346,7 +347,7 @@ fn main() -> Result<()> {
                 candidates_per_theme,
                 curve,
             )?;
-            println!("Exported ProcGen 6 mission pack to {out_dir}.");
+            println!("Exported ProcGen 7 mission pack to {out_dir}.");
             println!(
                 "Selected {} {}-curve mission(s) from {} generated candidate(s), {} accepted.",
                 summary.pack.missions.len(),
@@ -367,7 +368,40 @@ fn main() -> Result<()> {
                 );
             }
             println!(
-                "Pack files: mission_pack.ron, mission_pack_summary.json, mission_pack_contact_sheet.png, mission_pack_visual_sheet.png, difficulty_curve.json, complexity_curve.json, pack_diversity_report.json, source_candidates/browser_index.json"
+                "Pack files: mission_pack.ron, mission_pack_summary.json, mission_pack_contact_sheet.png, mission_pack_visual_sheet.png, difficulty_curve.json, complexity_curve.json, pack_diversity_report.json, pack_playtest_summary.json, per_mission_playtest/*, source_candidates/browser_index.json"
+            );
+        }
+        "playtest-mission-pack" => {
+            let out_dir = args
+                .next()
+                .unwrap_or_else(|| "exports/procgen_07_pack_playtest".to_string());
+            let pack_path = args
+                .next()
+                .unwrap_or_else(|| "exports/procgen_07_pack/mission_pack.ron".to_string());
+            let report = export_generated_mission_pack_playtest_from_file(&out_dir, &pack_path)?;
+            println!("Exported ProcGen 7 mission pack playtest to {out_dir}.");
+            println!(
+                "{} mission(s) · avg no-prep {:.1} · avg best {:.1} · avg spread {:.1}.",
+                report.mission_count,
+                report.average_no_prep_score,
+                report.average_best_score,
+                report.average_plan_spread
+            );
+            for mission in &report.missions {
+                println!(
+                    "{}. {} [{}] · no prep {} · best {} ({}) · spread {} · visual warnings {}",
+                    mission.order,
+                    mission.title,
+                    mission.theme_slug,
+                    mission.no_prep_score,
+                    mission.best_score,
+                    mission.best_plan_label,
+                    mission.best_minus_worst,
+                    mission.visual_qa.warning_count
+                );
+            }
+            println!(
+                "Playtest files: pack_playtest_summary.json, per_mission_playtest/*/mission_balance_summary.json, per_mission_playtest/*/visual/mission_visual_beauty.png, per_mission_playtest/*/visual_qa.json"
             );
         }
         "render-mission" => {
@@ -462,6 +496,9 @@ fn print_help() {
     eprintln!("  cargo run -p ground_cli -- mission-balance [out_dir] [mission_spec.ron|json]");
     eprintln!("  cargo run -p ground_cli -- generate-missions [out_dir] [--theme dry_road_below|ridge_trap|orchard_approach|dry_wash|old_wall|split_approach|all] [--count 10] [--seed 99418113] [--render-visuals]");
     eprintln!("  cargo run -p ground_cli -- generate-mission-pack [out_dir] [--seed 99418113] [--missions 6] [--candidates-per-theme 20] [--curve balanced|tutorial] [--render-visuals]");
+    eprintln!(
+        "  cargo run -p ground_cli -- playtest-mission-pack [out_dir] [mission_pack.ron|json]"
+    );
     eprintln!("  cargo run -p ground_cli -- render-mission [out_dir] [mission_spec.ron|json]");
     eprintln!(
         "  cargo run -p ground_cli -- calibrate-themes [out_dir] [--count 200] [--seed 99418113]"

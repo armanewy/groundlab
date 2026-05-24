@@ -10,11 +10,12 @@ use ground_core::{
     ValidationReport, ViewOrientation, WorkbenchAssetPaths,
 };
 use ground_game::{
-    export_road_below_seed, load_generated_mission_browser_index, load_mission_spec,
-    load_work_order_script, mission_rating_for_state, road_below_balance_scripts,
-    road_below_seed_orders, run_work_order_script, save_work_order_script, AssaultEventKind,
-    CellCoord, CoverClass, EarthState, EnemyAgentStatus, EnvironmentObject, EnvironmentObjectKind,
-    GeneratedMissionBrowserEntry, GeneratedMissionBrowserIndex, GroundKind, LogState, MissionPhase,
+    export_road_below_seed, load_generated_mission_browser_index, load_generated_mission_pack,
+    load_mission_spec, load_work_order_script, mission_rating_for_state,
+    road_below_balance_scripts, road_below_seed_orders, run_work_order_script,
+    save_work_order_script, AssaultEventKind, CellCoord, CoverClass, EarthState, EnemyAgentStatus,
+    EnvironmentObject, EnvironmentObjectKind, GeneratedMissionBrowserEntry,
+    GeneratedMissionBrowserIndex, GeneratedMissionPack, GroundKind, LogState, MissionPhase,
     MissionState, MissionTheme, ScriptedWorkOrder, TreeState, WorkOrderKind, WorkOrderScript,
     WorkOrderStatus, WorkTarget, DEFAULT_MISSION_EXPORT_DIR,
 };
@@ -202,6 +203,9 @@ struct GroundLabApp {
     mission_browser: Option<GeneratedMissionBrowserIndex>,
     mission_browser_theme_filter: Option<MissionTheme>,
     mission_browser_accepted_only: bool,
+    mission_pack_path_text: String,
+    mission_pack: Option<GeneratedMissionPack>,
+    mission_pack_selected_index: usize,
     paths: WorkbenchAssetPaths,
     recipe_path_text: String,
     palette_path_text: String,
@@ -262,6 +266,9 @@ impl GroundLabApp {
             mission_browser: None,
             mission_browser_theme_filter: None,
             mission_browser_accepted_only: true,
+            mission_pack_path_text: "exports/procgen_07_pack/mission_pack.ron".to_string(),
+            mission_pack: None,
+            mission_pack_selected_index: 0,
             recipe_path_text: paths.recipe_path.to_string_lossy().to_string(),
             palette_path_text: paths.palette_path.to_string_lossy().to_string(),
             file_snapshot: FileSnapshot::capture(&paths),
@@ -300,7 +307,7 @@ impl GroundLabApp {
             dirty_assets: true,
             dirty_preview: true,
             last_preview_size: [1, 1],
-            status: "Ready. GamePivot 5 assault sandbox is active.".to_string(),
+            status: "Ready. ProcGen 7 mission-pack playtest tools are active.".to_string(),
         };
         app.refresh_if_dirty(&cc.egui_ctx);
         app
@@ -433,7 +440,9 @@ impl GroundLabApp {
     fn show_mission_controls(&mut self, ui: &mut egui::Ui) {
         self.show_panel_tabs(ui);
         ui.heading("Mission Lab");
-        ui.label("ProcGen 5: generated mission calibration and playable candidate browser");
+        ui.label(
+            "ProcGen 7: generated mission packs, playtest reports, and playable candidate browser",
+        );
         ui.separator();
 
         self.show_mission_status_panel(ui);
@@ -660,6 +669,9 @@ impl GroundLabApp {
                 ui.checkbox(&mut self.mission_browser_accepted_only, "Accepted only");
             });
 
+            self.show_generated_mission_pack_panel(ui);
+            ui.separator();
+
             let Some(index) = &self.mission_browser else {
                 ui.small("Load a ProcGen browser_index.json to browse generated candidates.");
                 return;
@@ -682,6 +694,102 @@ impl GroundLabApp {
                 self.show_generated_mission_card(ui, &entry);
             }
         });
+    }
+
+    fn show_generated_mission_pack_panel(&mut self, ui: &mut egui::Ui) {
+        ui.collapsing("Mission Pack", |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Pack");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.mission_pack_path_text)
+                        .desired_width(310.0),
+                );
+                if ui.button("Load pack").clicked() {
+                    let path = self.mission_pack_path_text.trim();
+                    match load_generated_mission_pack(path) {
+                        Ok(pack) => {
+                            let mission_count = pack.missions.len();
+                            self.mission_pack_selected_index = self
+                                .mission_pack_selected_index
+                                .min(mission_count.saturating_sub(1));
+                            self.mission_pack = Some(pack);
+                            self.notify(format!(
+                                "Loaded generated mission pack with {mission_count} mission(s)."
+                            ));
+                        }
+                        Err(err) => self.notify(format!("Load mission pack failed: {err}")),
+                    }
+                }
+            });
+
+            let Some(pack) = self.mission_pack.as_ref() else {
+                ui.small("Load a ProcGen mission_pack.ron to step through generated pack slots.");
+                return;
+            };
+            let pack_label = pack.label.clone();
+            let pack_seed = pack.seed;
+            let mission_count = pack.missions.len();
+            ui.small(format!(
+                "{} · seed {} · {} mission(s)",
+                pack_label, pack_seed, mission_count
+            ));
+            if mission_count == 0 {
+                ui.small("Pack has no missions.");
+                return;
+            }
+
+            self.mission_pack_selected_index = self
+                .mission_pack_selected_index
+                .min(mission_count.saturating_sub(1));
+            let mission = pack.missions[self.mission_pack_selected_index].clone();
+            ui.horizontal_wrapped(|ui| {
+                if ui.button("Previous").clicked() {
+                    self.mission_pack_selected_index =
+                        self.mission_pack_selected_index.saturating_sub(1);
+                }
+                ui.label(format!(
+                    "{}/{}",
+                    self.mission_pack_selected_index + 1,
+                    mission_count
+                ));
+                if ui.button("Next").clicked() {
+                    self.mission_pack_selected_index =
+                        (self.mission_pack_selected_index + 1).min(mission_count - 1);
+                }
+                if ui.button("Load mission").clicked() {
+                    let path = self.resolve_mission_pack_entry_path(&mission.mission_path);
+                    self.mission_load_path_text = path.clone();
+                    self.load_mission_file(&path);
+                }
+            });
+            ui.small(format!(
+                "{} [{}] · score {} · difficulty {} · complexity {}",
+                mission.title,
+                mission.theme_slug,
+                mission.tactical_interest_score,
+                mission.difficulty_score,
+                mission.complexity_score
+            ));
+            ui.small(format!(
+                "best plan: {} · {}",
+                mission.best_plan_label, mission.mission_path
+            ));
+        });
+    }
+
+    fn resolve_mission_pack_entry_path(&self, mission_path: &str) -> String {
+        let raw = PathBuf::from(mission_path);
+        if raw.is_absolute() || raw.exists() {
+            return raw.to_string_lossy().to_string();
+        }
+        let pack_path = PathBuf::from(self.mission_pack_path_text.trim());
+        if let Some(parent) = pack_path.parent() {
+            let joined = parent.join(&raw);
+            if joined.exists() {
+                return joined.to_string_lossy().to_string();
+            }
+        }
+        raw.to_string_lossy().to_string()
     }
 
     fn filtered_mission_browser_entries(&self) -> Vec<&GeneratedMissionBrowserEntry> {

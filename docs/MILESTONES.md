@@ -361,6 +361,30 @@ This milestone does not add new gameplay, new themes, manual dressing, or a GPU 
 ProcGen visual outputs better suited for scanning generated mission style while preserving route and
 debug exports as tactical overlays.
 
+## ProcGen 7 — Generated mission pack playtest pass
+
+Implemented in this drop.
+
+- generated mission pack export now runs a pack-level playtest pass after pack selection
+- added `GeneratedMissionPackPlaytestReport` with average no-prep score, average best score,
+  average plan spread, per-mission scenario spread, best/worst plan labels, and notes
+- each selected pack mission exports a `per_mission_playtest/mission_##_{theme}/` bundle with the
+  existing mission balance reports, scenario comparison, route-shift summary, hazard-effectiveness
+  summary, visual renders, and `visual_qa.json`
+- added visual readability QA metrics for terrain-feature coverage, fallback sprite count,
+  placeholder object count, route overlay legibility, objective/spawn visibility, and terrain
+  feature visibility
+- added `cargo run -p ground_cli -- playtest-mission-pack [out_dir] [mission_pack.ron|json]` for
+  replaying an existing generated pack through the same harness
+- `generate-mission-pack` output now includes `pack_playtest_summary.json` and
+  `per_mission_playtest/` alongside the pack manifest, curves, diversity report, and contact sheets
+- Mission Lab's generated-content panel now includes a mission-pack loader that opens
+  `mission_pack.ron`, steps previous/next through pack slots, shows pack slot score/difficulty/
+  complexity, and loads the selected mission into the playable briefing/prep/assault loop
+
+This milestone does not add new mechanics, themes, combat systems, or renderer work. It makes a
+generated pack inspectable as a playable set instead of only a list of accepted candidates.
+
 ## Milestone 0 — Project seed
 
 Implemented.

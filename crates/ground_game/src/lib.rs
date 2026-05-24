@@ -1182,6 +1182,54 @@ pub struct GeneratedMissionPackSummary {
     pub notes: Vec<String>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionPackPlaytestReport {
+    pub pack_id: String,
+    pub pack_label: String,
+    pub mission_count: u32,
+    pub average_no_prep_score: f32,
+    pub average_best_score: f32,
+    pub average_plan_spread: f32,
+    pub missions: Vec<GeneratedMissionPackPlaytestMission>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionPackPlaytestMission {
+    pub order: u32,
+    pub title: String,
+    pub mission_id: String,
+    pub theme: MissionTheme,
+    pub theme_slug: String,
+    pub mission_path: String,
+    pub tactical_interest_score: i32,
+    pub difficulty_score: i32,
+    pub complexity_score: i32,
+    pub scenario_count: u32,
+    pub no_prep_score: i32,
+    pub best_score: i32,
+    pub worst_score: i32,
+    pub best_minus_no_prep: i32,
+    pub best_minus_worst: i32,
+    pub best_plan_label: String,
+    pub worst_plan_label: String,
+    pub visual_qa: GeneratedMissionVisualQa,
+    pub notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionVisualQa {
+    pub visual_feature_coverage: f32,
+    pub fallback_sprite_count: u32,
+    pub placeholder_object_count: u32,
+    pub route_overlay_legibility: f32,
+    pub objective_visible: bool,
+    pub spawn_visible: bool,
+    pub terrain_feature_visibility: f32,
+    pub warning_count: u32,
+    pub notes: Vec<String>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MissionPackCurve {
     Balanced,
@@ -3051,7 +3099,113 @@ pub fn export_generated_mission_pack_with_curve(
         &selected,
         selected.len(),
     )?;
+    export_generated_mission_pack_playtest(out_dir, &summary.pack, Some(out_dir))?;
     Ok(summary)
+}
+
+pub fn export_generated_mission_pack_playtest(
+    out_dir: impl AsRef<Path>,
+    pack: &GeneratedMissionPack,
+    mission_path_base: Option<&Path>,
+) -> Result<GeneratedMissionPackPlaytestReport> {
+    let out_dir = out_dir.as_ref();
+    fs::create_dir_all(out_dir)
+        .with_context(|| format!("failed to create {}", out_dir.display()))?;
+    let per_mission_dir = out_dir.join("per_mission_playtest");
+    fs::create_dir_all(&per_mission_dir)
+        .with_context(|| format!("failed to create {}", per_mission_dir.display()))?;
+
+    let mut missions = Vec::new();
+    for entry in &pack.missions {
+        let mission_path = resolve_pack_mission_path(&entry.mission_path, mission_path_base);
+        let spec = load_mission_spec(&mission_path)?;
+        let mission_dir = per_mission_dir.join(format!(
+            "mission_{:02}_{}",
+            entry.order,
+            sanitize_path_component(&entry.theme_slug)
+        ));
+        fs::create_dir_all(&mission_dir)
+            .with_context(|| format!("failed to create {}", mission_dir.display()))?;
+
+        let balance_report = export_mission_balance_run(&mission_dir, spec.clone())?;
+        let visual_report = export_mission_visuals(mission_dir.join("visual"), spec.clone())?;
+        let state = MissionState::from_spec(spec.clone());
+        let feature_map = mission_visual_feature_map(&state);
+        let visual_qa = generated_mission_visual_qa(&state, &feature_map, &visual_report);
+        write_json(mission_dir.join("visual_qa.json"), &visual_qa)?;
+
+        missions.push(generated_mission_pack_playtest_mission(
+            entry,
+            mission_path,
+            &balance_report,
+            visual_qa,
+        ));
+    }
+
+    let mission_count = missions.len() as u32;
+    let average_no_prep_score = average_i32(missions.iter().map(|mission| mission.no_prep_score));
+    let average_best_score = average_i32(missions.iter().map(|mission| mission.best_score));
+    let average_plan_spread = average_i32(missions.iter().map(|mission| mission.best_minus_worst));
+    let mut notes = Vec::new();
+    if mission_count == 0 {
+        notes.push("Pack has no missions to playtest.".to_string());
+    }
+    if average_plan_spread < 12.0 && mission_count > 0 {
+        notes.push(format!(
+            "Average plan spread is low ({average_plan_spread:.1}); generated missions may not reward different prep plans enough."
+        ));
+    }
+    let no_prep_not_punished = missions
+        .iter()
+        .filter(|mission| mission.best_minus_no_prep <= 0)
+        .count();
+    if no_prep_not_punished > 0 {
+        notes.push(format!(
+            "{no_prep_not_punished} mission(s) did not score better with the best scripted prep than with no prep."
+        ));
+    }
+    let visual_fallbacks = missions
+        .iter()
+        .filter(|mission| mission.visual_qa.fallback_sprite_count > 0)
+        .count();
+    if visual_fallbacks > 0 {
+        notes.push(format!(
+            "{visual_fallbacks} mission(s) used fallback visual sprite pieces."
+        ));
+    }
+    let report = GeneratedMissionPackPlaytestReport {
+        pack_id: pack.id.clone(),
+        pack_label: pack.label.clone(),
+        mission_count,
+        average_no_prep_score,
+        average_best_score,
+        average_plan_spread,
+        missions,
+        notes,
+    };
+    write_json(out_dir.join("pack_playtest_summary.json"), &report)?;
+    Ok(report)
+}
+
+pub fn export_generated_mission_pack_playtest_from_file(
+    out_dir: impl AsRef<Path>,
+    pack_path: impl AsRef<Path>,
+) -> Result<GeneratedMissionPackPlaytestReport> {
+    let pack_path = pack_path.as_ref();
+    let pack = load_generated_mission_pack(pack_path)?;
+    export_generated_mission_pack_playtest(out_dir, &pack, pack_path.parent())
+}
+
+pub fn load_generated_mission_pack(path: impl AsRef<Path>) -> Result<GeneratedMissionPack> {
+    let path = path.as_ref();
+    let text = fs::read_to_string(path)
+        .with_context(|| format!("failed to read generated mission pack {}", path.display()))?;
+    match path.extension().and_then(|ext| ext.to_str()) {
+        Some("json") => serde_json::from_str(&text)
+            .with_context(|| format!("failed to parse JSON mission pack {}", path.display())),
+        _ => ron::from_str(&text)
+            .with_context(|| format!("failed to parse RON mission pack {}", path.display())),
+    }
 }
 
 pub fn export_theme_calibration_report(
@@ -3469,6 +3623,214 @@ fn generated_mission_pack_diversity_report(
         difficulty_curve_is_monotonic,
         complexity_curve_is_monotonic,
         notes,
+    }
+}
+
+fn generated_mission_pack_playtest_mission(
+    entry: &GeneratedMissionPackEntry,
+    mission_path: PathBuf,
+    balance_report: &MissionBalanceReport,
+    visual_qa: GeneratedMissionVisualQa,
+) -> GeneratedMissionPackPlaytestMission {
+    let baseline = balance_report
+        .scenarios
+        .iter()
+        .find(|scenario| scenario.id == "baseline_no_prep")
+        .or_else(|| balance_report.scenarios.first());
+    let best = balance_report
+        .scenarios
+        .iter()
+        .max_by_key(|scenario| (scenario.rating.stars, scenario.rating.score));
+    let worst = balance_report
+        .scenarios
+        .iter()
+        .min_by_key(|scenario| (scenario.rating.stars, scenario.rating.score));
+    let no_prep_score = baseline.map(|scenario| scenario.rating.score).unwrap_or(0);
+    let best_score = best.map(|scenario| scenario.rating.score).unwrap_or(0);
+    let worst_score = worst.map(|scenario| scenario.rating.score).unwrap_or(0);
+
+    let mut notes = Vec::new();
+    if balance_report.scenarios.is_empty() {
+        notes.push("No balance scenarios were available for this mission.".to_string());
+    }
+    if best_score <= no_prep_score {
+        notes.push("Best scripted prep does not outperform no-prep baseline.".to_string());
+    }
+    if best_score - worst_score < 10 {
+        notes.push("Scripted prep plans have low outcome spread.".to_string());
+    }
+    if visual_qa.warning_count > 0 {
+        notes.push(format!(
+            "Visual QA reported {} warning(s).",
+            visual_qa.warning_count
+        ));
+    }
+
+    GeneratedMissionPackPlaytestMission {
+        order: entry.order,
+        title: entry.title.clone(),
+        mission_id: entry.mission_id.clone(),
+        theme: entry.theme,
+        theme_slug: entry.theme_slug.clone(),
+        mission_path: mission_path.to_string_lossy().to_string(),
+        tactical_interest_score: entry.tactical_interest_score,
+        difficulty_score: entry.difficulty_score,
+        complexity_score: entry.complexity_score,
+        scenario_count: balance_report.scenarios.len() as u32,
+        no_prep_score,
+        best_score,
+        worst_score,
+        best_minus_no_prep: best_score - no_prep_score,
+        best_minus_worst: best_score - worst_score,
+        best_plan_label: best
+            .map(|scenario| scenario.label.clone())
+            .unwrap_or_else(|| "none".to_string()),
+        worst_plan_label: worst
+            .map(|scenario| scenario.label.clone())
+            .unwrap_or_else(|| "none".to_string()),
+        visual_qa,
+        notes,
+    }
+}
+
+fn generated_mission_visual_qa(
+    state: &MissionState,
+    feature_map: &GeneratedMissionFeatureMap,
+    report: &MissionVisualAssetReport,
+) -> GeneratedMissionVisualQa {
+    let total_cells = (feature_map.width * feature_map.height).max(1);
+    let path_cells = generated_feature_cell_count(feature_map, "path_network");
+    let trench_cells = generated_feature_cell_count(feature_map, "trench_network");
+    let berm_cells = generated_feature_cell_count(feature_map, "berm_network");
+    let stone_cells = generated_feature_cell_count(feature_map, "stone_region");
+    let feature_cells = path_cells + trench_cells + berm_cells + stone_cells;
+    let terrain_feature_visibility = ((path_cells as f32 * 0.7
+        + trench_cells as f32 * 1.4
+        + berm_cells as f32 * 1.4
+        + stone_cells as f32 * 1.2)
+        / total_cells as f32)
+        .clamp(0.0, 1.0);
+    let visual_feature_coverage = (feature_cells as f32 / total_cells as f32).clamp(0.0, 1.0);
+    let fallback_sprite_count =
+        (report.fallback_pieces_used.len() + report.missing_visual_pieces.len()) as u32;
+    let placeholder_object_count = feature_map
+        .object_counts
+        .iter()
+        .map(|entry| entry.count)
+        .sum();
+    let route_overlay_legibility = generated_route_overlay_legibility(state, total_cells);
+    let objective_visible = state.map.cell(state.spec.objective.defend_cell).is_some();
+    let spawn_visible = !state.map.spawn_cells.is_empty()
+        && state
+            .map
+            .spawn_cells
+            .iter()
+            .all(|cell| state.map.cell(*cell).is_some());
+
+    let mut notes = Vec::new();
+    if visual_feature_coverage < 0.08 {
+        notes.push(
+            "Low terrain-feature coverage; preview may read as mostly plain ground.".to_string(),
+        );
+    }
+    if terrain_feature_visibility < 0.10 {
+        notes.push(
+            "Low terrain-feature visibility; tactical features may be hard to distinguish."
+                .to_string(),
+        );
+    }
+    if fallback_sprite_count > 0 {
+        notes.push(format!(
+            "{fallback_sprite_count} missing/fallback visual sprite reference(s)."
+        ));
+    }
+    if placeholder_object_count > 14 {
+        notes.push(format!(
+            "{placeholder_object_count} placeholder object(s) may clutter the preview."
+        ));
+    }
+    if route_overlay_legibility < 0.55 {
+        notes.push("Route overlay legibility is low for this mission layout.".to_string());
+    }
+    if !objective_visible {
+        notes.push("Objective cell is outside the mission map.".to_string());
+    }
+    if !spawn_visible {
+        notes.push("One or more spawn cells are missing or outside the mission map.".to_string());
+    }
+    notes.extend(report.warnings.iter().cloned());
+    let warning_count = notes.len() as u32;
+
+    GeneratedMissionVisualQa {
+        visual_feature_coverage,
+        fallback_sprite_count,
+        placeholder_object_count,
+        route_overlay_legibility,
+        objective_visible,
+        spawn_visible,
+        terrain_feature_visibility,
+        warning_count,
+        notes,
+    }
+}
+
+fn generated_feature_cell_count(feature_map: &GeneratedMissionFeatureMap, feature: &str) -> u32 {
+    feature_map
+        .features
+        .iter()
+        .find(|summary| summary.feature == feature)
+        .map(|summary| summary.cell_count)
+        .unwrap_or(0)
+}
+
+fn generated_route_overlay_legibility(state: &MissionState, total_cells: u32) -> f32 {
+    let routes = state.route_preview();
+    let route_count = routes.routes.len() as f32;
+    let total_points = routes
+        .routes
+        .iter()
+        .map(|route| route.points.len() as u32)
+        .sum::<u32>() as f32;
+    let route_density = total_points / total_cells.max(1) as f32;
+    (1.0 - (route_count - 3.0).max(0.0) * 0.08 - (route_density - 2.0).max(0.0) * 0.12)
+        .clamp(0.0, 1.0)
+}
+
+fn resolve_pack_mission_path(path: &str, mission_path_base: Option<&Path>) -> PathBuf {
+    let raw = PathBuf::from(path);
+    if raw.is_absolute() || raw.exists() {
+        return raw;
+    }
+    if let Some(base) = mission_path_base {
+        let joined = base.join(&raw);
+        if joined.exists() {
+            return joined;
+        }
+        if let Some(parent) = base.parent() {
+            let parent_joined = parent.join(&raw);
+            if parent_joined.exists() {
+                return parent_joined;
+            }
+        }
+    }
+    raw
+}
+
+fn sanitize_path_component(value: &str) -> String {
+    let sanitized = value
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-') {
+                ch
+            } else {
+                '_'
+            }
+        })
+        .collect::<String>();
+    if sanitized.is_empty() {
+        "mission".to_string()
+    } else {
+        sanitized
     }
 }
 

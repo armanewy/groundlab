@@ -4,7 +4,7 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: ProcGen 6.1 — generated mission visual composition polish
+## Current status: ProcGen 7 — generated mission pack playtest pass
 
 GroundLab has pivoted again from manually tuning one mission toward generating compact tactical
 terrain problems in batches. The primary product direction is still a 2.5D tactical engineering
@@ -17,7 +17,7 @@ SpriteGen remains in the repository as the terrain art forge. It still provides 
 profiles, override PNGs, sprite manifests, validation, and exportable grass/dirt/path/trench/berm/
 stone pieces. It is now supporting infrastructure rather than the main roadmap driver.
 
-GamePivot 8 and ProcGen 1-6 build on the `ground_game` crate with:
+GamePivot 8 and ProcGen 1-7 build on the `ground_game` crate with:
 
 - `MissionSpec`, `MissionMap`, and `MissionCell`
 - earth states such as normal, scraped, trench, deep trench, spoil pile, berm, unstable, and muddy
@@ -67,6 +67,10 @@ GamePivot 8 and ProcGen 1-6 build on the `ground_game` crate with:
 - high-oblique mission visual previews rendered from generated/effective SpriteGen terrain pieces
 - per-candidate visual exports for beauty preview, compatibility preview, route overlay, debug grid, feature map, and sprite asset report
 - visual contact sheets for generated batches and mission packs
+- mission pack playtest reports that replay each selected mission through the scripted balance/debrief harness
+- per-mission pack playtest bundles with scenario comparisons, route/hazard summaries, visual renders, and visual QA
+- visual QA metrics for terrain-feature coverage, fallback sprite count, placeholder object count, route overlay legibility, objective/spawn visibility, and feature visibility
+- a Mission Lab mission-pack panel for loading `mission_pack.ron`, stepping previous/next through pack slots, and loading any pack mission into the playable loop
 - a Mission Lab file loader for opening generated `mission.ron` candidates directly from disk
 - assault summary and debrief exports for debugging why the plan worked or failed
 - per-cell influence summaries for crossed cells, delayed cells, damaging cells, defender pressure, breach cells, effective obstacles, and unused defenses
@@ -124,16 +128,16 @@ Run the GamePivot 7 mission balance pass:
 cargo run -p ground_cli -- mission-balance exports/gamepivot_07
 ```
 
-Generate a batch of ProcGen 6 all-theme mission candidates:
+Generate a batch of ProcGen 7 all-theme mission candidates:
 
 ```bash
-cargo run -p ground_cli -- generate-missions exports/procgen_06_batch --theme all --count 20 --seed 99418113 --render-visuals
+cargo run -p ground_cli -- generate-missions exports/procgen_07_batch --theme all --count 20 --seed 99418113 --render-visuals
 ```
 
 ProcGen output includes:
 
 ```txt
-exports/procgen_06_batch/
+exports/procgen_07_batch/
   browser_index.json
   theme_summary.json
   all_ranked_candidates.json
@@ -163,13 +167,13 @@ exports/procgen_06_batch/
 Build a generated mission pack from the accepted candidates:
 
 ```bash
-cargo run -p ground_cli -- generate-mission-pack exports/procgen_06_pack --seed 99418113 --missions 6 --candidates-per-theme 20 --curve tutorial --render-visuals
+cargo run -p ground_cli -- generate-mission-pack exports/procgen_07_pack --seed 99418113 --missions 6 --candidates-per-theme 20 --curve tutorial --render-visuals
 ```
 
 Mission pack output includes:
 
 ```txt
-exports/procgen_06_pack/
+exports/procgen_07_pack/
   mission_pack.ron
   mission_pack_summary.json
   mission_pack_contact_sheet.png
@@ -177,9 +181,35 @@ exports/procgen_06_pack/
   difficulty_curve.json
   complexity_curve.json
   pack_diversity_report.json
+  pack_playtest_summary.json
+  per_mission_playtest/
   source_candidates/
     browser_index.json
     per_theme/
+```
+
+Replay an existing generated mission pack through the playtest harness:
+
+```bash
+cargo run -p ground_cli -- playtest-mission-pack exports/procgen_07_playtest exports/procgen_07_pack/mission_pack.ron
+```
+
+Pack playtest output includes:
+
+```txt
+exports/procgen_07_playtest/
+  pack_playtest_summary.json
+  per_mission_playtest/
+    mission_01_*/
+      mission_balance_summary.json
+      scenario_comparison.json
+      route_shift_summary.json
+      hazard_effectiveness.json
+      visual/
+        mission_visual_beauty.png
+        mission_visual_routes.png
+        mission_visual_debug.png
+      visual_qa.json
 ```
 
 Render one mission directly as a high-oblique visual preview:
@@ -232,9 +262,18 @@ cargo run -p ground_app
 
 The full-scene terrain renderer and ArtGen outputs remain downstream infrastructure for terrain
 data, pathing, LOS, and art-kit composition. ProcGen 6 reconnects that asset pipeline to generated
-missions through deterministic visual previews, and ProcGen 6.1 separates beauty/routes/debug
-outputs while improving generated mission composition. The active gameplay roadmap still emphasizes
-seeded mission generation, automatic evaluation, ranking, and playable candidate export.
+missions through deterministic visual previews, ProcGen 6.1 separates beauty/routes/debug outputs
+while improving generated mission composition, and ProcGen 7 replays generated mission packs through
+the balance/debrief harness with visual QA. The active gameplay roadmap still emphasizes seeded
+mission generation, automatic evaluation, ranking, playable candidate export, and pack-level
+playtest reporting.
+
+## Previous status: ProcGen 6.1 — generated mission visual composition polish
+
+ProcGen 6.1 split generated mission visuals into beauty/routes/debug renders, kept
+`mission_visual_preview.png` as a compatibility alias, increased feature scale, improved backdrop
+and object silhouettes, added `generated_feature_map.json`, expanded `visual_asset_report.json`,
+and made visual contact sheets prefer beauty renders.
 
 ## Previous status: ProcGen 6 — generated mission visual integration
 
