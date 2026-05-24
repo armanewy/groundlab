@@ -803,21 +803,42 @@ impl MissionGeneratorSpec {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MissionTheme {
     DryRoadBelow,
+    OrchardApproach,
+    DryWash,
     RidgeTrap,
+    OldWall,
+    SplitApproach,
 }
 
 impl MissionTheme {
+    pub const GENERATABLE: [MissionTheme; 6] = [
+        MissionTheme::DryRoadBelow,
+        MissionTheme::OrchardApproach,
+        MissionTheme::DryWash,
+        MissionTheme::RidgeTrap,
+        MissionTheme::OldWall,
+        MissionTheme::SplitApproach,
+    ];
+
     pub fn slug(self) -> &'static str {
         match self {
             MissionTheme::DryRoadBelow => "dry_road_below",
+            MissionTheme::OrchardApproach => "orchard_approach",
+            MissionTheme::DryWash => "dry_wash",
             MissionTheme::RidgeTrap => "ridge_trap",
+            MissionTheme::OldWall => "old_wall",
+            MissionTheme::SplitApproach => "split_approach",
         }
     }
 
     pub fn label(self) -> &'static str {
         match self {
             MissionTheme::DryRoadBelow => "Dry Road Below",
+            MissionTheme::OrchardApproach => "Orchard Approach",
+            MissionTheme::DryWash => "Dry Wash",
             MissionTheme::RidgeTrap => "Ridge Trap",
+            MissionTheme::OldWall => "Old Wall",
+            MissionTheme::SplitApproach => "Split Approach",
         }
     }
 }
@@ -828,7 +849,13 @@ impl std::str::FromStr for MissionTheme {
     fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
         match value {
             "dry_road_below" | "road_below" | "dry-road-below" => Ok(MissionTheme::DryRoadBelow),
+            "orchard_approach" | "orchard" | "orchard-approach" => {
+                Ok(MissionTheme::OrchardApproach)
+            }
+            "dry_wash" | "dry-wash" => Ok(MissionTheme::DryWash),
             "ridge_trap" | "ridge-trap" => Ok(MissionTheme::RidgeTrap),
+            "old_wall" | "old-wall" => Ok(MissionTheme::OldWall),
+            "split_approach" | "split" | "split-approach" => Ok(MissionTheme::SplitApproach),
             other => Err(format!("unknown mission theme `{other}`")),
         }
     }
@@ -874,6 +901,7 @@ pub enum GeneratedAffordance {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GeneratedMissionCandidate {
     pub seed: u64,
+    pub theme: MissionTheme,
     pub spec: MissionSpec,
     pub affordance_report: GeneratedMissionAffordanceReport,
 }
@@ -979,6 +1007,10 @@ pub struct GeneratedMissionEvaluation {
     pub seed: u64,
     pub mission_id: String,
     pub title: String,
+    pub theme: MissionTheme,
+    pub theme_slug: String,
+    pub candidate_dir: Option<String>,
+    pub mission_path: Option<String>,
     pub accepted: bool,
     pub tactical_interest_score: i32,
     pub score_breakdown: GeneratedMissionScoreBreakdown,
@@ -1010,6 +1042,28 @@ pub struct GeneratedMissionBatchReport {
     pub rejected_count: u32,
     pub ranked_candidates: Vec<GeneratedMissionEvaluation>,
     pub rejected_candidates: Vec<GeneratedMissionEvaluation>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionThemeSummary {
+    pub theme: MissionTheme,
+    pub theme_slug: String,
+    pub generated_count: u32,
+    pub accepted_count: u32,
+    pub rejected_count: u32,
+    pub best_candidate: Option<GeneratedMissionEvaluation>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionThemeBatchReport {
+    pub seed: u64,
+    pub count_per_theme: u32,
+    pub theme_summaries: Vec<GeneratedMissionThemeSummary>,
+    pub total_generated_count: u32,
+    pub total_accepted_count: u32,
+    pub total_rejected_count: u32,
+    pub all_ranked_candidates: Vec<GeneratedMissionEvaluation>,
+    pub all_rejected_candidates: Vec<GeneratedMissionEvaluation>,
 }
 
 #[derive(Clone, Debug)]
@@ -2240,8 +2294,14 @@ pub fn generate_mission_candidate(
     generator: &MissionGeneratorSpec,
     seed: u64,
 ) -> GeneratedMissionCandidate {
-    match generator.terrain_archetype {
-        TerrainArchetype::RoadRidge => generate_road_ridge_candidate(generator, seed),
+    match generator.theme {
+        MissionTheme::DryRoadBelow | MissionTheme::RidgeTrap => {
+            generate_road_ridge_candidate(generator, seed)
+        }
+        MissionTheme::OrchardApproach => generate_orchard_approach_candidate(generator, seed),
+        MissionTheme::DryWash => generate_dry_wash_candidate(generator, seed),
+        MissionTheme::OldWall => generate_old_wall_candidate(generator, seed),
+        MissionTheme::SplitApproach => generate_split_approach_candidate(generator, seed),
     }
 }
 
@@ -2300,6 +2360,14 @@ pub fn export_generated_mission_batch(
 
         let evaluation =
             evaluate_generated_mission_candidate(&candidate, &initial_routes, &balance_report);
+        let mut evaluation = evaluation;
+        evaluation.candidate_dir = Some(candidate_dir.to_string_lossy().to_string());
+        evaluation.mission_path = Some(
+            candidate_dir
+                .join("mission.ron")
+                .to_string_lossy()
+                .to_string(),
+        );
         artifacts.push(GeneratedMissionArtifact {
             spec: candidate.spec,
             candidate_dir,
@@ -2390,6 +2458,100 @@ pub fn export_generated_mission_batch(
         &report.rejected_candidates,
     )?;
     write_json(out_dir.join("generator_summary.json"), &report)?;
+    Ok(report)
+}
+
+pub fn export_generated_mission_theme_batch(
+    out_dir: impl AsRef<Path>,
+    base_generator: MissionGeneratorSpec,
+    count_per_theme: u32,
+    themes: &[MissionTheme],
+) -> Result<GeneratedMissionThemeBatchReport> {
+    let out_dir = out_dir.as_ref();
+    fs::create_dir_all(out_dir)
+        .with_context(|| format!("failed to create {}", out_dir.display()))?;
+    let per_theme_dir = out_dir.join("per_theme");
+    let contact_sheet_dir = out_dir.join("contact_sheets");
+    fs::create_dir_all(&per_theme_dir)
+        .with_context(|| format!("failed to create {}", per_theme_dir.display()))?;
+    fs::create_dir_all(&contact_sheet_dir)
+        .with_context(|| format!("failed to create {}", contact_sheet_dir.display()))?;
+
+    let mut theme_summaries = Vec::new();
+    let mut all_ranked_candidates = Vec::new();
+    let mut all_rejected_candidates = Vec::new();
+    for (theme_index, theme) in themes.iter().copied().enumerate() {
+        let mut generator = base_generator.clone();
+        generator.theme = theme;
+        generator.seed = base_generator
+            .seed
+            .wrapping_add((theme_index as u64).wrapping_mul(0xd1b5_4a32_d192_ed03));
+        let theme_report = export_generated_mission_batch(
+            per_theme_dir.join(theme.slug()),
+            generator,
+            count_per_theme,
+        )?;
+        theme_summaries.push(GeneratedMissionThemeSummary {
+            theme,
+            theme_slug: theme.slug().to_string(),
+            generated_count: theme_report.generated_count,
+            accepted_count: theme_report.accepted_count,
+            rejected_count: theme_report.rejected_count,
+            best_candidate: theme_report.ranked_candidates.first().cloned(),
+        });
+        all_ranked_candidates.extend(theme_report.ranked_candidates);
+        all_rejected_candidates.extend(theme_report.rejected_candidates);
+    }
+
+    all_ranked_candidates.sort_by(|a, b| {
+        b.tactical_interest_score
+            .cmp(&a.tactical_interest_score)
+            .then_with(|| a.theme_slug.cmp(&b.theme_slug))
+            .then_with(|| a.seed.cmp(&b.seed))
+    });
+    all_rejected_candidates.sort_by(|a, b| {
+        a.rejection_kinds
+            .first()
+            .map(|kind| format!("{kind:?}"))
+            .cmp(&b.rejection_kinds.first().map(|kind| format!("{kind:?}")))
+            .then_with(|| b.tactical_interest_score.cmp(&a.tactical_interest_score))
+    });
+
+    save_generated_mission_evaluation_contact_sheet(
+        contact_sheet_dir.join("top_ranked_all_themes.png"),
+        &all_ranked_candidates,
+        25,
+    )?;
+    save_generated_mission_evaluation_contact_sheet(
+        contact_sheet_dir.join("accepted_by_theme.png"),
+        &all_ranked_candidates,
+        30,
+    )?;
+    save_generated_mission_evaluation_contact_sheet(
+        contact_sheet_dir.join("rejected_by_reason.png"),
+        &all_rejected_candidates,
+        30,
+    )?;
+
+    let report = GeneratedMissionThemeBatchReport {
+        seed: base_generator.seed,
+        count_per_theme,
+        total_generated_count: count_per_theme * themes.len() as u32,
+        total_accepted_count: all_ranked_candidates.len() as u32,
+        total_rejected_count: all_rejected_candidates.len() as u32,
+        theme_summaries,
+        all_ranked_candidates,
+        all_rejected_candidates,
+    };
+    write_json(out_dir.join("theme_summary.json"), &report)?;
+    write_json(
+        out_dir.join("all_ranked_candidates.json"),
+        &report.all_ranked_candidates,
+    )?;
+    write_json(
+        out_dir.join("all_rejected_candidates.json"),
+        &report.all_rejected_candidates,
+    )?;
     Ok(report)
 }
 
@@ -2488,9 +2650,14 @@ fn generate_road_ridge_candidate(
         DifficultyBand::Standard => 2,
         DifficultyBand::Hard => 5,
     };
-    let title = format!("Generated Road Below {:04x}", (seed & 0xffff) as u32);
+    let title_prefix = match generator.theme {
+        MissionTheme::RidgeTrap => "Ridge Trap",
+        MissionTheme::DryRoadBelow => "Generated Road Below",
+        other => other.label(),
+    };
+    let title = format!("{title_prefix} {:04x}", (seed & 0xffff) as u32);
     let spec = MissionSpec {
-        id: format!("procgen_road_below_{seed:016x}"),
+        id: format!("procgen_{}_{seed:016x}", generator.theme.slug()),
         title,
         briefing: MissionBriefing {
             summary: format!(
@@ -2583,9 +2750,366 @@ fn generate_road_ridge_candidate(
     let affordance_report = build_generated_affordance_report(&spec);
     GeneratedMissionCandidate {
         seed,
+        theme: generator.theme,
         spec,
         affordance_report,
     }
+}
+
+fn generate_orchard_approach_candidate(
+    generator: &MissionGeneratorSpec,
+    seed: u64,
+) -> GeneratedMissionCandidate {
+    let mut candidate = generate_road_ridge_candidate(generator, seed);
+    let mut rng = MissionRng::new(seed ^ 0x0a2c_0fc0);
+    candidate.spec.title = format!("Orchard Approach {:04x}", (seed & 0xffff) as u32);
+    candidate.spec.id = format!("procgen_orchard_approach_{seed:016x}");
+    candidate.spec.briefing.summary =
+        "A generated orchard approach where trees are both cover and material.".to_string();
+    candidate.spec.briefing.primary = "Hold the orchard road marker.".to_string();
+    candidate.spec.briefing.optional_objectives = vec![
+        "Use timber without clearing every line-of-sight blocker.".to_string(),
+        "Make the cover-seeking route worse than the road route.".to_string(),
+        "Avoid wasting the ridge log if the orchard already slows attackers.".to_string(),
+    ];
+    candidate.spec.briefing.intel = vec![
+        "Skirmishers prefer the tree cover and can punish over-cleared orchards.".to_string(),
+        "Rushers still test the road if the orchard becomes too costly.".to_string(),
+        "Local trees can become logs or stakes, but each cut changes route cover.".to_string(),
+    ];
+    candidate.spec.prep_time_seconds = 450 + rng.range_u32(0, 1) * 30;
+    candidate.spec.crew.labor_seconds_available = 470;
+    candidate.spec.objective.objective_health = 100;
+    for group in &mut candidate.spec.enemy_groups {
+        group.count += 1;
+    }
+
+    for x in 0..candidate.spec.map.width {
+        set_ground(
+            &mut candidate.spec.map,
+            CellCoord::new(x, 4),
+            GroundKind::Road,
+        );
+        if x % 3 == 0 {
+            set_ground(
+                &mut candidate.spec.map,
+                CellCoord::new(x, 3),
+                GroundKind::Dirt,
+            );
+        }
+    }
+    for x in 7..candidate.spec.map.width {
+        if let Some(cell) = candidate.spec.map.cell_mut(CellCoord::new(x, 2)) {
+            cell.height = 2;
+        }
+        if let Some(cell) = candidate.spec.map.cell_mut(CellCoord::new(x, 3)) {
+            cell.height = 2;
+        }
+    }
+    let orchard_cells = [
+        CellCoord::new(1, 1),
+        CellCoord::new(2, 1),
+        CellCoord::new(6, 6),
+    ];
+    for (index, cell) in orchard_cells.iter().enumerate() {
+        add_tree_object(
+            &mut candidate.spec.map,
+            format!("orchard_tree_{index:02}"),
+            "orchard tree",
+            *cell,
+        );
+    }
+    move_object(
+        &mut candidate.spec.map,
+        "tree_west_01",
+        CellCoord::new(3, 2),
+    );
+    move_object(
+        &mut candidate.spec.map,
+        "tree_west_02",
+        CellCoord::new(4, 2),
+    );
+    move_object(
+        &mut candidate.spec.map,
+        "tree_east_01",
+        CellCoord::new(8, 5),
+    );
+    move_object(
+        &mut candidate.spec.map,
+        "ridge_log_01",
+        CellCoord::new(7, 3),
+    );
+    refresh_generated_candidate(candidate, generator.theme)
+}
+
+fn generate_dry_wash_candidate(
+    generator: &MissionGeneratorSpec,
+    seed: u64,
+) -> GeneratedMissionCandidate {
+    let mut candidate = generate_road_ridge_candidate(generator, seed);
+    let mut rng = MissionRng::new(seed ^ 0x0d27_0a5a);
+    candidate.spec.title = format!("Dry Wash {:04x}", (seed & 0xffff) as u32);
+    candidate.spec.id = format!("procgen_dry_wash_{seed:016x}");
+    candidate.spec.briefing.summary =
+        "A generated dry wash where low ground creates dead-ground approach choices.".to_string();
+    candidate.spec.briefing.primary = "Hold the wash crossing marker.".to_string();
+    candidate.spec.briefing.optional_objectives = vec![
+        "Decide whether to deepen, block, or cover the wash.".to_string(),
+        "Use berms to overlook low ground without blocking defenders.".to_string(),
+        "Keep the rolling hazard from simply solving the crossing.".to_string(),
+    ];
+    candidate.spec.briefing.intel = vec![
+        "Rushers use the easiest wash crossing unless it becomes costly.".to_string(),
+        "Cover-seekers may treat low ground as safer than the open road.".to_string(),
+        "The dry wash is trenchable, but it can also create dead ground.".to_string(),
+    ];
+    candidate.spec.prep_time_seconds = 450;
+    candidate.spec.crew.labor_seconds_available = 460 + rng.range_u32(0, 1) * 20;
+
+    for x in 0..candidate.spec.map.width {
+        set_ground(
+            &mut candidate.spec.map,
+            CellCoord::new(x, 5),
+            GroundKind::Road,
+        );
+        if let Some(cell) = candidate.spec.map.cell_mut(CellCoord::new(x, 5)) {
+            cell.height = 0;
+        }
+        set_ground(
+            &mut candidate.spec.map,
+            CellCoord::new(x, 4),
+            GroundKind::Dirt,
+        );
+        if let Some(cell) = candidate.spec.map.cell_mut(CellCoord::new(x, 4)) {
+            cell.height = 0;
+            cell.earth_state = EarthState::Ditch;
+            cell.cover = CoverClass::Light;
+            cell.movement_cost = 1.35;
+        }
+        if rng.chance(1, 3) {
+            set_ground(
+                &mut candidate.spec.map,
+                CellCoord::new(x, 3),
+                GroundKind::Mud,
+            );
+        }
+    }
+    for x in 7..candidate.spec.map.width {
+        if let Some(cell) = candidate.spec.map.cell_mut(CellCoord::new(x, 2)) {
+            cell.height = 2;
+        }
+        if let Some(cell) = candidate.spec.map.cell_mut(CellCoord::new(x, 3)) {
+            cell.height = 2;
+        }
+    }
+    move_object(
+        &mut candidate.spec.map,
+        "tree_west_01",
+        CellCoord::new(2, 6),
+    );
+    move_object(
+        &mut candidate.spec.map,
+        "tree_west_02",
+        CellCoord::new(4, 6),
+    );
+    move_object(
+        &mut candidate.spec.map,
+        "tree_east_01",
+        CellCoord::new(9, 5),
+    );
+    add_tree_object(
+        &mut candidate.spec.map,
+        "wash_tree_01",
+        "wash scrub tree",
+        CellCoord::new(1, 3),
+    );
+    move_object(
+        &mut candidate.spec.map,
+        "ridge_log_01",
+        CellCoord::new(5, 3),
+    );
+    if let Some(cell) = candidate.spec.map.cell_mut(CellCoord::new(5, 3)) {
+        cell.height = 2;
+    }
+    refresh_generated_candidate(candidate, generator.theme)
+}
+
+fn generate_old_wall_candidate(
+    generator: &MissionGeneratorSpec,
+    seed: u64,
+) -> GeneratedMissionCandidate {
+    let mut candidate = generate_road_ridge_candidate(generator, seed);
+    let mut rng = MissionRng::new(seed ^ 0x0d0d_aa11);
+    candidate.spec.title = format!("Old Wall {:04x}", (seed & 0xffff) as u32);
+    candidate.spec.id = format!("procgen_old_wall_{seed:016x}");
+    candidate.spec.briefing.summary =
+        "A generated ruined-wall approach with hard cover and breach choices.".to_string();
+    candidate.spec.briefing.primary = "Hold the wall-side marker.".to_string();
+    candidate.spec.briefing.optional_objectives = vec![
+        "Use the ruin as cover without giving attackers a protected route.".to_string(),
+        "Force enemies through a chosen breach rather than every gap.".to_string(),
+        "Avoid overbuilding earthworks that make the wall irrelevant.".to_string(),
+    ];
+    candidate.spec.briefing.intel = vec![
+        "Riflemen value wall cover more than rushers do.".to_string(),
+        "Ruined segments can make one route safer for attackers.".to_string(),
+        "Earthworks around the wall should shape, not erase, the hard-cover problem.".to_string(),
+    ];
+    candidate.spec.prep_time_seconds = 420 + rng.range_u32(0, 1) * 30;
+
+    for x in 0..candidate.spec.map.width {
+        set_ground(
+            &mut candidate.spec.map,
+            CellCoord::new(x, 4),
+            GroundKind::Road,
+        );
+        if x >= 5 {
+            set_ground(
+                &mut candidate.spec.map,
+                CellCoord::new(x, 3),
+                GroundKind::Rock,
+            );
+        }
+    }
+    for x in 7..candidate.spec.map.width {
+        if let Some(cell) = candidate.spec.map.cell_mut(CellCoord::new(x, 2)) {
+            cell.height = 2;
+        }
+    }
+    let wall_cells = [
+        (CellCoord::new(5, 3), WallState::Damaged),
+        (CellCoord::new(6, 3), WallState::Breached),
+        (CellCoord::new(7, 3), WallState::Damaged),
+        (CellCoord::new(8, 4), WallState::CollapsedRubble),
+    ];
+    for (index, (cell, state)) in wall_cells.iter().enumerate() {
+        candidate.spec.map.objects.push(EnvironmentObject {
+            id: format!("old_wall_{index:02}"),
+            label: "old wall segment".to_string(),
+            kind: EnvironmentObjectKind::Wall(state.clone()),
+            cell: *cell,
+            footprint: (1, 1),
+            blocks_sight: !matches!(state, WallState::Breached | WallState::CollapsedRubble),
+            cover: CoverClass::Strong,
+            movement_cost_delta: if matches!(state, WallState::Breached) {
+                0.2
+            } else {
+                1.1
+            },
+        });
+    }
+    move_object(
+        &mut candidate.spec.map,
+        "tree_west_01",
+        CellCoord::new(2, 2),
+    );
+    move_object(
+        &mut candidate.spec.map,
+        "tree_west_02",
+        CellCoord::new(2, 6),
+    );
+    move_object(
+        &mut candidate.spec.map,
+        "tree_east_01",
+        CellCoord::new(9, 5),
+    );
+    move_object(
+        &mut candidate.spec.map,
+        "ridge_log_01",
+        CellCoord::new(7, 3),
+    );
+    refresh_generated_candidate(candidate, generator.theme)
+}
+
+fn generate_split_approach_candidate(
+    generator: &MissionGeneratorSpec,
+    seed: u64,
+) -> GeneratedMissionCandidate {
+    let mut candidate = generate_road_ridge_candidate(generator, seed);
+    let mut rng = MissionRng::new(seed ^ 0x5f11_7001);
+    candidate.spec.title = format!("Split Approach {:04x}", (seed & 0xffff) as u32);
+    candidate.spec.id = format!("procgen_split_approach_{seed:016x}");
+    candidate.spec.briefing.summary =
+        "A generated split approach with two lanes and not enough time to perfect both."
+            .to_string();
+    candidate.spec.briefing.primary = "Hold the split-road marker.".to_string();
+    candidate.spec.briefing.optional_objectives = vec![
+        "Avoid overcommitting all prep to one approach.".to_string(),
+        "Use cheap obstacles to bias one lane while strengthening the other.".to_string(),
+        "Keep defenders from being screened by your own berms.".to_string(),
+    ];
+    candidate.spec.briefing.intel = vec![
+        "Rushers pressure the southern road.".to_string(),
+        "Skirmishers and cautious riflemen can exploit the side lane.".to_string(),
+        "Prep time is intentionally tight for two complete defenses.".to_string(),
+    ];
+    candidate.spec.prep_time_seconds = 390 + rng.range_u32(0, 1) * 30;
+    candidate.spec.crew.labor_seconds_available = 410;
+    candidate.spec.objective.objective_health = 125;
+    candidate.spec.map.spawn_cells = vec![CellCoord::new(0, 6), CellCoord::new(0, 2)];
+
+    for x in 0..candidate.spec.map.width {
+        set_ground(
+            &mut candidate.spec.map,
+            CellCoord::new(x, 5),
+            GroundKind::Road,
+        );
+        set_ground(
+            &mut candidate.spec.map,
+            CellCoord::new(x, 2),
+            GroundKind::Road,
+        );
+        if x % 2 == 0 {
+            set_ground(
+                &mut candidate.spec.map,
+                CellCoord::new(x, 3),
+                GroundKind::Dirt,
+            );
+        }
+    }
+    for x in 7..candidate.spec.map.width {
+        if let Some(cell) = candidate.spec.map.cell_mut(CellCoord::new(x, 3)) {
+            cell.height = 2;
+        }
+        if let Some(cell) = candidate.spec.map.cell_mut(CellCoord::new(x, 4)) {
+            cell.height = 2;
+        }
+    }
+    let objective = CellCoord::new(10, 3);
+    candidate.spec.objective.defend_cell = objective;
+    for group in &mut candidate.spec.enemy_groups {
+        group.objective = objective;
+    }
+    if let Some(group) = candidate.spec.enemy_groups.get_mut(0) {
+        group.spawn = CellCoord::new(0, 6);
+    }
+    if let Some(group) = candidate.spec.enemy_groups.get_mut(1) {
+        group.spawn = CellCoord::new(0, 2);
+    }
+    if let Some(group) = candidate.spec.enemy_groups.get_mut(2) {
+        group.spawn = CellCoord::new(0, 2);
+    }
+    move_object(
+        &mut candidate.spec.map,
+        "tree_west_01",
+        CellCoord::new(3, 2),
+    );
+    move_object(
+        &mut candidate.spec.map,
+        "tree_west_02",
+        CellCoord::new(3, 6),
+    );
+    move_object(
+        &mut candidate.spec.map,
+        "tree_east_01",
+        CellCoord::new(8, 5),
+    );
+    move_object(
+        &mut candidate.spec.map,
+        "ridge_log_01",
+        CellCoord::new(7, 3),
+    );
+    refresh_generated_candidate(candidate, generator.theme)
 }
 
 fn evaluate_generated_mission_candidate(
@@ -2722,7 +3246,7 @@ fn evaluate_generated_mission_candidate(
         rejection_kinds.push(GeneratedMissionRejectionKind::NoUsefulMaterials);
         rejection_reasons.push("not enough trenchable soil".to_string());
     }
-    if rolling_hazard_score <= 0.0 {
+    if rolling_hazard_score <= 0.0 && theme_requires_rolling_hazard(candidate.theme) {
         rejection_kinds.push(GeneratedMissionRejectionKind::NoHazardOpportunity);
         rejection_reasons.push("rolling-log opportunity does not cross likely routes".to_string());
     }
@@ -2765,6 +3289,10 @@ fn evaluate_generated_mission_candidate(
         seed: candidate.seed,
         mission_id: candidate.spec.id.clone(),
         title: candidate.spec.title.clone(),
+        theme: candidate.theme,
+        theme_slug: candidate.theme.slug().to_string(),
+        candidate_dir: None,
+        mission_path: None,
         accepted: rejection_kinds.is_empty(),
         tactical_interest_score,
         score_breakdown,
@@ -2917,6 +3445,10 @@ fn coord_jaccard(a: &[CellCoord], b: &[CellCoord]) -> f32 {
     left.intersection(&right).count() as f32 / union
 }
 
+fn theme_requires_rolling_hazard(theme: MissionTheme) -> bool {
+    matches!(theme, MissionTheme::DryRoadBelow | MissionTheme::RidgeTrap)
+}
+
 #[derive(Clone, Debug)]
 struct MissionRng {
     state: u64,
@@ -2971,6 +3503,21 @@ fn add_tree_object(
         cover: CoverClass::Partial,
         movement_cost_delta: 0.4,
     });
+}
+
+fn move_object(map: &mut MissionMap, object_id: &str, cell: CellCoord) {
+    if let Some(object) = map.object_at_mut(object_id) {
+        object.cell = cell;
+    }
+}
+
+fn refresh_generated_candidate(
+    mut candidate: GeneratedMissionCandidate,
+    theme: MissionTheme,
+) -> GeneratedMissionCandidate {
+    candidate.theme = theme;
+    candidate.affordance_report = build_generated_affordance_report(&candidate.spec);
+    candidate
 }
 
 fn build_generated_affordance_report(spec: &MissionSpec) -> GeneratedMissionAffordanceReport {
@@ -3212,6 +3759,30 @@ fn save_generated_mission_contact_sheet(
     sheet
         .save(path)
         .with_context(|| format!("failed to save {}", path.display()))
+}
+
+fn save_generated_mission_evaluation_contact_sheet(
+    path: impl AsRef<Path>,
+    evaluations: &[GeneratedMissionEvaluation],
+    limit: usize,
+) -> Result<()> {
+    let mut artifacts = Vec::new();
+    for evaluation in evaluations.iter().take(limit) {
+        let Some(mission_path) = &evaluation.mission_path else {
+            continue;
+        };
+        let spec = load_mission_spec(mission_path)?;
+        artifacts.push(GeneratedMissionArtifact {
+            spec,
+            candidate_dir: evaluation
+                .candidate_dir
+                .as_ref()
+                .map(PathBuf::from)
+                .unwrap_or_default(),
+            evaluation: evaluation.clone(),
+        });
+    }
+    save_generated_mission_contact_sheet(path, &artifacts, limit)
 }
 
 fn blit_image(target: &mut RgbaImage, source: &RgbaImage, x0: u32, y0: u32) {
@@ -6721,5 +7292,35 @@ mod tests {
         let routes = state.route_preview();
         assert_eq!(routes.routes.len(), 3);
         assert!(routes.routes.iter().all(|route| route.reached_goal));
+    }
+
+    #[test]
+    fn procgen_theme_classes_generate_routeable_candidates() {
+        for theme in MissionTheme::GENERATABLE {
+            let mut generator = MissionGeneratorSpec::road_below(99_418_113);
+            generator.theme = theme;
+            let candidate = generate_mission_candidate(&generator, generator.seed);
+            let routes = MissionState::from_spec(candidate.spec.clone()).route_preview();
+
+            assert_eq!(candidate.theme, theme);
+            assert_eq!(routes.routes.len(), 3, "theme {theme:?}");
+            assert!(
+                routes.routes.iter().all(|route| route.reached_goal),
+                "theme {theme:?}"
+            );
+            assert!(
+                candidate.affordance_report.tree_count >= 3,
+                "theme {theme:?}"
+            );
+            if theme_requires_rolling_hazard(theme) {
+                assert!(
+                    candidate
+                        .affordance_report
+                        .rolling_hazard_route_intersections
+                        > 0,
+                    "theme {theme:?}"
+                );
+            }
+        }
     }
 }

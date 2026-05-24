@@ -225,6 +225,33 @@ The generator was smoke-tested with a deterministic 100-candidate ridge-trap bat
 accepted 11 candidates and rejected 89, including near-duplicate candidates with explicit duplicate
 diagnostics.
 
+## ProcGen 3 — Theme classes
+
+Implemented in this drop.
+
+- expanded `MissionTheme` with `orchard_approach`, `dry_wash`, `old_wall`, and `split_approach`
+  beside the existing dry road / ridge-trap generation path
+- added theme-specific terrain grammars:
+  - Orchard Approach: tree clusters, timber/LOS tradeoffs, cover-seeking pressure, and restrained
+    ridge-log affordance
+  - Dry Wash: lowered wash/ditch ground, mud/soft crossing cells, overlook positions, and optional
+    hazard interaction
+  - Old Wall: damaged/breached/collapsed wall objects, rock ground, hard-cover route pressure, and
+    wall-side earthwork opportunities
+  - Split Approach: two approach lanes, split enemy spawns, tighter prep budget, and resource
+    prioritization pressure
+- `generate-missions --theme all` now runs every generatable theme into `per_theme/{theme_slug}/`
+  and writes combined all-theme reports
+- all-theme exports include `theme_summary.json`, `all_ranked_candidates.json`,
+  `all_rejected_candidates.json`, and `contact_sheets/top_ranked_all_themes.png`
+- all-theme contact sheets also include `accepted_by_theme.png` and `rejected_by_reason.png`
+- single-theme generation still uses the same ProcGen 2 evaluator, duplicate filtering, contact
+  sheets, and Mission Lab-loadable `mission.ron` files
+
+The all-theme smoke run generated 120 candidates across six themes, accepted 26, rejected 94, and
+produced accepted candidates in every theme class. This keeps the generator focused on tactical
+problem classes instead of adding new gameplay systems.
+
 ## Milestone 0 — Project seed
 
 Implemented.
