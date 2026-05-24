@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::collections::BinaryHeap;
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::fs;
 use std::path::Path;
 
@@ -7,7 +7,7 @@ use anyhow::{bail, Context, Result};
 use image::{Rgba, RgbaImage};
 use serde::{Deserialize, Serialize};
 
-pub const DEFAULT_MISSION_EXPORT_DIR: &str = "exports/gamepivot_05";
+pub const DEFAULT_MISSION_EXPORT_DIR: &str = "exports/gamepivot_05_1";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CellCoord {
@@ -639,6 +639,8 @@ pub struct AssaultTimelineEvent {
     pub group_label: Option<String>,
     pub cell: Option<CellCoord>,
     pub kind: AssaultEventKind,
+    pub cause: AssaultEventCause,
+    pub magnitude: i32,
     pub note: String,
 }
 
@@ -647,11 +649,40 @@ pub enum AssaultEventKind {
     AssaultStarted,
     Spawned,
     Moved,
-    Delayed,
-    Damaged,
+    Rerouted,
+    DelayedByTerrain,
+    DelayedByObstacle,
+    SuppressedByDefender,
+    DamagedByDefender,
+    DamagedByObstacle,
     Eliminated,
-    ObjectiveDamaged,
+    ReachedObjective,
     AssaultEnded,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum AssaultEventCause {
+    System,
+    Spawn,
+    Route,
+    Terrain,
+    Obstacle,
+    Defender,
+    Objective,
+}
+
+impl AssaultEventCause {
+    pub fn label(self) -> &'static str {
+        match self {
+            AssaultEventCause::System => "system",
+            AssaultEventCause::Spawn => "spawn",
+            AssaultEventCause::Route => "route",
+            AssaultEventCause::Terrain => "terrain",
+            AssaultEventCause::Obstacle => "obstacle",
+            AssaultEventCause::Defender => "defender",
+            AssaultEventCause::Objective => "objective",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -665,6 +696,107 @@ pub struct AssaultSummary {
     pub objective_health_remaining: i32,
     pub objective_damage_taken: i32,
     pub notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AssaultDebrief {
+    pub mission_id: String,
+    pub outcome_label: String,
+    pub summary: AssaultSummary,
+    pub influence: AssaultInfluenceSummary,
+    pub route_prediction_accuracy: RoutePredictionAccuracyReport,
+    pub notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct AssaultInfluenceSummary {
+    pub most_crossed_cells: Vec<CellInfluence>,
+    pub most_delayed_cells: Vec<CellInfluence>,
+    pub most_damaging_cells: Vec<CellInfluence>,
+    pub defender_pressure_cells: Vec<CellInfluence>,
+    pub breach_cells: Vec<CellInfluence>,
+    pub most_effective_obstacle: Option<CellInfluence>,
+    pub most_delayed_group: Option<GroupInfluence>,
+    pub unused_defenses: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct CellInfluence {
+    pub cell: CellCoord,
+    pub count: u32,
+    pub magnitude: i32,
+    pub label: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GroupInfluence {
+    pub group_label: String,
+    pub count: u32,
+    pub magnitude: i32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RoutePredictionAccuracyReport {
+    pub groups: Vec<RoutePredictionAccuracy>,
+    pub average_accuracy: f32,
+    pub total_divergence_cells: u32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RoutePredictionAccuracy {
+    pub group_label: String,
+    pub doctrine: EnemyDoctrine,
+    pub predicted_cell_count: u32,
+    pub actual_cell_count: u32,
+    pub shared_cell_count: u32,
+    pub divergence_cells: Vec<CellCoord>,
+    pub accuracy: f32,
+    pub explanation: String,
+}
+
+fn assault_event(
+    tick: u32,
+    agent: Option<&EnemyAgent>,
+    cell: Option<CellCoord>,
+    kind: AssaultEventKind,
+    cause: AssaultEventCause,
+    magnitude: i32,
+    note: impl Into<String>,
+) -> AssaultTimelineEvent {
+    AssaultTimelineEvent {
+        tick,
+        agent_id: agent.map(|agent| agent.id),
+        group_label: agent.map(|agent| agent.group_label.clone()),
+        cell,
+        kind,
+        cause,
+        magnitude,
+        note: note.into(),
+    }
+}
+
+#[derive(Clone, Debug)]
+struct AssaultCellEffect {
+    delay_ticks: u32,
+    terrain_delay_ticks: u32,
+    obstacle_delay_ticks: u32,
+    obstacle_damage: i32,
+    terrain_damage: i32,
+    reasons: Vec<String>,
+}
+
+impl AssaultCellEffect {
+    fn total_damage(&self) -> i32 {
+        self.obstacle_damage + self.terrain_damage
+    }
+
+    fn reason_text(&self) -> String {
+        if self.reasons.is_empty() {
+            "clear ground".to_string()
+        } else {
+            self.reasons.join(", ")
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1028,30 +1160,32 @@ impl MissionState {
         }
 
         let mut timeline = Vec::new();
-        timeline.push(AssaultTimelineEvent {
-            tick: 0,
-            agent_id: None,
-            group_label: None,
-            cell: None,
-            kind: AssaultEventKind::AssaultStarted,
-            note: format!(
+        timeline.push(assault_event(
+            0,
+            None,
+            None,
+            AssaultEventKind::AssaultStarted,
+            AssaultEventCause::System,
+            agents.len() as i32,
+            format!(
                 "Assault started with {} enemy agent(s) and {} defender position(s).",
                 agents.len(),
                 self.spec.defender_positions.len()
             ),
-        });
+        ));
         for agent in &agents {
-            timeline.push(AssaultTimelineEvent {
-                tick: 0,
-                agent_id: Some(agent.id),
-                group_label: Some(agent.group_label.clone()),
-                cell: Some(agent.cell),
-                kind: AssaultEventKind::Spawned,
-                note: format!(
+            timeline.push(assault_event(
+                0,
+                Some(agent),
+                Some(agent.cell),
+                AssaultEventKind::Spawned,
+                AssaultEventCause::Spawn,
+                1,
+                format!(
                     "{} spawned at ({}, {}).",
                     agent.group_label, agent.cell.x, agent.cell.y
                 ),
-            });
+            ));
         }
 
         self.phase = MissionPhase::Assault;
@@ -1096,14 +1230,15 @@ impl MissionState {
             if events.len() == event_count_before
                 && matches!(assault.agents[index].status, EnemyAgentStatus::Advancing)
             {
-                events.push(AssaultTimelineEvent {
-                    tick: assault.tick,
-                    agent_id: Some(assault.agents[index].id),
-                    group_label: Some(assault.agents[index].group_label.clone()),
-                    cell: Some(assault.agents[index].cell),
-                    kind: AssaultEventKind::Delayed,
-                    note: "agent held position".to_string(),
-                });
+                events.push(assault_event(
+                    assault.tick,
+                    Some(&assault.agents[index]),
+                    Some(assault.agents[index].cell),
+                    AssaultEventKind::DelayedByTerrain,
+                    AssaultEventCause::Route,
+                    1,
+                    "agent held position",
+                ));
             }
         }
 
@@ -1124,14 +1259,15 @@ impl MissionState {
             } else {
                 AssaultStatus::Defeat
             };
-            events.push(AssaultTimelineEvent {
-                tick: assault.tick,
-                agent_id: None,
-                group_label: None,
-                cell: Some(self.spec.objective.defend_cell),
-                kind: AssaultEventKind::AssaultEnded,
-                note: summary.outcome_label.clone(),
-            });
+            events.push(assault_event(
+                assault.tick,
+                None,
+                Some(self.spec.objective.defend_cell),
+                AssaultEventKind::AssaultEnded,
+                AssaultEventCause::System,
+                if summary.victory { 1 } else { -1 },
+                summary.outcome_label.clone(),
+            ));
             assault.summary = Some(summary);
             self.phase = MissionPhase::Debrief;
         }
@@ -1192,6 +1328,10 @@ impl MissionState {
     pub fn reset_assault(&mut self) {
         self.phase = MissionPhase::Prep;
         self.assault = None;
+    }
+
+    pub fn assault_debrief(&self) -> Option<AssaultDebrief> {
+        build_assault_debrief(self)
     }
 }
 
@@ -1742,6 +1882,19 @@ pub fn export_assault_run(
         write_json(out_dir.join("assault_timeline.json"), &assault.timeline)?;
     }
     write_json(out_dir.join("assault_summary.json"), &summary)?;
+    if let Some(debrief) = prep.assault_debrief() {
+        write_json(out_dir.join("assault_debrief.json"), &debrief)?;
+        write_json(
+            out_dir.join("route_prediction_accuracy.json"),
+            &debrief.route_prediction_accuracy,
+        )?;
+        save_assault_delay_heatmap_png(out_dir.join("assault_delay_heatmap.png"), &prep)?;
+        save_assault_pressure_heatmap_png(out_dir.join("assault_pressure_heatmap.png"), &prep)?;
+        save_assault_prediction_vs_actual_png(
+            out_dir.join("assault_prediction_vs_actual.png"),
+            &prep,
+        )?;
+    }
     save_mission_assault_preview_png(out_dir.join("assault_preview_end.png"), &prep)?;
     Ok(summary)
 }
@@ -2079,98 +2232,125 @@ fn step_agent_assault(
         } else {
             EnemyAgentStatus::Delayed
         };
-        events.push(AssaultTimelineEvent {
+        events.push(assault_event(
             tick,
-            agent_id: Some(agent.id),
-            group_label: Some(agent.group_label.clone()),
-            cell: Some(agent.cell),
-            kind: AssaultEventKind::Delayed,
-            note: format!("{} is delayed by terrain or obstacles.", agent.group_label),
-        });
+            Some(agent),
+            Some(agent.cell),
+            AssaultEventKind::DelayedByTerrain,
+            AssaultEventCause::Route,
+            agent.delay_ticks as i32,
+            format!("{} is still delayed before moving.", agent.group_label),
+        ));
         return;
     }
 
     let defender_hit = defender_pressure_at_cell(map, spec, agent.cell);
     if defender_hit > 0 {
         agent.hp -= defender_hit;
-        events.push(AssaultTimelineEvent {
+        events.push(assault_event(
             tick,
-            agent_id: Some(agent.id),
-            group_label: Some(agent.group_label.clone()),
-            cell: Some(agent.cell),
-            kind: AssaultEventKind::Damaged,
-            note: format!(
+            Some(agent),
+            Some(agent.cell),
+            AssaultEventKind::SuppressedByDefender,
+            AssaultEventCause::Defender,
+            defender_hit,
+            format!(
+                "{} was pinned by defender pressure at ({}, {}).",
+                agent.group_label, agent.cell.x, agent.cell.y
+            ),
+        ));
+        events.push(assault_event(
+            tick,
+            Some(agent),
+            Some(agent.cell),
+            AssaultEventKind::DamagedByDefender,
+            AssaultEventCause::Defender,
+            defender_hit,
+            format!(
                 "{} took {defender_hit} pressure from defender positions.",
                 agent.group_label
             ),
-        });
+        ));
         if agent.hp <= 0 {
             agent.status = EnemyAgentStatus::Eliminated;
-            events.push(AssaultTimelineEvent {
+            events.push(assault_event(
                 tick,
-                agent_id: Some(agent.id),
-                group_label: Some(agent.group_label.clone()),
-                cell: Some(agent.cell),
-                kind: AssaultEventKind::Eliminated,
-                note: format!(
+                Some(agent),
+                Some(agent.cell),
+                AssaultEventKind::Eliminated,
+                AssaultEventCause::Defender,
+                1,
+                format!(
                     "{} was stopped before reaching the objective.",
                     agent.group_label
                 ),
-            });
+            ));
             return;
         }
     }
 
     if agent.route_index + 1 >= agent.route.len() {
         agent.status = EnemyAgentStatus::ReachedObjective;
-        *objective_health -= objective_damage_for_doctrine(agent.doctrine);
-        events.push(AssaultTimelineEvent {
+        let damage = objective_damage_for_doctrine(agent.doctrine);
+        *objective_health -= damage;
+        events.push(assault_event(
             tick,
-            agent_id: Some(agent.id),
-            group_label: Some(agent.group_label.clone()),
-            cell: Some(agent.cell),
-            kind: AssaultEventKind::ObjectiveDamaged,
-            note: format!("{} reached the objective.", agent.group_label),
-        });
+            Some(agent),
+            Some(agent.cell),
+            AssaultEventKind::ReachedObjective,
+            AssaultEventCause::Objective,
+            damage,
+            format!("{} reached the objective.", agent.group_label),
+        ));
         return;
     }
 
     let next = agent.route[agent.route_index + 1];
-    let (delay, damage, reason) = assault_cell_effect(map, next, agent.doctrine);
+    let effect = assault_cell_effect(map, next, agent.doctrine);
+    let damage = effect.total_damage();
+    let reason = effect.reason_text();
     agent.cell = next;
     agent.route_index += 1;
-    events.push(AssaultTimelineEvent {
+    events.push(assault_event(
         tick,
-        agent_id: Some(agent.id),
-        group_label: Some(agent.group_label.clone()),
-        cell: Some(agent.cell),
-        kind: AssaultEventKind::Moved,
-        note: format!(
+        Some(agent),
+        Some(agent.cell),
+        AssaultEventKind::Moved,
+        AssaultEventCause::Route,
+        1,
+        format!(
             "{} advanced to ({}, {}).",
             agent.group_label, next.x, next.y
         ),
-    });
+    ));
 
     if damage > 0 {
         agent.hp -= damage;
-        events.push(AssaultTimelineEvent {
+        let cause = if effect.obstacle_damage > 0 {
+            AssaultEventCause::Obstacle
+        } else {
+            AssaultEventCause::Terrain
+        };
+        events.push(assault_event(
             tick,
-            agent_id: Some(agent.id),
-            group_label: Some(agent.group_label.clone()),
-            cell: Some(agent.cell),
-            kind: AssaultEventKind::Damaged,
-            note: format!("{} took {damage} damage from {reason}.", agent.group_label),
-        });
+            Some(agent),
+            Some(agent.cell),
+            AssaultEventKind::DamagedByObstacle,
+            cause,
+            damage,
+            format!("{} took {damage} damage from {reason}.", agent.group_label),
+        ));
         if agent.hp <= 0 {
             agent.status = EnemyAgentStatus::Eliminated;
-            events.push(AssaultTimelineEvent {
+            events.push(assault_event(
                 tick,
-                agent_id: Some(agent.id),
-                group_label: Some(agent.group_label.clone()),
-                cell: Some(agent.cell),
-                kind: AssaultEventKind::Eliminated,
-                note: format!("{} was stopped by {reason}.", agent.group_label),
-            });
+                Some(agent),
+                Some(agent.cell),
+                AssaultEventKind::Eliminated,
+                cause,
+                1,
+                format!("{} was stopped by {reason}.", agent.group_label),
+            ));
             return;
         }
     }
@@ -2179,28 +2359,43 @@ fn step_agent_assault(
         agent.status = EnemyAgentStatus::ReachedObjective;
         let damage = objective_damage_for_doctrine(agent.doctrine);
         *objective_health -= damage;
-        events.push(AssaultTimelineEvent {
+        events.push(assault_event(
             tick,
-            agent_id: Some(agent.id),
-            group_label: Some(agent.group_label.clone()),
-            cell: Some(agent.cell),
-            kind: AssaultEventKind::ObjectiveDamaged,
-            note: format!("{} damaged the objective for {damage}.", agent.group_label),
-        });
+            Some(agent),
+            Some(agent.cell),
+            AssaultEventKind::ReachedObjective,
+            AssaultEventCause::Objective,
+            damage,
+            format!("{} damaged the objective for {damage}.", agent.group_label),
+        ));
         return;
     }
 
-    if delay > 0 {
-        agent.delay_ticks = delay;
+    if effect.delay_ticks > 0 {
+        agent.delay_ticks = effect.delay_ticks;
         agent.status = EnemyAgentStatus::Delayed;
-        events.push(AssaultTimelineEvent {
-            tick,
-            agent_id: Some(agent.id),
-            group_label: Some(agent.group_label.clone()),
-            cell: Some(agent.cell),
-            kind: AssaultEventKind::Delayed,
-            note: format!("{} is delayed by {reason}.", agent.group_label),
-        });
+        if effect.terrain_delay_ticks > 0 {
+            events.push(assault_event(
+                tick,
+                Some(agent),
+                Some(agent.cell),
+                AssaultEventKind::DelayedByTerrain,
+                AssaultEventCause::Terrain,
+                effect.terrain_delay_ticks as i32,
+                format!("{} is delayed by {reason}.", agent.group_label),
+            ));
+        }
+        if effect.obstacle_delay_ticks > 0 {
+            events.push(assault_event(
+                tick,
+                Some(agent),
+                Some(agent.cell),
+                AssaultEventKind::DelayedByObstacle,
+                AssaultEventCause::Obstacle,
+                effect.obstacle_delay_ticks as i32,
+                format!("{} is delayed by {reason}.", agent.group_label),
+            ));
+        }
     }
 }
 
@@ -2243,34 +2438,44 @@ fn assault_cell_effect(
     map: &MissionMap,
     cell: CellCoord,
     doctrine: EnemyDoctrine,
-) -> (u32, i32, String) {
-    let mut delay = 0;
-    let mut damage = 0;
-    let mut reasons = Vec::new();
+) -> AssaultCellEffect {
+    let mut effect = AssaultCellEffect {
+        delay_ticks: 0,
+        terrain_delay_ticks: 0,
+        obstacle_delay_ticks: 0,
+        obstacle_damage: 0,
+        terrain_damage: 0,
+        reasons: Vec::new(),
+    };
     if let Some(tile) = map.cell(cell) {
         match tile.earth_state {
             EarthState::Trench | EarthState::DeepTrench | EarthState::Ditch => {
-                delay += match doctrine {
+                let delay = match doctrine {
                     EnemyDoctrine::RushShortest | EnemyDoctrine::AvoidObstacles => 2,
                     EnemyDoctrine::PushThroughLightObstacles | EnemyDoctrine::ClearObstacles => 1,
                     _ => 1,
                 };
-                reasons.push("trench crossing");
+                effect.delay_ticks += delay;
+                effect.terrain_delay_ticks += delay;
+                effect.reasons.push("trench crossing".to_string());
             }
             EarthState::Berm | EarthState::SpoilPile => {
-                delay += match doctrine {
+                let delay = match doctrine {
                     EnemyDoctrine::AvoidObstacles => 2,
                     _ => 1,
                 };
-                reasons.push("berm slope");
+                effect.delay_ticks += delay;
+                effect.terrain_delay_ticks += delay;
+                effect.reasons.push("berm slope".to_string());
             }
             EarthState::Muddy => {
-                delay += 1;
-                reasons.push("mud");
+                effect.delay_ticks += 1;
+                effect.terrain_delay_ticks += 1;
+                effect.reasons.push("mud".to_string());
             }
             EarthState::Unstable => {
-                damage += 1;
-                reasons.push("unstable ground");
+                effect.terrain_damage += 1;
+                effect.reasons.push("unstable ground".to_string());
             }
             EarthState::Normal | EarthState::Scraped => {}
         }
@@ -2278,40 +2483,44 @@ fn assault_cell_effect(
     for object in map.objects_at_cell(cell) {
         match object.kind {
             EnvironmentObjectKind::Stakes(ObstacleState::Placed) => {
-                delay += match doctrine {
+                let delay = match doctrine {
                     EnemyDoctrine::ClearObstacles => 0,
                     EnemyDoctrine::PushThroughLightObstacles => 1,
                     _ => 2,
                 };
-                damage += match doctrine {
+                let damage = match doctrine {
                     EnemyDoctrine::PushThroughLightObstacles => 2,
                     EnemyDoctrine::ClearObstacles => 0,
                     _ => 1,
                 };
-                reasons.push("stakes");
+                effect.delay_ticks += delay;
+                effect.obstacle_delay_ticks += delay;
+                effect.obstacle_damage += damage;
+                effect.reasons.push("stakes".to_string());
             }
             EnvironmentObjectKind::Wire(ObstacleState::Placed) => {
-                delay += match doctrine {
+                let delay = match doctrine {
                     EnemyDoctrine::ClearObstacles => 1,
                     _ => 2,
                 };
-                reasons.push("wire");
+                effect.delay_ticks += delay;
+                effect.obstacle_delay_ticks += delay;
+                effect.reasons.push("wire".to_string());
             }
             EnvironmentObjectKind::Tree(TreeState::FallenTrunk { .. })
             | EnvironmentObjectKind::Log(_) => {
-                delay += match doctrine {
+                let delay = match doctrine {
                     EnemyDoctrine::PushThroughLightObstacles | EnemyDoctrine::ClearObstacles => 1,
                     _ => 2,
                 };
-                reasons.push("log obstacle");
+                effect.delay_ticks += delay;
+                effect.obstacle_delay_ticks += delay;
+                effect.reasons.push("log obstacle".to_string());
             }
             _ => {}
         }
     }
-    if reasons.is_empty() {
-        reasons.push("clear ground");
-    }
-    (delay, damage, reasons.join(", "))
+    effect
 }
 
 fn enemy_hp_for_doctrine(doctrine: EnemyDoctrine) -> i32 {
@@ -2370,6 +2579,293 @@ fn summarize_assault(spec: &MissionSpec, assault: &AssaultState) -> AssaultSumma
             format!("Objective damage taken: {objective_damage_taken}."),
         ],
     }
+}
+
+fn build_assault_debrief(state: &MissionState) -> Option<AssaultDebrief> {
+    let assault = state.assault.as_ref()?;
+    let summary = assault
+        .summary
+        .clone()
+        .unwrap_or_else(|| summarize_assault(&state.spec, assault));
+    let influence = build_assault_influence(state, assault);
+    let route_prediction_accuracy = build_route_prediction_accuracy(assault);
+    let mut notes = summary.notes.clone();
+    if let Some(group) = &influence.most_delayed_group {
+        notes.push(format!(
+            "Most delayed group: {} with {} delay event(s) totaling {} tick(s).",
+            group.group_label, group.count, group.magnitude
+        ));
+    }
+    if let Some(cell) = &influence.most_effective_obstacle {
+        notes.push(format!(
+            "Most effective obstacle cell: ({}, {}) · {}.",
+            cell.cell.x, cell.cell.y, cell.label
+        ));
+    }
+    notes.push(format!(
+        "Prediction accuracy averaged {:.0}% across {} doctrine route(s).",
+        route_prediction_accuracy.average_accuracy * 100.0,
+        route_prediction_accuracy.groups.len()
+    ));
+
+    Some(AssaultDebrief {
+        mission_id: state.spec.id.clone(),
+        outcome_label: summary.outcome_label.clone(),
+        summary,
+        influence,
+        route_prediction_accuracy,
+        notes,
+    })
+}
+
+#[derive(Clone, Debug, Default)]
+struct CellAgg {
+    count: u32,
+    magnitude: i32,
+    label: String,
+}
+
+fn add_cell_agg(
+    map: &mut HashMap<CellCoord, CellAgg>,
+    cell: CellCoord,
+    magnitude: i32,
+    label: impl Into<String>,
+) {
+    let entry = map.entry(cell).or_insert_with(|| CellAgg {
+        count: 0,
+        magnitude: 0,
+        label: label.into(),
+    });
+    entry.count += 1;
+    entry.magnitude += magnitude.max(1);
+}
+
+fn build_assault_influence(
+    state: &MissionState,
+    assault: &AssaultState,
+) -> AssaultInfluenceSummary {
+    let mut crossed = HashMap::new();
+    let mut delayed = HashMap::new();
+    let mut damaging = HashMap::new();
+    let mut defender_pressure = HashMap::new();
+    let mut breach = HashMap::new();
+    let mut obstacle_effects = HashMap::new();
+    let mut group_delay: HashMap<String, GroupInfluence> = HashMap::new();
+    let mut used_defenders = HashSet::new();
+    let mut used_obstacle_cells = HashSet::new();
+
+    for agent in &assault.agents {
+        for cell in actual_agent_path(agent) {
+            add_cell_agg(&mut crossed, cell, 1, "enemy crossing traffic");
+        }
+    }
+
+    for event in &assault.timeline {
+        let Some(cell) = event.cell else {
+            continue;
+        };
+        match event.kind {
+            AssaultEventKind::DelayedByTerrain | AssaultEventKind::DelayedByObstacle => {
+                add_cell_agg(&mut delayed, cell, event.magnitude, event.note.clone());
+                if event.cause == AssaultEventCause::Obstacle {
+                    add_cell_agg(
+                        &mut obstacle_effects,
+                        cell,
+                        event.magnitude,
+                        event.note.clone(),
+                    );
+                    used_obstacle_cells.insert(cell);
+                }
+                if let Some(group_label) = &event.group_label {
+                    let entry =
+                        group_delay
+                            .entry(group_label.clone())
+                            .or_insert_with(|| GroupInfluence {
+                                group_label: group_label.clone(),
+                                count: 0,
+                                magnitude: 0,
+                            });
+                    entry.count += 1;
+                    entry.magnitude += event.magnitude.max(1);
+                }
+            }
+            AssaultEventKind::DamagedByObstacle | AssaultEventKind::DamagedByDefender => {
+                add_cell_agg(&mut damaging, cell, event.magnitude, event.note.clone());
+                if event.kind == AssaultEventKind::DamagedByDefender {
+                    add_cell_agg(
+                        &mut defender_pressure,
+                        cell,
+                        event.magnitude,
+                        event.note.clone(),
+                    );
+                    for defender in &state.spec.defender_positions {
+                        if defender.cell.manhattan(cell) <= defender.range
+                            && mission_line_of_sight_clear(&state.map, defender.cell, cell)
+                        {
+                            used_defenders.insert(defender.id.clone());
+                        }
+                    }
+                } else if event.cause == AssaultEventCause::Obstacle {
+                    add_cell_agg(
+                        &mut obstacle_effects,
+                        cell,
+                        event.magnitude,
+                        event.note.clone(),
+                    );
+                    used_obstacle_cells.insert(cell);
+                }
+            }
+            AssaultEventKind::SuppressedByDefender => {
+                add_cell_agg(
+                    &mut defender_pressure,
+                    cell,
+                    event.magnitude,
+                    event.note.clone(),
+                );
+            }
+            AssaultEventKind::ReachedObjective => {
+                add_cell_agg(&mut breach, cell, event.magnitude, event.note.clone());
+            }
+            AssaultEventKind::AssaultStarted
+            | AssaultEventKind::Spawned
+            | AssaultEventKind::Moved
+            | AssaultEventKind::Rerouted
+            | AssaultEventKind::Eliminated
+            | AssaultEventKind::AssaultEnded => {}
+        }
+    }
+
+    let mut unused_defenses = Vec::new();
+    for defender in &state.spec.defender_positions {
+        if !used_defenders.contains(&defender.id) {
+            unused_defenses.push(format!(
+                "{} did not apply stopping pressure.",
+                defender.label
+            ));
+        }
+    }
+    for object in &state.map.objects {
+        if is_assault_obstacle(object) && !used_obstacle_cells.contains(&object.cell) {
+            unused_defenses.push(format!(
+                "{} at ({}, {}) did not affect an enemy path.",
+                object.id, object.cell.x, object.cell.y
+            ));
+        }
+    }
+
+    let most_effective_obstacle = top_cell_influences(obstacle_effects, 1).into_iter().next();
+    let most_delayed_group = group_delay
+        .into_values()
+        .max_by_key(|group| (group.magnitude, group.count));
+
+    AssaultInfluenceSummary {
+        most_crossed_cells: top_cell_influences(crossed, 8),
+        most_delayed_cells: top_cell_influences(delayed, 8),
+        most_damaging_cells: top_cell_influences(damaging, 8),
+        defender_pressure_cells: top_cell_influences(defender_pressure, 8),
+        breach_cells: top_cell_influences(breach, 4),
+        most_effective_obstacle,
+        most_delayed_group,
+        unused_defenses,
+    }
+}
+
+fn is_assault_obstacle(object: &EnvironmentObject) -> bool {
+    matches!(
+        object.kind,
+        EnvironmentObjectKind::Stakes(ObstacleState::Placed)
+            | EnvironmentObjectKind::Wire(ObstacleState::Placed)
+            | EnvironmentObjectKind::Tree(TreeState::FallenTrunk { .. })
+            | EnvironmentObjectKind::Log(_)
+    )
+}
+
+fn top_cell_influences(map: HashMap<CellCoord, CellAgg>, limit: usize) -> Vec<CellInfluence> {
+    let mut cells: Vec<_> = map
+        .into_iter()
+        .map(|(cell, agg)| CellInfluence {
+            cell,
+            count: agg.count,
+            magnitude: agg.magnitude,
+            label: agg.label,
+        })
+        .collect();
+    cells.sort_by(|a, b| {
+        b.magnitude
+            .cmp(&a.magnitude)
+            .then_with(|| b.count.cmp(&a.count))
+            .then_with(|| a.cell.y.cmp(&b.cell.y))
+            .then_with(|| a.cell.x.cmp(&b.cell.x))
+    });
+    cells.truncate(limit);
+    cells
+}
+
+fn build_route_prediction_accuracy(assault: &AssaultState) -> RoutePredictionAccuracyReport {
+    let mut groups = Vec::new();
+    for route in &assault.initial_routes.routes {
+        let predicted: HashSet<_> = route.points.iter().copied().collect();
+        let mut actual = HashSet::new();
+        for agent in assault
+            .agents
+            .iter()
+            .filter(|agent| agent.group_label == route.group_label)
+        {
+            actual.extend(actual_agent_path(agent));
+        }
+        let shared_cell_count = actual.intersection(&predicted).count() as u32;
+        let mut divergence_cells: Vec<_> = actual.difference(&predicted).copied().collect();
+        divergence_cells.sort_by_key(|cell| (cell.y, cell.x));
+        let denominator = actual.len().max(1) as f32;
+        let accuracy = shared_cell_count as f32 / denominator;
+        let explanation = if divergence_cells.is_empty() {
+            format!(
+                "{} actual paths stayed on the predicted doctrine route through {} observed cell(s).",
+                route.group_label,
+                actual.len()
+            )
+        } else {
+            format!(
+                "{} diverged across {} cell(s) from the predicted doctrine route.",
+                route.group_label,
+                divergence_cells.len()
+            )
+        };
+        groups.push(RoutePredictionAccuracy {
+            group_label: route.group_label.clone(),
+            doctrine: route.doctrine,
+            predicted_cell_count: predicted.len() as u32,
+            actual_cell_count: actual.len() as u32,
+            shared_cell_count,
+            divergence_cells,
+            accuracy,
+            explanation,
+        });
+    }
+
+    let average_accuracy = if groups.is_empty() {
+        1.0
+    } else {
+        groups.iter().map(|group| group.accuracy).sum::<f32>() / groups.len() as f32
+    };
+    let total_divergence_cells = groups
+        .iter()
+        .map(|group| group.divergence_cells.len() as u32)
+        .sum();
+
+    RoutePredictionAccuracyReport {
+        groups,
+        average_accuracy,
+        total_divergence_cells,
+    }
+}
+
+fn actual_agent_path(agent: &EnemyAgent) -> Vec<CellCoord> {
+    if agent.route.is_empty() {
+        return vec![agent.cell];
+    }
+    let end = agent.route_index.min(agent.route.len().saturating_sub(1));
+    agent.route.iter().take(end + 1).copied().collect()
 }
 
 fn build_work_order(
@@ -3010,6 +3506,119 @@ pub fn save_mission_assault_preview_png(
         .with_context(|| format!("failed to save {}", path.display()))
 }
 
+pub fn save_assault_delay_heatmap_png(path: impl AsRef<Path>, state: &MissionState) -> Result<()> {
+    save_assault_heatmap_png(
+        path,
+        state,
+        |event| {
+            matches!(
+                event.kind,
+                AssaultEventKind::DelayedByTerrain | AssaultEventKind::DelayedByObstacle
+            )
+        },
+        Rgba([236, 174, 62, 185]),
+    )
+}
+
+pub fn save_assault_pressure_heatmap_png(
+    path: impl AsRef<Path>,
+    state: &MissionState,
+) -> Result<()> {
+    save_assault_heatmap_png(
+        path,
+        state,
+        |event| {
+            matches!(
+                event.kind,
+                AssaultEventKind::SuppressedByDefender
+                    | AssaultEventKind::DamagedByDefender
+                    | AssaultEventKind::DamagedByObstacle
+            )
+        },
+        Rgba([218, 72, 82, 185]),
+    )
+}
+
+fn save_assault_heatmap_png(
+    path: impl AsRef<Path>,
+    state: &MissionState,
+    include: impl Fn(&AssaultTimelineEvent) -> bool,
+    color: Rgba<u8>,
+) -> Result<()> {
+    let path = path.as_ref();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let cell_px = 24;
+    let mut image = mission_preview_image(state, cell_px);
+    if let Some(assault) = &state.assault {
+        let mut cells: HashMap<CellCoord, i32> = HashMap::new();
+        for event in assault
+            .timeline
+            .iter()
+            .filter(|event| include(event))
+            .filter_map(|event| event.cell.map(|cell| (cell, event.magnitude.max(1))))
+        {
+            *cells.entry(event.0).or_default() += event.1;
+        }
+        let max_value = cells.values().copied().max().unwrap_or(1).max(1) as f32;
+        for (cell, value) in cells {
+            let intensity = (value as f32 / max_value).clamp(0.2, 1.0);
+            let alpha = (color[3] as f32 * intensity).round() as u8;
+            blend_preview_rect(
+                &mut image,
+                cell.x * cell_px + 2,
+                cell.y * cell_px + 2,
+                cell_px - 4,
+                cell_px - 4,
+                Rgba([color[0], color[1], color[2], alpha]),
+            );
+        }
+        draw_defender_positions(&mut image, &state.spec, cell_px);
+        draw_assault_agents(&mut image, assault, cell_px);
+    }
+    image
+        .save(path)
+        .with_context(|| format!("failed to save {}", path.display()))
+}
+
+pub fn save_assault_prediction_vs_actual_png(
+    path: impl AsRef<Path>,
+    state: &MissionState,
+) -> Result<()> {
+    let path = path.as_ref();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let cell_px = 24;
+    let mut image = mission_preview_image(state, cell_px);
+    if let Some(assault) = &state.assault {
+        for route in &assault.initial_routes.routes {
+            draw_route_path(&mut image, route, cell_px, Rgba([82, 130, 228, 120]), 2);
+        }
+        let actual_colors = [
+            Rgba([238, 91, 71, 210]),
+            Rgba([240, 184, 72, 210]),
+            Rgba([210, 105, 230, 210]),
+            Rgba([86, 214, 166, 210]),
+        ];
+        let mut drawn_groups = HashSet::new();
+        for agent in &assault.agents {
+            if drawn_groups.insert(agent.group_label.clone()) {
+                let color = actual_colors[drawn_groups.len() % actual_colors.len()];
+                draw_cell_path(&mut image, &actual_agent_path(agent), cell_px, color, 4);
+            }
+        }
+        draw_defender_positions(&mut image, &state.spec, cell_px);
+        draw_assault_agents(&mut image, assault, cell_px);
+    }
+    image
+        .save(path)
+        .with_context(|| format!("failed to save {}", path.display()))
+}
+
 fn mission_preview_image(state: &MissionState, cell_px: u32) -> RgbaImage {
     let mut image = RgbaImage::new(state.map.width * cell_px, state.map.height * cell_px);
     for y in 0..state.map.height {
@@ -3125,6 +3734,35 @@ fn draw_route_path(
         draw_route_segment(image, a, b, color, thickness);
     }
     for point in &route.points {
+        let (cx, cy) = route_cell_center(*point, cell_px);
+        let radius = thickness + 1;
+        blend_preview_rect(
+            image,
+            cx.saturating_sub(radius),
+            cy.saturating_sub(radius),
+            radius * 2 + 1,
+            radius * 2 + 1,
+            color,
+        );
+    }
+}
+
+fn draw_cell_path(
+    image: &mut RgbaImage,
+    points: &[CellCoord],
+    cell_px: u32,
+    color: Rgba<u8>,
+    thickness: u32,
+) {
+    if points.is_empty() {
+        return;
+    }
+    for window in points.windows(2) {
+        let a = route_cell_center(window[0], cell_px);
+        let b = route_cell_center(window[1], cell_px);
+        draw_route_segment(image, a, b, color, thickness);
+    }
+    for point in points {
         let (cx, cy) = route_cell_center(*point, cell_px);
         let radius = thickness + 1;
         blend_preview_rect(
@@ -3399,5 +4037,22 @@ mod tests {
             .timeline
             .iter()
             .any(|event| matches!(event.kind, AssaultEventKind::AssaultEnded)));
+        assert!(state
+            .assault
+            .as_ref()
+            .expect("assault")
+            .timeline
+            .iter()
+            .any(|event| {
+                matches!(event.kind, AssaultEventKind::DamagedByDefender)
+                    && event.cause == AssaultEventCause::Defender
+                    && event.magnitude > 0
+            }));
+
+        let debrief = state.assault_debrief().expect("debrief");
+        assert!(!debrief.influence.most_crossed_cells.is_empty());
+        assert!(!debrief.influence.most_damaging_cells.is_empty());
+        assert_eq!(debrief.route_prediction_accuracy.total_divergence_cells, 0);
+        assert!(debrief.route_prediction_accuracy.average_accuracy > 0.99);
     }
 }

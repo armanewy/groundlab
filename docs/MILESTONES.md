@@ -99,6 +99,21 @@ This milestone intentionally avoids full combat, projectiles, morale, animations
 advanced AI, and defender micromanagement. It only proves that prepared terrain can be exercised by
 a deterministic assault loop.
 
+## GamePivot 5.1 — Assault readability and debrief
+
+Implemented in this drop.
+
+- expanded assault timeline events with explicit event kind, cause, magnitude, cell, agent, group, and explanation
+- split generic delay/damage events into terrain delay, obstacle delay, defender suppression, defender damage, obstacle damage, reached-objective, elimination, and lifecycle events
+- added `AssaultDebrief` with influence summaries for crossed cells, delayed cells, damaging cells, defender pressure cells, breach cells, most effective obstacle, most delayed group, and unused defenses
+- added prediction-vs-actual route accuracy reports comparing doctrine route previews against actual assault traces
+- `mission-assault` now exports `assault_debrief.json`, `route_prediction_accuracy.json`, `assault_delay_heatmap.png`, `assault_pressure_heatmap.png`, and `assault_prediction_vs_actual.png`
+- Mission Lab now exposes delay, pressure, and actual-path map modes
+- the assault panel now shows a compact debrief after or during a run: most delayed group, best obstacle, breach point, prediction accuracy, and unused defense hint
+
+This milestone still avoids rolling hazards, combat animation, morale, projectile simulation, and
+advanced enemy AI. It makes the first assault loop explainable before adding more spectacle.
+
 ## Milestone 0 — Project seed
 
 Implemented.

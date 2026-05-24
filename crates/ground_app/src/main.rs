@@ -10,9 +10,9 @@ use ground_core::{
     ValidationReport, ViewOrientation, WorkbenchAssetPaths,
 };
 use ground_game::{
-    export_road_below_seed, road_below_seed_orders, CellCoord, CoverClass, EarthState,
-    EnemyAgentStatus, EnvironmentObject, EnvironmentObjectKind, GroundKind, MissionState,
-    TreeState, WorkOrderKind, WorkTarget, DEFAULT_MISSION_EXPORT_DIR,
+    export_road_below_seed, road_below_seed_orders, AssaultEventKind, CellCoord, CoverClass,
+    EarthState, EnemyAgentStatus, EnvironmentObject, EnvironmentObjectKind, GroundKind,
+    MissionState, TreeState, WorkOrderKind, WorkTarget, DEFAULT_MISSION_EXPORT_DIR,
 };
 
 const MAX_UI_TEXTURE_SIDE: usize = 2048;
@@ -136,14 +136,20 @@ enum MissionMapMode {
     Height,
     Cover,
     Resources,
+    Delay,
+    Pressure,
+    Actual,
 }
 
 impl MissionMapMode {
-    const ALL: [MissionMapMode; 4] = [
+    const ALL: [MissionMapMode; 7] = [
         MissionMapMode::Terrain,
         MissionMapMode::Height,
         MissionMapMode::Cover,
         MissionMapMode::Resources,
+        MissionMapMode::Delay,
+        MissionMapMode::Pressure,
+        MissionMapMode::Actual,
     ];
 
     fn label(self) -> &'static str {
@@ -152,6 +158,9 @@ impl MissionMapMode {
             MissionMapMode::Height => "height",
             MissionMapMode::Cover => "cover",
             MissionMapMode::Resources => "resources",
+            MissionMapMode::Delay => "delay",
+            MissionMapMode::Pressure => "pressure",
+            MissionMapMode::Actual => "actual",
         }
     }
 }
@@ -574,6 +583,40 @@ impl GroundLabApp {
                     "{} · damage {}",
                     summary.outcome_label, summary.objective_damage_taken
                 ));
+            }
+            if let Some(debrief) = self.mission_state.assault_debrief() {
+                ui.separator();
+                ui.strong("Debrief");
+                if let Some(group) = &debrief.influence.most_delayed_group {
+                    ui.small(format!(
+                        "Most delayed: {} · {} tick(s)",
+                        group.group_label, group.magnitude
+                    ));
+                }
+                if let Some(cell) = &debrief.influence.most_effective_obstacle {
+                    ui.small(format!(
+                        "Best obstacle: ({}, {}) · {}",
+                        cell.cell.x, cell.cell.y, cell.label
+                    ));
+                } else {
+                    ui.small("Best obstacle: none affected the assault route.");
+                }
+                if let Some(cell) = debrief.influence.breach_cells.first() {
+                    ui.small(format!(
+                        "Breach point: ({}, {}) · {} hit(s)",
+                        cell.cell.x, cell.cell.y, cell.count
+                    ));
+                } else {
+                    ui.small("Breach point: none.");
+                }
+                ui.small(format!(
+                    "Prediction accuracy: {:.0}% · divergence cells {}",
+                    debrief.route_prediction_accuracy.average_accuracy * 100.0,
+                    debrief.route_prediction_accuracy.total_divergence_cells
+                ));
+                if let Some(unused) = debrief.influence.unused_defenses.first() {
+                    ui.small(format!("Unused defense: {unused}"));
+                }
             }
         } else {
             ui.small("No assault is running. Start uses the current prepared mission state.");
@@ -1653,6 +1696,9 @@ impl GroundLabApp {
                     0.0,
                     mission_cell_color(cell, self.mission_map_mode),
                 );
+                if let Some(color) = self.assault_heat_color(coord) {
+                    painter.rect_filled(tile_rect.shrink(3.0), 0.0, color);
+                }
                 painter.rect_stroke(
                     tile_rect,
                     0.0,
@@ -1684,7 +1730,7 @@ impl GroundLabApp {
 
         ui.add_space(8.0);
         ui.label(
-            "Blue route = initial plan. Gold/red route = current terrain. Enemy markers appear after assault starts.",
+            "Blue route = initial plan. Gold/red route = current terrain. Delay/pressure/actual map modes use assault timeline data.",
         );
     }
 
@@ -1762,6 +1808,98 @@ impl GroundLabApp {
         }
     }
 
+    fn assault_heat_color(&self, coord: CellCoord) -> Option<egui::Color32> {
+        let assault = self.mission_state.assault.as_ref()?;
+        match self.mission_map_mode {
+            MissionMapMode::Delay => {
+                let value: i32 = assault
+                    .timeline
+                    .iter()
+                    .filter(|event| {
+                        matches!(
+                            event.kind,
+                            AssaultEventKind::DelayedByTerrain
+                                | AssaultEventKind::DelayedByObstacle
+                        ) && event.cell == Some(coord)
+                    })
+                    .map(|event| event.magnitude.max(1))
+                    .sum();
+                if value == 0 {
+                    return None;
+                }
+                let max_value = assault
+                    .timeline
+                    .iter()
+                    .filter(|event| {
+                        matches!(
+                            event.kind,
+                            AssaultEventKind::DelayedByTerrain
+                                | AssaultEventKind::DelayedByObstacle
+                        )
+                    })
+                    .map(|event| event.magnitude.max(1))
+                    .max()
+                    .unwrap_or(1);
+                let alpha = heat_alpha(value, max_value);
+                Some(egui::Color32::from_rgba_unmultiplied(236, 174, 62, alpha))
+            }
+            MissionMapMode::Pressure => {
+                let value: i32 = assault
+                    .timeline
+                    .iter()
+                    .filter(|event| {
+                        matches!(
+                            event.kind,
+                            AssaultEventKind::SuppressedByDefender
+                                | AssaultEventKind::DamagedByDefender
+                                | AssaultEventKind::DamagedByObstacle
+                        ) && event.cell == Some(coord)
+                    })
+                    .map(|event| event.magnitude.max(1))
+                    .sum();
+                if value == 0 {
+                    return None;
+                }
+                let max_value = assault
+                    .timeline
+                    .iter()
+                    .filter(|event| {
+                        matches!(
+                            event.kind,
+                            AssaultEventKind::SuppressedByDefender
+                                | AssaultEventKind::DamagedByDefender
+                                | AssaultEventKind::DamagedByObstacle
+                        )
+                    })
+                    .map(|event| event.magnitude.max(1))
+                    .max()
+                    .unwrap_or(1);
+                let alpha = heat_alpha(value, max_value);
+                Some(egui::Color32::from_rgba_unmultiplied(218, 72, 82, alpha))
+            }
+            MissionMapMode::Actual => {
+                let crossings = assault
+                    .agents
+                    .iter()
+                    .flat_map(|agent| {
+                        let end = agent.route_index.min(agent.route.len().saturating_sub(1));
+                        agent.route.iter().take(end + 1)
+                    })
+                    .filter(|cell| **cell == coord)
+                    .count();
+                if crossings == 0 {
+                    None
+                } else {
+                    Some(egui::Color32::from_rgba_unmultiplied(232, 94, 70, 130))
+                }
+            }
+            MissionMapMode::Terrain
+            | MissionMapMode::Height
+            | MissionMapMode::Cover
+            | MissionMapMode::Resources => None,
+        }
+    }
+
     fn draw_mission_route_overlay(
         &self,
         painter: &egui::Painter,
@@ -1832,6 +1970,23 @@ impl GroundLabApp {
         let Some(assault) = &self.mission_state.assault else {
             return;
         };
+        if self.mission_map_mode == MissionMapMode::Actual {
+            for agent in &assault.agents {
+                let end = agent.route_index.min(agent.route.len().saturating_sub(1));
+                let points: Vec<_> = agent.route.iter().take(end + 1).copied().collect();
+                for window in points.windows(2) {
+                    let a = mission_route_point(rect, cell_size, window[0]);
+                    let b = mission_route_point(rect, cell_size, window[1]);
+                    painter.line_segment(
+                        [a, b],
+                        egui::Stroke::new(
+                            3.0,
+                            egui::Color32::from_rgba_unmultiplied(232, 94, 70, 115),
+                        ),
+                    );
+                }
+            }
+        }
         for agent in &assault.agents {
             let pos = mission_route_point(rect, cell_size, agent.cell);
             let color = match agent.status {
@@ -1891,7 +2046,10 @@ fn route_filter_label(routes: &ground_game::DoctrineRouteSet, route_filter: usiz
 
 fn mission_cell_color(cell: &ground_game::MissionCell, mode: MissionMapMode) -> egui::Color32 {
     match mode {
-        MissionMapMode::Terrain => match cell.earth_state {
+        MissionMapMode::Terrain
+        | MissionMapMode::Delay
+        | MissionMapMode::Pressure
+        | MissionMapMode::Actual => match cell.earth_state {
             EarthState::Trench | EarthState::DeepTrench => egui::Color32::from_rgb(42, 31, 24),
             EarthState::Berm | EarthState::SpoilPile => egui::Color32::from_rgb(122, 88, 50),
             EarthState::Scraped | EarthState::Ditch => egui::Color32::from_rgb(110, 84, 55),
@@ -2048,6 +2206,11 @@ fn mission_route_color(index: usize, mode: RouteOverlayMode) -> egui::Color32 {
         RouteOverlayMode::Current | RouteOverlayMode::Delta => current[index % current.len()],
         RouteOverlayMode::None => egui::Color32::TRANSPARENT,
     }
+}
+
+fn heat_alpha(value: i32, max_value: i32) -> u8 {
+    let scale = value.max(1) as f32 / max_value.max(1) as f32;
+    (70.0 + 150.0 * scale.clamp(0.0, 1.0)).round() as u8
 }
 
 fn show_texture_only(

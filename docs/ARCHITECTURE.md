@@ -5,7 +5,8 @@ for one future game family: terrain-first prepared-ground defense.
 
 The active roadmap has pivoted to a mission-first workbench. SpriteGen remains the terrain art
 forge, while `ground_game` owns mission specs, prep-phase work orders, local materials,
-environment-object states, doctrine route preview, and the first deterministic assault sandbox.
+environment-object states, doctrine route preview, deterministic assault sandbox, and assault
+readability/debrief artifacts.
 `ground_app` now treats Mission Lab as the primary tactical prep surface rather than a generic
 terrain editor panel.
 
@@ -17,7 +18,7 @@ terrain editor panel.
 - Prep-phase work order model
 - Local material stock and side-effect tracking
 - Doctrine-specific enemy route preview
-- Deterministic assault agents, timeline, and debrief summary
+- Deterministic assault agents, typed timeline, debrief summary, and influence heatmaps
 - Terrain editing brushes
 - Pixel tile recipes
 - Palette ramps and palette file format
@@ -62,7 +63,9 @@ MissionSpec
   -> doctrine route preview + route delta reports
   -> LOS / cover consequences
   -> assault sandbox timeline
-  -> debrief summary
+  -> typed event causes + magnitudes
+  -> debrief summary + influence heatmaps
+  -> prediction-vs-actual route comparison
 ```
 
 Art asset flow:
@@ -95,6 +98,7 @@ Custom gameplay systems:
 - enemy routeing is A* over doctrine-specific terrain costs
 - assault movement is deterministic route-following over prepared terrain
 - defender pressure is a deterministic range/line-of-sight query
+- assault readability is derived from typed timeline events instead of hidden simulation state
 - line of sight is sampled over terrain height and sight blockers
 - cover is a simple semantic category on cells
 
