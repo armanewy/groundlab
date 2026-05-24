@@ -1066,6 +1066,85 @@ pub struct GeneratedMissionThemeBatchReport {
     pub all_rejected_candidates: Vec<GeneratedMissionEvaluation>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionBrowserIndex {
+    pub source_dir: String,
+    pub generated_count: u32,
+    pub accepted_count: u32,
+    pub rejected_count: u32,
+    pub theme_summaries: Vec<GeneratedMissionThemeSummary>,
+    pub candidates: Vec<GeneratedMissionBrowserEntry>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionBrowserEntry {
+    pub title: String,
+    pub mission_id: String,
+    pub theme: MissionTheme,
+    pub theme_slug: String,
+    pub seed: u64,
+    pub accepted: bool,
+    pub tactical_interest_score: i32,
+    pub best_plan_label: String,
+    pub baseline_score: i32,
+    pub best_score: i32,
+    pub best_minus_baseline: i32,
+    pub best_minus_worst: i32,
+    pub route_diversity_score: f32,
+    pub hazard_viability_score: f32,
+    pub local_material_score: f32,
+    pub top_rejection_kind: Option<GeneratedMissionRejectionKind>,
+    pub top_rejection_reason: Option<String>,
+    pub primary_affordance: String,
+    pub mission_path: Option<String>,
+    pub candidate_dir: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionPack {
+    pub id: String,
+    pub label: String,
+    pub seed: u64,
+    pub missions: Vec<GeneratedMissionPackEntry>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionPackEntry {
+    pub order: u32,
+    pub title: String,
+    pub mission_id: String,
+    pub theme: MissionTheme,
+    pub theme_slug: String,
+    pub seed: u64,
+    pub tactical_interest_score: i32,
+    pub difficulty_score: i32,
+    pub mission_path: String,
+    pub best_plan_label: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionPackSummary {
+    pub pack: GeneratedMissionPack,
+    pub requested_missions: u32,
+    pub candidate_count_per_theme: u32,
+    pub source_batch_dir: String,
+    pub total_generated_count: u32,
+    pub total_accepted_count: u32,
+    pub difficulty_curve: Vec<GeneratedMissionDifficultyPoint>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionDifficultyPoint {
+    pub order: u32,
+    pub title: String,
+    pub theme_slug: String,
+    pub difficulty_score: i32,
+    pub baseline_score: i32,
+    pub best_score: i32,
+    pub tactical_interest_score: i32,
+}
+
 #[derive(Clone, Debug)]
 struct GeneratedMissionArtifact {
     spec: MissionSpec,
@@ -2457,6 +2536,21 @@ pub fn export_generated_mission_batch(
         out_dir.join("rejected_candidates.json"),
         &report.rejected_candidates,
     )?;
+    let theme_summary = GeneratedMissionThemeSummary {
+        theme: report.generator.theme,
+        theme_slug: report.generator.theme.slug().to_string(),
+        generated_count: report.generated_count,
+        accepted_count: report.accepted_count,
+        rejected_count: report.rejected_count,
+        best_candidate: report.ranked_candidates.first().cloned(),
+    };
+    let browser_index = generated_mission_browser_index(
+        out_dir,
+        vec![theme_summary],
+        &report.ranked_candidates,
+        &report.rejected_candidates,
+    );
+    write_json(out_dir.join("browser_index.json"), &browser_index)?;
     write_json(out_dir.join("generator_summary.json"), &report)?;
     Ok(report)
 }
@@ -2552,7 +2646,280 @@ pub fn export_generated_mission_theme_batch(
         out_dir.join("all_rejected_candidates.json"),
         &report.all_rejected_candidates,
     )?;
+    let browser_index = generated_mission_browser_index(
+        out_dir,
+        report.theme_summaries.clone(),
+        &report.all_ranked_candidates,
+        &report.all_rejected_candidates,
+    );
+    write_json(out_dir.join("browser_index.json"), &browser_index)?;
     Ok(report)
+}
+
+pub fn export_generated_mission_pack(
+    out_dir: impl AsRef<Path>,
+    base_generator: MissionGeneratorSpec,
+    requested_missions: u32,
+    candidate_count_per_theme: u32,
+) -> Result<GeneratedMissionPackSummary> {
+    let out_dir = out_dir.as_ref();
+    fs::create_dir_all(out_dir)
+        .with_context(|| format!("failed to create {}", out_dir.display()))?;
+    let source_batch_dir = out_dir.join("source_candidates");
+    let theme_report = export_generated_mission_theme_batch(
+        &source_batch_dir,
+        base_generator.clone(),
+        candidate_count_per_theme,
+        &MissionTheme::GENERATABLE,
+    )?;
+    let selected = select_mission_pack_candidates(
+        &theme_report.all_ranked_candidates,
+        requested_missions as usize,
+    );
+    let mut entries = Vec::new();
+    let mut difficulty_curve = Vec::new();
+    for (index, candidate) in selected.iter().enumerate() {
+        let order = index as u32 + 1;
+        let difficulty_score = generated_mission_difficulty_score(candidate);
+        let mission_path = candidate
+            .mission_path
+            .clone()
+            .unwrap_or_else(|| "<missing mission path>".to_string());
+        entries.push(GeneratedMissionPackEntry {
+            order,
+            title: candidate.title.clone(),
+            mission_id: candidate.mission_id.clone(),
+            theme: candidate.theme,
+            theme_slug: candidate.theme_slug.clone(),
+            seed: candidate.seed,
+            tactical_interest_score: candidate.tactical_interest_score,
+            difficulty_score,
+            mission_path,
+            best_plan_label: candidate.best_plan_label.clone(),
+        });
+        difficulty_curve.push(GeneratedMissionDifficultyPoint {
+            order,
+            title: candidate.title.clone(),
+            theme_slug: candidate.theme_slug.clone(),
+            difficulty_score,
+            baseline_score: candidate.baseline_rating.score,
+            best_score: candidate.best_rating.score,
+            tactical_interest_score: candidate.tactical_interest_score,
+        });
+    }
+    let pack = GeneratedMissionPack {
+        id: format!("generated_pack_{:016x}", base_generator.seed),
+        label: format!("Generated mission pack {}", base_generator.seed),
+        seed: base_generator.seed,
+        missions: entries,
+    };
+    let mut notes = Vec::new();
+    if pack.missions.len() < requested_missions as usize {
+        notes.push(format!(
+            "Only {} accepted candidate(s) were available for {} requested mission(s).",
+            pack.missions.len(),
+            requested_missions
+        ));
+    }
+    if pack
+        .missions
+        .iter()
+        .any(|mission| mission.theme == MissionTheme::RidgeTrap)
+    {
+        notes.push("Pack includes a ridge-trap / rolling-hazard mission.".to_string());
+    }
+    if pack
+        .missions
+        .iter()
+        .any(|mission| mission.theme == MissionTheme::SplitApproach)
+    {
+        notes.push("Pack includes a split-approach prioritization mission.".to_string());
+    }
+    if pack
+        .missions
+        .iter()
+        .any(|mission| mission.theme == MissionTheme::OrchardApproach)
+    {
+        notes.push("Pack includes a tree/material-heavy orchard mission.".to_string());
+    }
+    let summary = GeneratedMissionPackSummary {
+        pack,
+        requested_missions,
+        candidate_count_per_theme,
+        source_batch_dir: source_batch_dir.to_string_lossy().to_string(),
+        total_generated_count: theme_report.total_generated_count,
+        total_accepted_count: theme_report.total_accepted_count,
+        difficulty_curve,
+        notes,
+    };
+    write_ron(out_dir.join("mission_pack.ron"), &summary.pack)?;
+    write_json(out_dir.join("mission_pack_summary.json"), &summary)?;
+    write_json(
+        out_dir.join("difficulty_curve.json"),
+        &summary.difficulty_curve,
+    )?;
+    save_generated_mission_evaluation_contact_sheet(
+        out_dir.join("mission_pack_contact_sheet.png"),
+        &selected,
+        selected.len(),
+    )?;
+    Ok(summary)
+}
+
+pub fn load_generated_mission_browser_index(
+    path: impl AsRef<Path>,
+) -> Result<GeneratedMissionBrowserIndex> {
+    let path = path.as_ref();
+    let text =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    serde_json::from_str(&text)
+        .with_context(|| format!("failed to parse mission browser index {}", path.display()))
+}
+
+fn generated_mission_browser_index(
+    out_dir: &Path,
+    theme_summaries: Vec<GeneratedMissionThemeSummary>,
+    ranked_candidates: &[GeneratedMissionEvaluation],
+    rejected_candidates: &[GeneratedMissionEvaluation],
+) -> GeneratedMissionBrowserIndex {
+    let candidates = ranked_candidates
+        .iter()
+        .chain(rejected_candidates.iter())
+        .map(browser_entry_from_evaluation)
+        .collect::<Vec<_>>();
+    GeneratedMissionBrowserIndex {
+        source_dir: out_dir.to_string_lossy().to_string(),
+        generated_count: candidates.len() as u32,
+        accepted_count: ranked_candidates.len() as u32,
+        rejected_count: rejected_candidates.len() as u32,
+        theme_summaries,
+        candidates,
+    }
+}
+
+fn browser_entry_from_evaluation(
+    evaluation: &GeneratedMissionEvaluation,
+) -> GeneratedMissionBrowserEntry {
+    GeneratedMissionBrowserEntry {
+        title: evaluation.title.clone(),
+        mission_id: evaluation.mission_id.clone(),
+        theme: evaluation.theme,
+        theme_slug: evaluation.theme_slug.clone(),
+        seed: evaluation.seed,
+        accepted: evaluation.accepted,
+        tactical_interest_score: evaluation.tactical_interest_score,
+        best_plan_label: evaluation.best_plan_label.clone(),
+        baseline_score: evaluation.baseline_rating.score,
+        best_score: evaluation.best_rating.score,
+        best_minus_baseline: evaluation.plan_sensitivity.best_minus_baseline,
+        best_minus_worst: evaluation.plan_sensitivity.best_minus_worst,
+        route_diversity_score: evaluation.route_diversity_score,
+        hazard_viability_score: evaluation.rolling_hazard_score,
+        local_material_score: evaluation.local_material_score,
+        top_rejection_kind: evaluation.rejection_kinds.first().copied(),
+        top_rejection_reason: evaluation.rejection_reasons.first().cloned(),
+        primary_affordance: primary_affordance_label(evaluation),
+        mission_path: evaluation.mission_path.clone(),
+        candidate_dir: evaluation.candidate_dir.clone(),
+    }
+}
+
+fn primary_affordance_label(evaluation: &GeneratedMissionEvaluation) -> String {
+    match evaluation.theme {
+        MissionTheme::OrchardApproach => "tree/material dilemma".to_string(),
+        MissionTheme::DryWash => "low wash / dead ground".to_string(),
+        MissionTheme::RidgeTrap => "slope / rolling hazard".to_string(),
+        MissionTheme::OldWall => "wall cover / breach lane".to_string(),
+        MissionTheme::SplitApproach => "two approach lanes".to_string(),
+        MissionTheme::DryRoadBelow => {
+            if evaluation.rolling_hazard_score >= 0.45 {
+                "road ridge / rolling hazard".to_string()
+            } else if evaluation.affordance_report.tree_count >= 5 {
+                "road ridge / local timber".to_string()
+            } else {
+                "road ridge defense".to_string()
+            }
+        }
+    }
+}
+
+fn select_mission_pack_candidates(
+    ranked_candidates: &[GeneratedMissionEvaluation],
+    requested_count: usize,
+) -> Vec<GeneratedMissionEvaluation> {
+    if requested_count == 0 {
+        return Vec::new();
+    }
+
+    let mut selected = Vec::new();
+    let mut selected_ids = HashSet::new();
+    for theme in MissionTheme::GENERATABLE {
+        if selected.len() >= requested_count {
+            break;
+        }
+        let candidate = ranked_candidates
+            .iter()
+            .find(|candidate| {
+                candidate.theme == theme
+                    && candidate.mission_path.is_some()
+                    && !selected_ids.contains(&candidate.mission_id)
+                    && generated_mission_pack_prefers(candidate)
+            })
+            .or_else(|| {
+                ranked_candidates.iter().find(|candidate| {
+                    candidate.theme == theme
+                        && candidate.mission_path.is_some()
+                        && !selected_ids.contains(&candidate.mission_id)
+                })
+            });
+        if let Some(candidate) = candidate {
+            selected_ids.insert(candidate.mission_id.clone());
+            selected.push(candidate.clone());
+        }
+    }
+
+    for candidate in ranked_candidates {
+        if selected.len() >= requested_count {
+            break;
+        }
+        if candidate.mission_path.is_some()
+            && generated_mission_pack_prefers(candidate)
+            && selected_ids.insert(candidate.mission_id.clone())
+        {
+            selected.push(candidate.clone());
+        }
+    }
+    for candidate in ranked_candidates {
+        if selected.len() >= requested_count {
+            break;
+        }
+        if candidate.mission_path.is_some() && selected_ids.insert(candidate.mission_id.clone()) {
+            selected.push(candidate.clone());
+        }
+    }
+
+    selected.sort_by(|a, b| {
+        generated_mission_difficulty_score(a)
+            .cmp(&generated_mission_difficulty_score(b))
+            .then_with(|| b.tactical_interest_score.cmp(&a.tactical_interest_score))
+            .then_with(|| a.seed.cmp(&b.seed))
+    });
+    selected
+}
+
+fn generated_mission_pack_prefers(evaluation: &GeneratedMissionEvaluation) -> bool {
+    let plan = evaluation.best_plan_label.to_ascii_lowercase();
+    !plan.contains("baseline")
+        && !plan.contains("overbuilt")
+        && evaluation.plan_sensitivity.best_minus_baseline >= 5
+}
+
+fn generated_mission_difficulty_score(evaluation: &GeneratedMissionEvaluation) -> i32 {
+    let baseline_pressure = (100 - evaluation.baseline_rating.score).clamp(0, 100);
+    let best_pressure = (100 - evaluation.best_rating.score).clamp(0, 100) / 2;
+    let sensitivity = (evaluation.plan_sensitivity.best_minus_worst / 4).clamp(0, 25);
+    let hazard_complexity = (evaluation.rolling_hazard_score * 10.0).round() as i32;
+    baseline_pressure + best_pressure + sensitivity + hazard_complexity
 }
 
 fn generate_road_ridge_candidate(

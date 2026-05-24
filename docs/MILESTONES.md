@@ -252,6 +252,32 @@ The all-theme smoke run generated 120 candidates across six themes, accepted 26,
 produced accepted candidates in every theme class. This keeps the generator focused on tactical
 problem classes instead of adding new gameplay systems.
 
+## ProcGen 4 — Generated mission browser and mission pack builder
+
+Implemented in this drop.
+
+- all generated mission batches now export `browser_index.json` beside the ranked/rejected reports
+- the browser index stores a compact card for each candidate: theme, seed, accepted/rejected state,
+  score, best plan, baseline/best score, plan sensitivity, route diversity, hazard viability, local
+  material score, primary affordance, rejection reason, candidate directory, and `mission.ron` path
+- Mission Lab now includes a `Generated Missions` browser panel that loads a `browser_index.json`,
+  filters by theme, toggles accepted-only browsing, shows candidate cards, and loads any candidate
+  directly into the playable briefing/prep/assault loop
+- added `cargo run -p ground_cli -- generate-mission-pack [out_dir] [--seed N] [--missions N]
+  [--candidates-per-theme N]`
+- mission pack generation runs the existing all-theme generator/evaluator into
+  `source_candidates/`, selects diverse accepted candidates across themes, fills from the strongest
+  remaining candidates, and orders the pack by a deterministic difficulty score
+- pack exports include `mission_pack.ron`, `mission_pack_summary.json`,
+  `mission_pack_contact_sheet.png`, and `difficulty_curve.json`
+- source candidates for a pack keep the full ProcGen inspection bundle, including
+  `source_candidates/browser_index.json`, per-theme reports, candidate missions, previews, balance
+  reports, and contact sheets
+
+This milestone turns procedural generation into a usable content pipeline: generate candidates,
+browse/rank/filter them, open them in Mission Lab, and build a small diverse mission set without
+manual map curation.
+
 ## Milestone 0 — Project seed
 
 Implemented.

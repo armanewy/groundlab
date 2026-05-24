@@ -4,7 +4,7 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: ProcGen 3 — theme classes
+## Current status: ProcGen 4 — generated mission browser and mission packs
 
 GroundLab has pivoted again from manually tuning one mission toward generating compact tactical
 terrain problems in batches. The primary product direction is still a 2.5D tactical engineering
@@ -17,7 +17,7 @@ SpriteGen remains in the repository as the terrain art forge. It still provides 
 profiles, override PNGs, sprite manifests, validation, and exportable grass/dirt/path/trench/berm/
 stone pieces. It is now supporting infrastructure rather than the main roadmap driver.
 
-GamePivot 8 and ProcGen 1-3 build on the `ground_game` crate with:
+GamePivot 8 and ProcGen 1-4 build on the `ground_game` crate with:
 
 - `MissionSpec`, `MissionMap`, and `MissionCell`
 - earth states such as normal, scraped, trench, deep trench, spoil pile, berm, unstable, and muddy
@@ -58,6 +58,9 @@ GamePivot 8 and ProcGen 1-3 build on the `ground_game` crate with:
 - ProcGen preview exports including per-candidate mission/route previews, accepted/rejected contact sheets, and a top-ranked contact sheet with route overlays plus score/sensitivity bars
 - six generated mission theme classes: dry road below, orchard approach, dry wash, ridge trap, old wall, and split approach
 - all-theme generation that writes per-theme candidate batches plus combined `theme_summary.json`, `all_ranked_candidates.json`, `all_rejected_candidates.json`, and cross-theme contact sheets
+- a generated mission browser index with seed, theme, score, accepted/rejected state, best plan, plan sensitivity, route diversity, hazard viability, local material affordance, primary affordance, rejection reason, and mission path for every candidate
+- a Mission Lab generated-mission browser that filters accepted/rejected candidates by theme and loads any candidate mission into the playable briefing/prep/assault loop
+- auto-built mission packs that pick diverse accepted candidates across themes, sort them into a difficulty curve, and export pack manifests/contact sheets without manual map curation
 - a Mission Lab file loader for opening generated `mission.ron` candidates directly from disk
 - assault summary and debrief exports for debugging why the plan worked or failed
 - per-cell influence summaries for crossed cells, delayed cells, damaging cells, defender pressure, breach cells, effective obstacles, and unused defenses
@@ -115,16 +118,17 @@ Run the GamePivot 7 mission balance pass:
 cargo run -p ground_cli -- mission-balance exports/gamepivot_07
 ```
 
-Generate a batch of ProcGen 3 all-theme mission candidates:
+Generate a batch of ProcGen 4 all-theme mission candidates:
 
 ```bash
-cargo run -p ground_cli -- generate-missions exports/procgen_03 --theme all --count 20 --seed 99418113
+cargo run -p ground_cli -- generate-missions exports/procgen_04 --theme all --count 20 --seed 99418113
 ```
 
 ProcGen output includes:
 
 ```txt
-exports/procgen_03/
+exports/procgen_04/
+  browser_index.json
   theme_summary.json
   all_ranked_candidates.json
   all_rejected_candidates.json
@@ -138,6 +142,25 @@ exports/procgen_03/
     accepted_by_theme.png
     rejected_by_reason.png
     top_ranked_all_themes.png
+```
+
+Build a generated mission pack from the accepted candidates:
+
+```bash
+cargo run -p ground_cli -- generate-mission-pack exports/procgen_04_pack --seed 99418113 --missions 6 --candidates-per-theme 20
+```
+
+Mission pack output includes:
+
+```txt
+exports/procgen_04_pack/
+  mission_pack.ron
+  mission_pack_summary.json
+  mission_pack_contact_sheet.png
+  difficulty_curve.json
+  source_candidates/
+    browser_index.json
+    per_theme/
 ```
 
 Road Below player plans saved from Mission Lab are written to:
@@ -155,6 +178,12 @@ cargo run -p ground_app
 The full-scene terrain renderer and ArtGen outputs remain downstream infrastructure for terrain
 data, pathing, LOS, and future art-kit composition, but the active gameplay roadmap now emphasizes
 seeded mission generation, automatic evaluation, ranking, and playable candidate export.
+
+## Previous status: ProcGen 3 — theme classes
+
+ProcGen 3 added six mission theme grammars: dry road below, orchard approach, dry wash, ridge trap,
+old wall, and split approach. All-theme generation writes per-theme candidate batches plus combined
+ranked/rejected reports and cross-theme contact sheets.
 
 ## Previous status: ProcGen 2 — candidate evaluation and batch ranking
 

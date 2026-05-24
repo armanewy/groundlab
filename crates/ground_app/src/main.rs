@@ -10,12 +10,13 @@ use ground_core::{
     ValidationReport, ViewOrientation, WorkbenchAssetPaths,
 };
 use ground_game::{
-    export_road_below_seed, load_mission_spec, load_work_order_script, mission_rating_for_state,
-    road_below_balance_scripts, road_below_seed_orders, run_work_order_script,
-    save_work_order_script, AssaultEventKind, CellCoord, CoverClass, EarthState, EnemyAgentStatus,
-    EnvironmentObject, EnvironmentObjectKind, GroundKind, LogState, MissionPhase, MissionState,
-    ScriptedWorkOrder, TreeState, WorkOrderKind, WorkOrderScript, WorkOrderStatus, WorkTarget,
-    DEFAULT_MISSION_EXPORT_DIR,
+    export_road_below_seed, load_generated_mission_browser_index, load_mission_spec,
+    load_work_order_script, mission_rating_for_state, road_below_balance_scripts,
+    road_below_seed_orders, run_work_order_script, save_work_order_script, AssaultEventKind,
+    CellCoord, CoverClass, EarthState, EnemyAgentStatus, EnvironmentObject, EnvironmentObjectKind,
+    GeneratedMissionBrowserEntry, GeneratedMissionBrowserIndex, GroundKind, LogState, MissionPhase,
+    MissionState, MissionTheme, ScriptedWorkOrder, TreeState, WorkOrderKind, WorkOrderScript,
+    WorkOrderStatus, WorkTarget, DEFAULT_MISSION_EXPORT_DIR,
 };
 
 const MAX_UI_TEXTURE_SIDE: usize = 2048;
@@ -194,6 +195,10 @@ struct GroundLabApp {
     balance_dashboard: Vec<MissionBalanceDashboardRow>,
     notifications: Vec<String>,
     mission_load_path_text: String,
+    mission_browser_path_text: String,
+    mission_browser: Option<GeneratedMissionBrowserIndex>,
+    mission_browser_theme_filter: Option<MissionTheme>,
+    mission_browser_accepted_only: bool,
     paths: WorkbenchAssetPaths,
     recipe_path_text: String,
     palette_path_text: String,
@@ -250,6 +255,10 @@ impl GroundLabApp {
             ],
             mission_load_path_text: "exports/procgen_01/candidates/seed_0001/mission.ron"
                 .to_string(),
+            mission_browser_path_text: "exports/procgen_04/browser_index.json".to_string(),
+            mission_browser: None,
+            mission_browser_theme_filter: None,
+            mission_browser_accepted_only: true,
             recipe_path_text: paths.recipe_path.to_string_lossy().to_string(),
             palette_path_text: paths.palette_path.to_string_lossy().to_string(),
             file_snapshot: FileSnapshot::capture(&paths),
@@ -421,12 +430,14 @@ impl GroundLabApp {
     fn show_mission_controls(&mut self, ui: &mut egui::Ui) {
         self.show_panel_tabs(ui);
         ui.heading("Mission Lab");
-        ui.label("GamePivot 8: playable Road Below slice");
+        ui.label("ProcGen 4: generated mission browser and playable prep loop");
         ui.separator();
 
         self.show_mission_status_panel(ui);
         ui.separator();
         self.show_mission_lifecycle_panel(ui);
+        ui.separator();
+        self.show_generated_mission_browser_panel(ui);
         ui.separator();
         self.show_tutorial_panel(ui);
         ui.separator();
@@ -576,22 +587,169 @@ impl GroundLabApp {
                 egui::TextEdit::singleline(&mut self.mission_load_path_text).desired_width(310.0),
             );
             if ui.button("Load mission").clicked() {
-                let path = self.mission_load_path_text.trim();
-                match load_mission_spec(path) {
-                    Ok(spec) => {
-                        let objective = spec.objective.defend_cell;
-                        let title = spec.title.clone();
-                        self.mission_state = MissionState::from_spec(spec);
-                        self.mission_state.phase = MissionPhase::Briefing;
-                        self.selected_mission_cell = objective;
-                        self.route_group_filter = 0;
-                        self.notify(format!("Loaded generated mission: {title}."));
-                    }
-                    Err(err) => self.notify(format!("Load mission failed: {err}")),
-                }
+                let path = self.mission_load_path_text.trim().to_string();
+                self.load_mission_file(&path);
             }
         });
         ui.small("Playable flow: briefing -> prep -> assault -> debrief -> retry.");
+    }
+
+    fn load_mission_file(&mut self, path: &str) {
+        match load_mission_spec(path) {
+            Ok(spec) => {
+                let objective = spec.objective.defend_cell;
+                let title = spec.title.clone();
+                self.mission_state = MissionState::from_spec(spec);
+                self.mission_state.phase = MissionPhase::Briefing;
+                self.selected_mission_cell = objective;
+                self.route_group_filter = 0;
+                self.notify(format!("Loaded generated mission: {title}."));
+            }
+            Err(err) => self.notify(format!("Load mission failed: {err}")),
+        }
+    }
+
+    fn show_generated_mission_browser_panel(&mut self, ui: &mut egui::Ui) {
+        ui.collapsing("Generated Missions", |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Index");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.mission_browser_path_text)
+                        .desired_width(310.0),
+                );
+                if ui.button("Load index").clicked() {
+                    let path = self.mission_browser_path_text.trim();
+                    match load_generated_mission_browser_index(path) {
+                        Ok(index) => {
+                            let accepted = index.accepted_count;
+                            let generated = index.generated_count;
+                            self.mission_browser = Some(index);
+                            self.notify(format!(
+                                "Loaded generated mission index: {accepted}/{generated} accepted."
+                            ));
+                        }
+                        Err(err) => self.notify(format!("Load mission index failed: {err}")),
+                    }
+                }
+            });
+
+            ui.horizontal_wrapped(|ui| {
+                egui::ComboBox::from_label("Theme")
+                    .selected_text(
+                        self.mission_browser_theme_filter
+                            .map(|theme| theme.label())
+                            .unwrap_or("All themes"),
+                    )
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(
+                            &mut self.mission_browser_theme_filter,
+                            None,
+                            "All themes",
+                        );
+                        for theme in MissionTheme::GENERATABLE {
+                            ui.selectable_value(
+                                &mut self.mission_browser_theme_filter,
+                                Some(theme),
+                                theme.label(),
+                            );
+                        }
+                    });
+                ui.checkbox(&mut self.mission_browser_accepted_only, "Accepted only");
+            });
+
+            let Some(index) = &self.mission_browser else {
+                ui.small("Load a ProcGen browser_index.json to browse generated candidates.");
+                return;
+            };
+            ui.small(format!(
+                "{} generated · {} accepted · {} rejected · source {}",
+                index.generated_count, index.accepted_count, index.rejected_count, index.source_dir
+            ));
+            let entries = self
+                .filtered_mission_browser_entries()
+                .into_iter()
+                .take(18)
+                .cloned()
+                .collect::<Vec<_>>();
+            if entries.is_empty() {
+                ui.small("No generated missions match the current filters.");
+                return;
+            }
+            for entry in entries {
+                self.show_generated_mission_card(ui, &entry);
+            }
+        });
+    }
+
+    fn filtered_mission_browser_entries(&self) -> Vec<&GeneratedMissionBrowserEntry> {
+        let Some(index) = &self.mission_browser else {
+            return Vec::new();
+        };
+        index
+            .candidates
+            .iter()
+            .filter(|entry| !self.mission_browser_accepted_only || entry.accepted)
+            .filter(|entry| {
+                self.mission_browser_theme_filter
+                    .map(|theme| entry.theme == theme)
+                    .unwrap_or(true)
+            })
+            .collect()
+    }
+
+    fn show_generated_mission_card(
+        &mut self,
+        ui: &mut egui::Ui,
+        entry: &GeneratedMissionBrowserEntry,
+    ) {
+        ui.group(|ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.strong(&entry.title);
+                ui.label(format!("[{}]", entry.theme_slug));
+                ui.label(format!("seed {}", entry.seed));
+                ui.label(format!("score {}", entry.tactical_interest_score));
+                ui.label(if entry.accepted {
+                    "accepted"
+                } else {
+                    "rejected"
+                });
+                let can_load = entry.mission_path.is_some();
+                if ui
+                    .add_enabled(can_load, egui::Button::new("Load"))
+                    .clicked()
+                {
+                    if let Some(path) = &entry.mission_path {
+                        let path = path.clone();
+                        self.mission_load_path_text = path.clone();
+                        self.load_mission_file(&path);
+                    }
+                }
+            });
+            ui.small(format!(
+                "best {} · baseline {} -> best {} · spread {} · affordance {}",
+                entry.best_plan_label,
+                entry.baseline_score,
+                entry.best_score,
+                entry.best_minus_worst,
+                entry.primary_affordance
+            ));
+            ui.small(format!(
+                "route {:.2} · material {:.2} · hazard {:.2}",
+                entry.route_diversity_score,
+                entry.local_material_score,
+                entry.hazard_viability_score
+            ));
+            if let Some(reason) = &entry.top_rejection_reason {
+                ui.small(format!(
+                    "reject: {}{}",
+                    entry
+                        .top_rejection_kind
+                        .map(|kind| format!("{kind:?}: "))
+                        .unwrap_or_default(),
+                    reason
+                ));
+            }
+        });
     }
 
     fn show_tutorial_panel(&self, ui: &mut egui::Ui) {

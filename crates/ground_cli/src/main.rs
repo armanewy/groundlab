@@ -5,9 +5,9 @@ use ground_core::{
     DEFAULT_RECIPE_PATH,
 };
 use ground_game::{
-    export_assault_run, export_generated_mission_batch, export_generated_mission_theme_batch,
-    export_hazard_sandbox_run, export_mission_balance_run, export_order_script_run,
-    export_road_below_seed, load_mission_spec, load_work_order_script,
+    export_assault_run, export_generated_mission_batch, export_generated_mission_pack,
+    export_generated_mission_theme_batch, export_hazard_sandbox_run, export_mission_balance_run,
+    export_order_script_run, export_road_below_seed, load_mission_spec, load_work_order_script,
     road_below_basic_prep_script, road_below_hazard_prep_script, road_below_spec,
     MissionGeneratorSpec, MissionTheme, DEFAULT_MISSION_EXPORT_DIR,
 };
@@ -257,7 +257,7 @@ fn main() -> Result<()> {
             if let Some(theme) = theme {
                 generator.theme = theme;
                 let report = export_generated_mission_batch(&out_dir, generator, count)?;
-                println!("Exported ProcGen 3 mission batch to {out_dir}.");
+                println!("Exported ProcGen 4 mission batch to {out_dir}.");
                 println!(
                     "Generated {} candidate(s): {} accepted, {} rejected.",
                     report.generated_count, report.accepted_count, report.rejected_count
@@ -275,7 +275,7 @@ fn main() -> Result<()> {
                     count,
                     &MissionTheme::GENERATABLE,
                 )?;
-                println!("Exported ProcGen 3 all-theme mission batch to {out_dir}.");
+                println!("Exported ProcGen 4 all-theme mission batch to {out_dir}.");
                 println!(
                     "Generated {} candidate(s): {} accepted, {} rejected across {} theme(s).",
                     report.total_generated_count,
@@ -298,6 +298,61 @@ fn main() -> Result<()> {
                 "ProcGen files: generator_summary.json or theme_summary.json, ranked candidate JSON, accepted/rejected/top contact sheets, candidates/*/mission.ron"
             );
         }
+        "generate-mission-pack" => {
+            let out_dir = args
+                .next()
+                .unwrap_or_else(|| "exports/procgen_04_pack".to_string());
+            let mut seed = 0x5eed_0001;
+            let mut missions = 6;
+            let mut candidates_per_theme = 20;
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--seed" => {
+                        let Some(value) = args.next() else {
+                            bail!("--seed requires a value");
+                        };
+                        seed = value.parse()?;
+                    }
+                    "--missions" => {
+                        let Some(value) = args.next() else {
+                            bail!("--missions requires a value");
+                        };
+                        missions = value.parse()?;
+                    }
+                    "--candidates-per-theme" => {
+                        let Some(value) = args.next() else {
+                            bail!("--candidates-per-theme requires a value");
+                        };
+                        candidates_per_theme = value.parse()?;
+                    }
+                    other => bail!("unknown generate-mission-pack option: {other}"),
+                }
+            }
+            let generator = MissionGeneratorSpec::road_below(seed);
+            let summary =
+                export_generated_mission_pack(&out_dir, generator, missions, candidates_per_theme)?;
+            println!("Exported ProcGen 4 mission pack to {out_dir}.");
+            println!(
+                "Selected {} mission(s) from {} generated candidate(s), {} accepted.",
+                summary.pack.missions.len(),
+                summary.total_generated_count,
+                summary.total_accepted_count
+            );
+            for mission in &summary.pack.missions {
+                println!(
+                    "{}. {} [{}] · score {} · difficulty {} · {}",
+                    mission.order,
+                    mission.title,
+                    mission.theme_slug,
+                    mission.tactical_interest_score,
+                    mission.difficulty_score,
+                    mission.best_plan_label
+                );
+            }
+            println!(
+                "Pack files: mission_pack.ron, mission_pack_summary.json, mission_pack_contact_sheet.png, difficulty_curve.json, source_candidates/browser_index.json"
+            );
+        }
         "help" | "--help" | "-h" => print_help(),
         other => bail!("unknown command: {other}"),
     }
@@ -318,5 +373,6 @@ fn print_help() {
     eprintln!("  cargo run -p ground_cli -- mission-assault [out_dir] [mission_spec.ron|json] [order_script.ron|json]");
     eprintln!("  cargo run -p ground_cli -- mission-hazards [out_dir] [mission_spec.ron|json] [order_script.ron|json]");
     eprintln!("  cargo run -p ground_cli -- mission-balance [out_dir] [mission_spec.ron|json]");
-    eprintln!("  cargo run -p ground_cli -- generate-missions [out_dir] [--theme ridge_trap|orchard_approach|dry_wash|old_wall|split_approach|all] [--count 10] [--seed 99418113]");
+    eprintln!("  cargo run -p ground_cli -- generate-missions [out_dir] [--theme dry_road_below|ridge_trap|orchard_approach|dry_wash|old_wall|split_approach|all] [--count 10] [--seed 99418113]");
+    eprintln!("  cargo run -p ground_cli -- generate-mission-pack [out_dir] [--seed 99418113] [--missions 6] [--candidates-per-theme 20]");
 }
