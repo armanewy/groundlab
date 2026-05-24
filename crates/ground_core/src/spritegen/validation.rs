@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::spritegen::{GeneratedTerrainSprite, SpriteRole, TerrainSpriteKind};
+use crate::spritegen::{
+    compatible_neighbor_masks, topology_for_mask, GeneratedTerrainSprite, SpriteRole,
+    TerrainSpriteKind,
+};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TerrainSpriteValidationReport {
@@ -45,9 +48,12 @@ pub struct TrenchSpriteValidationSummary {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TrenchNeighborPairScore {
     pub mask_a: u8,
+    pub mask_a_kind: String,
     pub edge: String,
     pub mask_b: u8,
+    pub mask_b_kind: String,
     pub score: f32,
+    pub reason: String,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1253,18 +1259,18 @@ fn trench_neighbor_seam_score(sprites: &[GeneratedTerrainSprite]) -> f32 {
         let Some(mask) = sprite.kind.trench_mask() else {
             continue;
         };
-        for (direction, opposite) in [(1, 4), (2, 8), (4, 1), (8, 2)] {
-            if mask & direction == 0 {
-                continue;
+        for edge in topology_for_mask(mask).connected_edges {
+            let direction = edge.bit();
+            for neighbor_mask in compatible_neighbor_masks(edge) {
+                let Some(neighbor) = sprites
+                    .iter()
+                    .find(|candidate| candidate.kind.trench_mask() == Some(neighbor_mask))
+                else {
+                    continue;
+                };
+                total += trench_edge_difference(sprite, neighbor, direction, 0.0);
+                count += 1.0;
             }
-            let Some(neighbor) = sprites
-                .iter()
-                .find(|candidate| candidate.kind.trench_mask() == Some(opposite))
-            else {
-                continue;
-            };
-            total += trench_edge_difference(sprite, neighbor, direction, 0.0);
-            count += 1.0;
         }
     }
     if count == 0.0 {
@@ -1281,18 +1287,18 @@ fn trench_mask_band_continuity_score(sprites: &[GeneratedTerrainSprite], band: f
         let Some(mask) = sprite.kind.trench_mask() else {
             continue;
         };
-        for (direction, opposite) in [(1, 4), (2, 8), (4, 1), (8, 2)] {
-            if mask & direction == 0 {
-                continue;
+        for edge in topology_for_mask(mask).connected_edges {
+            let direction = edge.bit();
+            for neighbor_mask in compatible_neighbor_masks(edge) {
+                let Some(neighbor) = sprites
+                    .iter()
+                    .find(|candidate| candidate.kind.trench_mask() == Some(neighbor_mask))
+                else {
+                    continue;
+                };
+                total += trench_edge_difference(sprite, neighbor, direction, band);
+                count += 1.0;
             }
-            let Some(neighbor) = sprites
-                .iter()
-                .find(|candidate| candidate.kind.trench_mask() == Some(opposite))
-            else {
-                continue;
-            };
-            total += trench_edge_difference(sprite, neighbor, direction, band);
-            count += 1.0;
         }
     }
     if count == 0.0 {
@@ -1308,27 +1314,26 @@ fn worst_trench_neighbor_pairs(sprites: &[GeneratedTerrainSprite]) -> Vec<Trench
         let Some(mask) = sprite.kind.trench_mask() else {
             continue;
         };
-        for (direction, opposite, edge) in [
-            (1_u8, 4_u8, "north"),
-            (2_u8, 8_u8, "east"),
-            (4_u8, 1_u8, "south"),
-            (8_u8, 2_u8, "west"),
-        ] {
-            if mask & direction == 0 {
-                continue;
+        for edge in topology_for_mask(mask).connected_edges {
+            let direction = edge.bit();
+            for neighbor_mask in compatible_neighbor_masks(edge) {
+                let Some(neighbor) = sprites
+                    .iter()
+                    .find(|candidate| candidate.kind.trench_mask() == Some(neighbor_mask))
+                else {
+                    continue;
+                };
+                let score = trench_edge_difference(sprite, neighbor, direction, 0.0);
+                pairs.push(TrenchNeighborPairScore {
+                    mask_a: mask,
+                    mask_a_kind: topology_for_mask(mask).kind.label().to_string(),
+                    edge: edge.name().to_string(),
+                    mask_b: neighbor_mask,
+                    mask_b_kind: topology_for_mask(neighbor_mask).kind.label().to_string(),
+                    score,
+                    reason: topology_pair_reason(score, "trench seam"),
+                });
             }
-            let Some(neighbor) = sprites
-                .iter()
-                .find(|candidate| candidate.kind.trench_mask() == Some(opposite))
-            else {
-                continue;
-            };
-            pairs.push(TrenchNeighborPairScore {
-                mask_a: mask,
-                edge: edge.to_string(),
-                mask_b: opposite,
-                score: trench_edge_difference(sprite, neighbor, direction, 0.0),
-            });
         }
     }
     pairs.sort_by(|a, b| {
@@ -1347,18 +1352,18 @@ fn berm_neighbor_seam_score(sprites: &[GeneratedTerrainSprite]) -> f32 {
         let Some(mask) = sprite.kind.berm_mask() else {
             continue;
         };
-        for (direction, opposite) in [(1, 4), (2, 8), (4, 1), (8, 2)] {
-            if mask & direction == 0 {
-                continue;
+        for edge in topology_for_mask(mask).connected_edges {
+            let direction = edge.bit();
+            for neighbor_mask in compatible_neighbor_masks(edge) {
+                let Some(neighbor) = sprites
+                    .iter()
+                    .find(|candidate| candidate.kind.berm_mask() == Some(neighbor_mask))
+                else {
+                    continue;
+                };
+                total += berm_edge_difference(sprite, neighbor, direction, 0.0);
+                count += 1.0;
             }
-            let Some(neighbor) = sprites
-                .iter()
-                .find(|candidate| candidate.kind.berm_mask() == Some(opposite))
-            else {
-                continue;
-            };
-            total += berm_edge_difference(sprite, neighbor, direction, 0.0);
-            count += 1.0;
         }
     }
     if count == 0.0 {
@@ -1375,18 +1380,18 @@ fn berm_mask_band_continuity_score(sprites: &[GeneratedTerrainSprite], band: f32
         let Some(mask) = sprite.kind.berm_mask() else {
             continue;
         };
-        for (direction, opposite) in [(1, 4), (2, 8), (4, 1), (8, 2)] {
-            if mask & direction == 0 {
-                continue;
+        for edge in topology_for_mask(mask).connected_edges {
+            let direction = edge.bit();
+            for neighbor_mask in compatible_neighbor_masks(edge) {
+                let Some(neighbor) = sprites
+                    .iter()
+                    .find(|candidate| candidate.kind.berm_mask() == Some(neighbor_mask))
+                else {
+                    continue;
+                };
+                total += berm_edge_difference(sprite, neighbor, direction, band);
+                count += 1.0;
             }
-            let Some(neighbor) = sprites
-                .iter()
-                .find(|candidate| candidate.kind.berm_mask() == Some(opposite))
-            else {
-                continue;
-            };
-            total += berm_edge_difference(sprite, neighbor, direction, band);
-            count += 1.0;
         }
     }
     if count == 0.0 {
@@ -1402,27 +1407,26 @@ fn worst_berm_neighbor_pairs(sprites: &[GeneratedTerrainSprite]) -> Vec<TrenchNe
         let Some(mask) = sprite.kind.berm_mask() else {
             continue;
         };
-        for (direction, opposite, edge) in [
-            (1_u8, 4_u8, "north"),
-            (2_u8, 8_u8, "east"),
-            (4_u8, 1_u8, "south"),
-            (8_u8, 2_u8, "west"),
-        ] {
-            if mask & direction == 0 {
-                continue;
+        for edge in topology_for_mask(mask).connected_edges {
+            let direction = edge.bit();
+            for neighbor_mask in compatible_neighbor_masks(edge) {
+                let Some(neighbor) = sprites
+                    .iter()
+                    .find(|candidate| candidate.kind.berm_mask() == Some(neighbor_mask))
+                else {
+                    continue;
+                };
+                let score = berm_edge_difference(sprite, neighbor, direction, 0.0);
+                pairs.push(TrenchNeighborPairScore {
+                    mask_a: mask,
+                    mask_a_kind: topology_for_mask(mask).kind.label().to_string(),
+                    edge: edge.name().to_string(),
+                    mask_b: neighbor_mask,
+                    mask_b_kind: topology_for_mask(neighbor_mask).kind.label().to_string(),
+                    score,
+                    reason: topology_pair_reason(score, "berm seam"),
+                });
             }
-            let Some(neighbor) = sprites
-                .iter()
-                .find(|candidate| candidate.kind.berm_mask() == Some(opposite))
-            else {
-                continue;
-            };
-            pairs.push(TrenchNeighborPairScore {
-                mask_a: mask,
-                edge: edge.to_string(),
-                mask_b: opposite,
-                score: berm_edge_difference(sprite, neighbor, direction, 0.0),
-            });
         }
     }
     pairs.sort_by(|a, b| {
@@ -1432,6 +1436,18 @@ fn worst_berm_neighbor_pairs(sprites: &[GeneratedTerrainSprite]) -> Vec<TrenchNe
     });
     pairs.truncate(8);
     pairs
+}
+
+fn topology_pair_reason(score: f32, label: &str) -> String {
+    if score > 0.42 {
+        format!("{label} has strong color/shape mismatch")
+    } else if score > 0.24 {
+        format!("{label} has visible edge mismatch")
+    } else if score > 0.14 {
+        format!("{label} has mild continuity drift")
+    } else {
+        format!("{label} continuity is acceptable")
+    }
 }
 
 fn path_edge_difference(

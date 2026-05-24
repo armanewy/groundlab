@@ -12,14 +12,15 @@ use crate::spritegen::{
     build_berm_oblique_corner_preview, build_berm_oblique_shadow_preview,
     build_berm_oblique_straight_preview, build_berm_preview_corners, build_berm_preview_dead_ends,
     build_berm_preview_dense, build_berm_preview_junctions, build_berm_preview_loop,
-    build_berm_preview_sparse, build_berm_shadow_continuity_heatmap, build_motif_heatmap,
-    build_oblique_material_preview, build_override_contact_sheet, build_override_diff_sheet,
-    build_palette_preview, build_path_autotile_sheet, build_path_mask_debug_preview,
-    build_path_neighbor_seam_heatmap, build_path_preview_dense, build_path_preview_junctions,
-    build_path_preview_loop, build_path_preview_random, build_path_preview_sparse,
-    build_repeat_preview, build_seam_heatmap, build_single_repeat_preview,
-    build_sprite_contact_sheet, build_transition_edges_preview, build_transition_repeat_preview,
-    build_trench_autotile_sheet, build_trench_contact_sheet,
+    build_berm_preview_sparse, build_berm_shadow_continuity_heatmap,
+    build_berm_worst_neighbor_pairs_sheet, build_motif_heatmap, build_oblique_material_preview,
+    build_override_contact_sheet, build_override_diff_sheet, build_palette_preview,
+    build_path_autotile_sheet, build_path_mask_debug_preview, build_path_neighbor_seam_heatmap,
+    build_path_preview_dense, build_path_preview_junctions, build_path_preview_loop,
+    build_path_preview_random, build_path_preview_sparse, build_repeat_preview, build_seam_heatmap,
+    build_single_repeat_preview, build_sprite_contact_sheet,
+    build_terrain_engineering_topology_preview, build_transition_edges_preview,
+    build_transition_repeat_preview, build_trench_autotile_sheet, build_trench_contact_sheet,
     build_trench_floor_continuity_edge_heatmap, build_trench_floor_continuity_heatmap,
     build_trench_lip_continuity_edge_heatmap, build_trench_lip_continuity_heatmap,
     build_trench_mask_debug_preview, build_trench_neighbor_seam_edge_heatmap,
@@ -28,7 +29,8 @@ use crate::spritegen::{
     build_trench_oblique_straight_preview, build_trench_preview_corners,
     build_trench_preview_dead_ends, build_trench_preview_dense, build_trench_preview_dense_clean,
     build_trench_preview_junctions, build_trench_preview_loop, build_trench_preview_single_masks,
-    build_trench_preview_sparse, build_variant_repeat_preview, generate_effective_terrain_sprites,
+    build_trench_preview_sparse, build_trench_worst_neighbor_pairs_sheet,
+    build_variant_repeat_preview, generate_effective_terrain_sprites,
     promote_generated_sprites_to_overrides, validate_terrain_sprites, GeneratedTerrainSprite,
     TerrainSpriteBundleManifest, TerrainSpriteKind, TerrainSpritePieceManifest,
     TerrainSpriteRecipe, DEFAULT_SPRITEGEN_EXPORT_DIR,
@@ -155,6 +157,8 @@ pub fn export_terrain_sprite_bundle(
         .save_png(out_dir.join("path_preview_junctions.png"))?;
     build_oblique_material_preview(&sprites, &recipe)
         .save_png(out_dir.join("oblique_material_preview.png"))?;
+    build_terrain_engineering_topology_preview(&sprites, &recipe)
+        .save_png(out_dir.join("terrain_engineering_topology_preview.png"))?;
     build_trench_contact_sheet(&sprites, &recipe)
         .save_png(out_dir.join("trench_contact_sheet.png"))?;
     build_trench_oblique_straight_preview(&sprites, &recipe)
@@ -195,6 +199,8 @@ pub fn export_terrain_sprite_bundle(
         .save_png(out_dir.join("berm_face_continuity_heatmap.png"))?;
     build_berm_shadow_continuity_heatmap(&sprites, &recipe)
         .save_png(out_dir.join("berm_shadow_continuity_heatmap.png"))?;
+    build_berm_worst_neighbor_pairs_sheet(&sprites, &recipe)
+        .save_png(out_dir.join("berm_worst_neighbor_pairs.png"))?;
     build_trench_mask_debug_preview(&recipe).save_png(out_dir.join("trench_mask_debug.png"))?;
     build_trench_autotile_sheet(&sprites, &recipe)
         .save_png(out_dir.join("trench_autotile_sheet.png"))?;
@@ -226,6 +232,8 @@ pub fn export_terrain_sprite_bundle(
         .save_png(out_dir.join("trench_lip_continuity_heatmap_edges.png"))?;
     build_trench_floor_continuity_edge_heatmap(&sprites, &recipe)
         .save_png(out_dir.join("trench_floor_continuity_heatmap_edges.png"))?;
+    build_trench_worst_neighbor_pairs_sheet(&sprites, &recipe)
+        .save_png(out_dir.join("trench_worst_neighbor_pairs.png"))?;
     build_path_mask_debug_preview(&recipe).save_png(out_dir.join("path_preview_mask_debug.png"))?;
     build_path_neighbor_seam_heatmap(&sprites, &recipe)
         .save_png(out_dir.join("path_neighbor_seam_heatmap.png"))?;

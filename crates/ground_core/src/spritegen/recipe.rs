@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::pixel_image::PixelImage;
 use crate::spritegen::{ObliqueProjectionProfile, TerrainMotifLibrary, TerrainSpriteStyle};
 
-pub const DEFAULT_SPRITEGEN_EXPORT_DIR: &str = "exports/artgen_03_2";
+pub const DEFAULT_SPRITEGEN_EXPORT_DIR: &str = "exports/artgen_03_3";
 pub const DEFAULT_SPRITE_STYLE_PATH: &str = "assets/sprite_styles/cozy_upland/style.ron";
 
 pub const BUILTIN_SPRITE_STYLE_PROFILES: [(&str, &str); 3] = [

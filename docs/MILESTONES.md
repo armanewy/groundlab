@@ -390,6 +390,23 @@ This is a tool milestone, not a new sprite-family milestone. It makes the curren
 tunable without Rust edits or manual RON patching while preserving deterministic generation,
 metadata, validation, overrides, and art-kit-compatible export.
 
+## ArtGen 3.3 — Shared topology continuity polish
+
+Implemented in this drop.
+
+- added a common 4-bit topology resolver for connected, exposed, dead-end, straight, corner, T-junction, and cross masks
+- trench and berm opening suppression now uses the shared topology helper instead of local bit checks
+- trench and berm neighbor diagnostics compare all compatible connected neighbor masks instead of only the opposite dead-end mask
+- worst-neighbor JSON entries now include the topology kind of each mask and a plain reason string
+- exports now include `trench_worst_neighbor_pairs.png` and `berm_worst_neighbor_pairs.png`
+- exports now include `terrain_engineering_topology_preview.png` with path, trench, and berm topology shown side by side over the same pattern
+- Pixel Terrain Forge adds preview panels for the shared topology preview and worst-neighbor sheets
+- sprite CLI/app default export target is `exports/artgen_03_3`
+
+This is a continuity/diagnostics milestone, not a new material milestone. It keeps topology warnings
+visible, but makes them based on the connected-mask space the generated sprites actually need to
+support.
+
 ## Milestone 5 — Custom renderer/runtime
 
 - introduce `ground_render`

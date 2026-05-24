@@ -1,8 +1,8 @@
 use crate::color::Rgba8;
 use crate::pixel_image::PixelImage;
 use crate::spritegen::{
-    scale_nearest, GeneratedTerrainSprite, TerrainSpriteKind, TerrainSpriteRecipe,
-    TerrainSpriteSource,
+    compatible_neighbor_masks, scale_nearest, topology_for_mask, GeneratedTerrainSprite,
+    TerrainSpriteKind, TerrainSpriteRecipe, TerrainSpriteSource, TopologyEdge,
 };
 
 pub fn build_sprite_contact_sheet(
@@ -937,6 +937,73 @@ pub fn build_berm_shadow_continuity_heatmap(
     build_berm_continuity_heatmap(sprites, recipe, BermContinuityMode::Shadow)
 }
 
+pub fn build_trench_worst_neighbor_pairs_sheet(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    build_worst_neighbor_pairs_sheet(sprites, recipe, EngineeringKind::Trench)
+}
+
+pub fn build_berm_worst_neighbor_pairs_sheet(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    build_worst_neighbor_pairs_sheet(sprites, recipe, EngineeringKind::Berm)
+}
+
+pub fn build_terrain_engineering_topology_preview(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    let cell_w = recipe.style.projection.cell_width_px;
+    let cell_h = recipe.style.projection.cell_height_px;
+    let width = 9;
+    let rows_per_family = 3;
+    let height = rows_per_family * 3;
+    let map = sample_path_map(width, rows_per_family, PathPreviewPattern::Junctions);
+    let mut preview = PixelImage::new(width * cell_w, height * cell_h, Rgba8::opaque(31, 39, 28));
+    fill_engineering_grass(&mut preview, sprites, recipe, width, height);
+
+    for family in 0..3 {
+        let y_offset = family * rows_per_family;
+        for y in 0..rows_per_family {
+            for x in 0..width {
+                if !map[(y * width + x) as usize] {
+                    continue;
+                }
+                let mask = path_neighbor_mask(&map, width, rows_per_family, x, y);
+                let dx = x * cell_w;
+                let dy = (y + y_offset) * cell_h;
+                match family {
+                    0 => {
+                        if let Some(sprite) = path_mask_sprite(sprites, mask) {
+                            blit_scaled_i32(
+                                &mut preview,
+                                &sprite.image,
+                                dx as i32,
+                                dy as i32,
+                                cell_w,
+                                cell_h,
+                            );
+                        }
+                    }
+                    1 => {
+                        if let Some(sprite) = trench_mask_sprite(sprites, mask) {
+                            preview.blit(&sprite.image, dx, dy);
+                        }
+                    }
+                    _ => {
+                        if let Some(sprite) = berm_mask_sprite(sprites, mask) {
+                            preview.blit(&sprite.image, dx, dy);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    scale_nearest(&preview, recipe.style.display_scale.max(1))
+}
+
 pub fn build_trench_mask_debug_preview(recipe: &TerrainSpriteRecipe) -> PixelImage {
     let scale = recipe.style.display_scale.max(1);
     let tile = (recipe.tile_size * 2).max(28);
@@ -1400,6 +1467,138 @@ fn build_berm_continuity_heatmap(
     scale_nearest(&image, recipe.style.display_scale.max(1))
 }
 
+#[derive(Clone, Copy)]
+enum EngineeringKind {
+    Trench,
+    Berm,
+}
+
+fn build_worst_neighbor_pairs_sheet(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+    kind: EngineeringKind,
+) -> PixelImage {
+    let pairs = worst_engineering_neighbor_pairs(sprites, kind);
+    let cell_w = recipe.style.projection.cell_width_px;
+    let cell_h = recipe.style.projection.cell_height_px;
+    let gap = 8;
+    let pair_w = cell_w * 3 + gap * 2;
+    let pair_h = cell_h * 3 + gap * 2 + 6;
+    let columns = 2;
+    let rows = (pairs.len() as u32).div_ceil(columns).max(1);
+    let mut image = PixelImage::new(pair_w * columns, pair_h * rows, Rgba8::opaque(15, 18, 16));
+    for (index, pair) in pairs.iter().enumerate() {
+        let ox = index as u32 % columns * pair_w;
+        let oy = index as u32 / columns * pair_h;
+        let ax = ox + gap + cell_w;
+        let ay = oy + gap + cell_h;
+        let (bx, by) = match pair.edge {
+            TopologyEdge::North => (ax, ay.saturating_sub(cell_h)),
+            TopologyEdge::East => (ax + cell_w, ay),
+            TopologyEdge::South => (ax, ay + cell_h),
+            TopologyEdge::West => (ax.saturating_sub(cell_w), ay),
+        };
+        if let Some(sprite) = engineering_mask_sprite(sprites, kind, pair.mask_a) {
+            image.blit(&sprite.image, ax, ay);
+        }
+        if let Some(sprite) = engineering_mask_sprite(sprites, kind, pair.mask_b) {
+            image.blit(&sprite.image, bx, by);
+        }
+        let heat_color = heat(pair.score);
+        image.fill_rect(ox + gap, oy + pair_h - gap, pair_w - gap * 2, 4, heat_color);
+    }
+    scale_nearest(&image, recipe.style.display_scale.max(1))
+}
+
+fn fill_engineering_grass(
+    target: &mut PixelImage,
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+    width_cells: u32,
+    height_cells: u32,
+) {
+    let cell_w = recipe.style.projection.cell_width_px;
+    let cell_h = recipe.style.projection.cell_height_px;
+    let grass = sprites
+        .iter()
+        .filter(|sprite| sprite.kind == TerrainSpriteKind::GrassTile)
+        .collect::<Vec<_>>();
+    for y in 0..height_cells {
+        for x in 0..width_cells {
+            if let Some(sprite) = grass.get(variant_index(x, y, grass.len().max(1))) {
+                blit_scaled_i32(
+                    target,
+                    &sprite.image,
+                    (x * cell_w) as i32,
+                    (y * cell_h) as i32,
+                    cell_w,
+                    cell_h,
+                );
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+struct EngineeringNeighborPair {
+    mask_a: u8,
+    edge: TopologyEdge,
+    mask_b: u8,
+    score: f32,
+}
+
+fn worst_engineering_neighbor_pairs(
+    sprites: &[GeneratedTerrainSprite],
+    kind: EngineeringKind,
+) -> Vec<EngineeringNeighborPair> {
+    let mut pairs = Vec::new();
+    for mask in 0_u8..16 {
+        if engineering_mask_sprite(sprites, kind, mask).is_none() {
+            continue;
+        }
+        for edge in topology_for_mask(mask).connected_edges {
+            for neighbor_mask in compatible_neighbor_masks(edge) {
+                if engineering_mask_sprite(sprites, kind, neighbor_mask).is_none() {
+                    continue;
+                }
+                pairs.push(EngineeringNeighborPair {
+                    mask_a: mask,
+                    edge,
+                    mask_b: neighbor_mask,
+                    score: engineering_pair_score(sprites, kind, mask, edge, neighbor_mask),
+                });
+            }
+        }
+    }
+    pairs.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    pairs.truncate(8);
+    pairs
+}
+
+fn engineering_pair_score(
+    sprites: &[GeneratedTerrainSprite],
+    kind: EngineeringKind,
+    mask: u8,
+    edge: TopologyEdge,
+    neighbor_mask: u8,
+) -> f32 {
+    let Some(sprite) = engineering_mask_sprite(sprites, kind, mask) else {
+        return 0.0;
+    };
+    let Some(neighbor) = engineering_mask_sprite(sprites, kind, neighbor_mask) else {
+        return 0.0;
+    };
+    let open_fraction = match kind {
+        EngineeringKind::Trench => 0.34,
+        EngineeringKind::Berm => 0.40,
+    };
+    connected_surface_edge_difference(sprite, neighbor, edge, open_fraction)
+}
+
 pub fn build_path_neighbor_seam_heatmap(
     sprites: &[GeneratedTerrainSprite],
     recipe: &TerrainSpriteRecipe,
@@ -1717,6 +1916,17 @@ fn berm_mask_sprite(
         .find(|sprite| sprite.kind.berm_mask() == Some(mask))
 }
 
+fn engineering_mask_sprite(
+    sprites: &[GeneratedTerrainSprite],
+    kind: EngineeringKind,
+    mask: u8,
+) -> Option<&GeneratedTerrainSprite> {
+    match kind {
+        EngineeringKind::Trench => trench_mask_sprite(sprites, mask),
+        EngineeringKind::Berm => berm_mask_sprite(sprites, mask),
+    }
+}
+
 #[derive(Clone, Copy)]
 enum PathPreviewPattern {
     Random,
@@ -2005,6 +2215,75 @@ fn connected_edge_score(
     };
     let connection_weight = if mask & direction != 0 { 1.0 } else { 0.25 };
     (a.rgb_distance(b).min(120.0) / 120.0) * connection_weight
+}
+
+fn connected_surface_edge_difference(
+    sprite: &GeneratedTerrainSprite,
+    neighbor: &GeneratedTerrainSprite,
+    edge: TopologyEdge,
+    open_fraction: f32,
+) -> f32 {
+    let width = sprite.image.width.min(neighbor.image.width).max(1);
+    let height = sprite.image.height.min(neighbor.image.height).max(1);
+    let surface_h = ((height as f32 * 0.68).round() as u32).clamp(1, height);
+    let mut total = 0.0;
+    let mut count = 0.0;
+    match edge {
+        TopologyEdge::North | TopologyEdge::South => {
+            let (start, end) = opening_span_for_len(width, open_fraction);
+            let y_a = if edge == TopologyEdge::North {
+                0
+            } else {
+                surface_h - 1
+            };
+            let y_b = if edge == TopologyEdge::North {
+                surface_h - 1
+            } else {
+                0
+            };
+            for x in start..=end {
+                total += sprite
+                    .image
+                    .get(x, y_a)
+                    .rgb_distance(neighbor.image.get(x, y_b));
+                count += 1.0;
+            }
+        }
+        TopologyEdge::East | TopologyEdge::West => {
+            let (start, end) = opening_span_for_len(surface_h, open_fraction);
+            let x_a = if edge == TopologyEdge::West {
+                0
+            } else {
+                width - 1
+            };
+            let x_b = if edge == TopologyEdge::West {
+                width - 1
+            } else {
+                0
+            };
+            for y in start..=end {
+                total += sprite
+                    .image
+                    .get(x_a, y)
+                    .rgb_distance(neighbor.image.get(x_b, y));
+                count += 1.0;
+            }
+        }
+    }
+    if count == 0.0 {
+        0.0
+    } else {
+        (total / count).min(140.0) / 140.0
+    }
+}
+
+fn opening_span_for_len(length: u32, fraction: f32) -> (u32, u32) {
+    let center = length / 2;
+    let open = (length as f32 * fraction).round().max(1.0) as u32;
+    (
+        center.saturating_sub(open / 2),
+        (center + open / 2).min(length.saturating_sub(1)),
+    )
 }
 
 fn trench_connected_edge_score(

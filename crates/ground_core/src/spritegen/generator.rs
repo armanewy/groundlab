@@ -1,8 +1,8 @@
 use crate::color::Rgba8;
 use crate::pixel_image::PixelImage;
 use crate::spritegen::{
-    GeneratedTerrainSprite, TerrainMotif, TerrainSpriteKind, TerrainSpriteRecipe,
-    TerrainSpriteSource,
+    topology_for_mask, topology_opening_span, GeneratedTerrainSprite, TerrainMotif,
+    TerrainSpriteKind, TerrainSpriteRecipe, TerrainSpriteSource, TopologyEdge,
 };
 
 pub fn generate_terrain_sprites(recipe: &TerrainSpriteRecipe) -> Vec<GeneratedTerrainSprite> {
@@ -826,21 +826,26 @@ fn suppress_trench_openings(
     left_edge: &mut [Option<u32>],
     right_edge: &mut [Option<u32>],
 ) {
-    let cx = width / 2;
-    let cy = surface_h / 2;
-    let open_w = (width as f32 * 0.34).round() as u32;
-    let open_h = (surface_h as f32 * 0.34).round() as u32;
-    if mask & 1 != 0 {
-        clear_edge_span(top_edge, cx.saturating_sub(open_w / 2), cx + open_w / 2);
-    }
-    if mask & 4 != 0 {
-        clear_edge_span(bottom_edge, cx.saturating_sub(open_w / 2), cx + open_w / 2);
-    }
-    if mask & 8 != 0 {
-        clear_edge_span(left_edge, cy.saturating_sub(open_h / 2), cy + open_h / 2);
-    }
-    if mask & 2 != 0 {
-        clear_edge_span(right_edge, cy.saturating_sub(open_h / 2), cy + open_h / 2);
+    let topology = topology_for_mask(mask);
+    for edge in topology.connected_edges {
+        match edge {
+            TopologyEdge::North => {
+                let (start, end) = topology_opening_span(width, 0.34);
+                clear_edge_span(top_edge, start, end);
+            }
+            TopologyEdge::South => {
+                let (start, end) = topology_opening_span(width, 0.34);
+                clear_edge_span(bottom_edge, start, end);
+            }
+            TopologyEdge::West => {
+                let (start, end) = topology_opening_span(surface_h, 0.34);
+                clear_edge_span(left_edge, start, end);
+            }
+            TopologyEdge::East => {
+                let (start, end) = topology_opening_span(surface_h, 0.34);
+                clear_edge_span(right_edge, start, end);
+            }
+        }
     }
 }
 

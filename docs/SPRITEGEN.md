@@ -5,8 +5,8 @@ editable scene renderer. The generator first produces cozy top-surface terrain p
 dirt, grass-to-dirt transitions, and connected dirt path masks. ArtGen 2.1b extends that foundation
 with polished connected oblique trench masks; ArtGen 3.0c formalizes the art override workflow so
 rough generated sprites can be replaced by better authored PNGs without changing metadata or
-renderer contracts; ArtGen 3.1 adds connected berm/mound topology; and ArtGen 3.2 turns Forge into a
-native primitive style tuning studio.
+renderer contracts; ArtGen 3.1 adds connected berm/mound topology; ArtGen 3.2 turns Forge into a
+native primitive style tuning studio; and ArtGen 3.3 adds shared topology continuity diagnostics.
 
 The generator does not require reference images. It uses:
 
@@ -26,7 +26,7 @@ The generator does not require reference images. It uses:
 - generated/effective/override/diff contact sheets
 - override compatibility validation
 
-ArtGen 3.2 keeps the ArtGen 1.2b path topology, ArtGen 1.3 style profiles, ArtGen 1.4
+ArtGen 3.3 keeps the ArtGen 1.2b path topology, ArtGen 1.3 style profiles, ArtGen 1.4
 projection-aware sprite contract, ArtGen 2.0b trench polish, and ArtGen 2.1b connected trench
 topology. Grass/dirt/path pieces are still top-surface material primitives, trench pieces include
 both the base role pieces and `trench_mask_00` through `trench_mask_15`, and berm pieces now include
@@ -84,6 +84,8 @@ ArtGen 3.2 makes those profile fields editable in Forge through primitive-specif
 
 The app can save the active `style.ron`/`motifs.ron`, reload the selected profile, save to a new path
 as a clone, ignore overrides for generated-only tuning, or promote generated sprites into overrides.
+ArtGen 3.3 adds a common topology resolver for trench and berm masks and exports worst-neighbor
+visual sheets so continuity diagnostics are actionable instead of only numeric.
 
 Run the fast workbench:
 
@@ -94,7 +96,7 @@ cargo run -p ground_sprite_app
 Export the deterministic bundle:
 
 ```bash
-cargo run -p ground_sprite_cli -- export exports/artgen_03_2 assets/sprite_styles/cozy_upland/style.ron
+cargo run -p ground_sprite_cli -- export exports/artgen_03_3 assets/sprite_styles/cozy_upland/style.ron
 ```
 
 Copy the current generated sprites into a profile's override folder so they can be edited or
@@ -107,7 +109,7 @@ cargo run -p ground_sprite_cli -- promote-overrides assets/sprite_styles/cozy_up
 Export output:
 
 ```txt
-exports/artgen_03_2/
+exports/artgen_03_3/
   manifest.ron
   sprite_manifest.ron
   sprite_manifest.json
@@ -119,6 +121,7 @@ exports/artgen_03_2/
   override_diff_sheet.png
   override_report.json
   oblique_material_preview.png
+  terrain_engineering_topology_preview.png
   berm_contact_sheet.png
   berm_preview_oblique_straight.png
   berm_preview_oblique_caps.png
@@ -137,6 +140,7 @@ exports/artgen_03_2/
   berm_face_continuity_heatmap.png
   berm_shadow_continuity_heatmap.png
   berm_neighbor_pairs.json
+  berm_worst_neighbor_pairs.png
   trench_contact_sheet.png
   trench_preview_oblique_straight.png
   trench_preview_oblique_caps.png
@@ -159,6 +163,7 @@ exports/artgen_03_2/
   trench_lip_continuity_heatmap_edges.png
   trench_floor_continuity_heatmap_edges.png
   trench_neighbor_pairs.json
+  trench_worst_neighbor_pairs.png
   path_autotile_sheet.png
   path_preview_random.png
   path_preview_random_sparse.png

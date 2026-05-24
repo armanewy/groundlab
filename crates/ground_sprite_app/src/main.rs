@@ -6,19 +6,21 @@ use ground_core::{
     build_berm_oblique_corner_preview, build_berm_oblique_shadow_preview,
     build_berm_oblique_straight_preview, build_berm_preview_corners, build_berm_preview_dead_ends,
     build_berm_preview_dense, build_berm_preview_junctions, build_berm_preview_loop,
-    build_berm_preview_sparse, build_berm_shadow_continuity_heatmap, build_motif_heatmap,
-    build_oblique_material_preview, build_override_contact_sheet, build_override_diff_sheet,
-    build_palette_preview, build_path_autotile_sheet, build_path_mask_debug_preview,
-    build_path_neighbor_seam_heatmap, build_path_preview_dense, build_path_preview_junctions,
-    build_path_preview_loop, build_path_preview_random, build_path_preview_sparse,
-    build_seam_heatmap, build_single_repeat_preview, build_sprite_contact_sheet,
-    build_transition_edges_preview, build_transition_repeat_preview, build_trench_autotile_sheet,
-    build_trench_contact_sheet, build_trench_floor_continuity_heatmap,
-    build_trench_lip_continuity_heatmap, build_trench_mask_debug_preview,
-    build_trench_neighbor_seam_heatmap, build_trench_oblique_caps_preview,
-    build_trench_oblique_corner_preview, build_trench_oblique_shadow_preview,
-    build_trench_oblique_straight_preview, build_trench_preview_dense,
-    build_trench_preview_junctions, build_trench_preview_loop, build_trench_preview_sparse,
+    build_berm_preview_sparse, build_berm_shadow_continuity_heatmap,
+    build_berm_worst_neighbor_pairs_sheet, build_motif_heatmap, build_oblique_material_preview,
+    build_override_contact_sheet, build_override_diff_sheet, build_palette_preview,
+    build_path_autotile_sheet, build_path_mask_debug_preview, build_path_neighbor_seam_heatmap,
+    build_path_preview_dense, build_path_preview_junctions, build_path_preview_loop,
+    build_path_preview_random, build_path_preview_sparse, build_seam_heatmap,
+    build_single_repeat_preview, build_sprite_contact_sheet,
+    build_terrain_engineering_topology_preview, build_transition_edges_preview,
+    build_transition_repeat_preview, build_trench_autotile_sheet, build_trench_contact_sheet,
+    build_trench_floor_continuity_heatmap, build_trench_lip_continuity_heatmap,
+    build_trench_mask_debug_preview, build_trench_neighbor_seam_heatmap,
+    build_trench_oblique_caps_preview, build_trench_oblique_corner_preview,
+    build_trench_oblique_shadow_preview, build_trench_oblique_straight_preview,
+    build_trench_preview_dense, build_trench_preview_junctions, build_trench_preview_loop,
+    build_trench_preview_sparse, build_trench_worst_neighbor_pairs_sheet,
     build_variant_repeat_preview, export_terrain_sprite_bundle, generate_effective_terrain_sprites,
     promote_terrain_sprite_overrides, scale_nearest, GeneratedTerrainSprite, PixelImage, Rgba8,
     TerrainSpriteKind, TerrainSpriteOverrideReport, TerrainSpriteRecipe,
@@ -62,6 +64,7 @@ enum PreviewPanel {
     PathLoopPreview,
     PathJunctionPreview,
     ObliqueMaterialPreview,
+    TerrainEngineeringTopology,
     BermContactSheet,
     BermStraightPreview,
     BermCapsPreview,
@@ -79,6 +82,7 @@ enum PreviewPanel {
     BermLipContinuity,
     BermFaceContinuity,
     BermShadowContinuity,
+    BermWorstNeighborPairs,
     TrenchContactSheet,
     TrenchStraightPreview,
     TrenchCapsPreview,
@@ -93,6 +97,7 @@ enum PreviewPanel {
     TrenchNeighborSeam,
     TrenchLipContinuity,
     TrenchFloorContinuity,
+    TrenchWorstNeighborPairs,
     PathMaskDebug,
     PathNeighborSeam,
     SeamHeatmap,
@@ -101,7 +106,7 @@ enum PreviewPanel {
 }
 
 impl PreviewPanel {
-    const ALL: [PreviewPanel; 54] = [
+    const ALL: [PreviewPanel; 57] = [
         PreviewPanel::Selected,
         PreviewPanel::ContactSheet,
         PreviewPanel::GeneratedContactSheet,
@@ -120,6 +125,7 @@ impl PreviewPanel {
         PreviewPanel::PathLoopPreview,
         PreviewPanel::PathJunctionPreview,
         PreviewPanel::ObliqueMaterialPreview,
+        PreviewPanel::TerrainEngineeringTopology,
         PreviewPanel::BermContactSheet,
         PreviewPanel::BermStraightPreview,
         PreviewPanel::BermCapsPreview,
@@ -137,6 +143,7 @@ impl PreviewPanel {
         PreviewPanel::BermLipContinuity,
         PreviewPanel::BermFaceContinuity,
         PreviewPanel::BermShadowContinuity,
+        PreviewPanel::BermWorstNeighborPairs,
         PreviewPanel::TrenchContactSheet,
         PreviewPanel::TrenchStraightPreview,
         PreviewPanel::TrenchCapsPreview,
@@ -151,6 +158,7 @@ impl PreviewPanel {
         PreviewPanel::TrenchNeighborSeam,
         PreviewPanel::TrenchLipContinuity,
         PreviewPanel::TrenchFloorContinuity,
+        PreviewPanel::TrenchWorstNeighborPairs,
         PreviewPanel::PathMaskDebug,
         PreviewPanel::PathNeighborSeam,
         PreviewPanel::SeamHeatmap,
@@ -178,6 +186,7 @@ impl PreviewPanel {
             PreviewPanel::PathLoopPreview => "Loop path preview",
             PreviewPanel::PathJunctionPreview => "Junction path preview",
             PreviewPanel::ObliqueMaterialPreview => "Oblique material preview",
+            PreviewPanel::TerrainEngineeringTopology => "Engineering topology preview",
             PreviewPanel::BermContactSheet => "Berm contact sheet",
             PreviewPanel::BermStraightPreview => "Berm straight preview",
             PreviewPanel::BermCapsPreview => "Berm caps preview",
@@ -195,6 +204,7 @@ impl PreviewPanel {
             PreviewPanel::BermLipContinuity => "Berm lip continuity",
             PreviewPanel::BermFaceContinuity => "Berm face continuity",
             PreviewPanel::BermShadowContinuity => "Berm shadow continuity",
+            PreviewPanel::BermWorstNeighborPairs => "Berm worst neighbor pairs",
             PreviewPanel::TrenchContactSheet => "Trench contact sheet",
             PreviewPanel::TrenchStraightPreview => "Trench straight preview",
             PreviewPanel::TrenchCapsPreview => "Trench caps preview",
@@ -209,6 +219,7 @@ impl PreviewPanel {
             PreviewPanel::TrenchNeighborSeam => "Trench neighbor seams",
             PreviewPanel::TrenchLipContinuity => "Trench lip continuity",
             PreviewPanel::TrenchFloorContinuity => "Trench floor continuity",
+            PreviewPanel::TrenchWorstNeighborPairs => "Trench worst neighbor pairs",
             PreviewPanel::PathMaskDebug => "Path mask debug",
             PreviewPanel::PathNeighborSeam => "Path neighbor seams",
             PreviewPanel::SeamHeatmap => "Seam heatmap",
@@ -293,6 +304,7 @@ struct SpriteForgeApp {
     path_loop_texture: Option<egui::TextureHandle>,
     path_junction_texture: Option<egui::TextureHandle>,
     oblique_material_texture: Option<egui::TextureHandle>,
+    terrain_engineering_texture: Option<egui::TextureHandle>,
     berm_contact_texture: Option<egui::TextureHandle>,
     berm_straight_texture: Option<egui::TextureHandle>,
     berm_caps_texture: Option<egui::TextureHandle>,
@@ -310,6 +322,7 @@ struct SpriteForgeApp {
     berm_lip_continuity_texture: Option<egui::TextureHandle>,
     berm_face_continuity_texture: Option<egui::TextureHandle>,
     berm_shadow_continuity_texture: Option<egui::TextureHandle>,
+    berm_worst_neighbor_texture: Option<egui::TextureHandle>,
     trench_contact_texture: Option<egui::TextureHandle>,
     trench_straight_texture: Option<egui::TextureHandle>,
     trench_caps_texture: Option<egui::TextureHandle>,
@@ -324,6 +337,7 @@ struct SpriteForgeApp {
     trench_neighbor_seam_texture: Option<egui::TextureHandle>,
     trench_lip_continuity_texture: Option<egui::TextureHandle>,
     trench_floor_continuity_texture: Option<egui::TextureHandle>,
+    trench_worst_neighbor_texture: Option<egui::TextureHandle>,
     path_mask_debug_texture: Option<egui::TextureHandle>,
     path_neighbor_seam_texture: Option<egui::TextureHandle>,
     seam_heatmap_texture: Option<egui::TextureHandle>,
@@ -375,6 +389,7 @@ impl SpriteForgeApp {
             path_loop_texture: None,
             path_junction_texture: None,
             oblique_material_texture: None,
+            terrain_engineering_texture: None,
             berm_contact_texture: None,
             berm_straight_texture: None,
             berm_caps_texture: None,
@@ -392,6 +407,7 @@ impl SpriteForgeApp {
             berm_lip_continuity_texture: None,
             berm_face_continuity_texture: None,
             berm_shadow_continuity_texture: None,
+            berm_worst_neighbor_texture: None,
             trench_contact_texture: None,
             trench_straight_texture: None,
             trench_caps_texture: None,
@@ -406,6 +422,7 @@ impl SpriteForgeApp {
             trench_neighbor_seam_texture: None,
             trench_lip_continuity_texture: None,
             trench_floor_continuity_texture: None,
+            trench_worst_neighbor_texture: None,
             path_mask_debug_texture: None,
             path_neighbor_seam_texture: None,
             seam_heatmap_texture: None,
@@ -601,6 +618,14 @@ impl SpriteForgeApp {
             "oblique_material_preview",
             &oblique_material,
         );
+        let terrain_engineering =
+            build_terrain_engineering_topology_preview(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.terrain_engineering_texture,
+            "terrain_engineering_topology",
+            &terrain_engineering,
+        );
         let berm_contact = build_berm_contact_sheet(&self.sprites, &self.recipe);
         put_texture(
             ctx,
@@ -721,6 +746,13 @@ impl SpriteForgeApp {
             "berm_shadow_continuity",
             &berm_shadow_continuity,
         );
+        let berm_worst = build_berm_worst_neighbor_pairs_sheet(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.berm_worst_neighbor_texture,
+            "berm_worst_neighbor_pairs",
+            &berm_worst,
+        );
         let trench_contact = build_trench_contact_sheet(&self.sprites, &self.recipe);
         put_texture(
             ctx,
@@ -821,6 +853,13 @@ impl SpriteForgeApp {
             "trench_floor_continuity",
             &trench_floor_continuity,
         );
+        let trench_worst = build_trench_worst_neighbor_pairs_sheet(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.trench_worst_neighbor_texture,
+            "trench_worst_neighbor_pairs",
+            &trench_worst,
+        );
         let path_mask_debug = build_path_mask_debug_preview(&self.recipe);
         put_texture(
             ctx,
@@ -855,7 +894,7 @@ impl SpriteForgeApp {
 
     fn show_controls(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.heading("Pixel Terrain Forge");
-        ui.label("ArtGen 3.2: primitive style tuning studio.");
+        ui.label("ArtGen 3.3: shared topology continuity polish.");
         ui.separator();
         let selected_profile = BUILTIN_SPRITE_STYLE_PROFILES
             .get(self.selected_profile_index)
@@ -1612,6 +1651,14 @@ impl SpriteForgeApp {
                     "No oblique material preview",
                 );
             }
+            PreviewPanel::TerrainEngineeringTopology => {
+                show_texture(
+                    ui,
+                    self.terrain_engineering_texture.as_ref(),
+                    1.0,
+                    "No terrain engineering topology preview",
+                );
+            }
             PreviewPanel::BermContactSheet => {
                 show_texture(
                     ui,
@@ -1748,6 +1795,14 @@ impl SpriteForgeApp {
                     "No berm shadow continuity heatmap",
                 );
             }
+            PreviewPanel::BermWorstNeighborPairs => {
+                show_texture(
+                    ui,
+                    self.berm_worst_neighbor_texture.as_ref(),
+                    1.0,
+                    "No berm worst neighbor pair sheet",
+                );
+            }
             PreviewPanel::TrenchContactSheet => {
                 show_texture(
                     ui,
@@ -1858,6 +1913,14 @@ impl SpriteForgeApp {
                     self.trench_floor_continuity_texture.as_ref(),
                     1.0,
                     "No trench floor continuity heatmap",
+                );
+            }
+            PreviewPanel::TrenchWorstNeighborPairs => {
+                show_texture(
+                    ui,
+                    self.trench_worst_neighbor_texture.as_ref(),
+                    1.0,
+                    "No trench worst neighbor pair sheet",
                 );
             }
             PreviewPanel::PathMaskDebug => {

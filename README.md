@@ -4,19 +4,18 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: ArtGen 3.2 — primitive style tuning studio
+## Current status: ArtGen 3.3 — shared topology continuity polish
 
 GroundLab's active visual work has pivoted away from the large editable scene renderer. The current
 focus is a dedicated, fast terrain sprite generator that produces simple, cozy, top-down pixel
 terrain primitives from swappable style profiles, palettes, motif libraries, and art rules. It does
 not require reference images.
 
-ArtGen 3.2 keeps the generated/effective/override workflow from 3.0c and the berm topology from
-3.1, but makes style tuning native in Pixel Terrain Forge. The app now has a primitive selector for
-grass, dirt, path/transition, trench, berm, and projection/global controls. Each panel exposes the
-relevant color ramps, lighting, density, edge, shadow, and detail settings without editing RON by
-hand. Style profiles can be saved, reverted, cloned by changing the save path, exported, and promoted
-into override PNGs from the same workbench.
+ArtGen 3.3 keeps the primitive style tuning studio from 3.2 and improves the shared topology layer
+used by trench and berm masks. The generator now has a common 4-bit mask resolver for connected,
+exposed, dead-end, corner, T-junction, and cross cases. Trench and berm continuity diagnostics now
+compare all compatible neighboring masks instead of only the opposite dead-end case, and exports add
+worst-neighbor visual sheets plus a side-by-side terrain-engineering topology preview.
 
 The style profiles remain data-driven under `assets/sprite_styles/`. The current built-in profiles
 are:
@@ -29,7 +28,7 @@ Each profile has a `style.ron` for palette/rule/projection tuning, a `motifs.ron
 pixel-cluster motifs, and an `overrides/` folder for optional replacement PNGs. The Forge app can
 switch profiles from a dropdown, and the CLI can export with an explicit profile path.
 
-ArtGen 3.2 exports:
+ArtGen 3.3 exports:
 
 - tileable grass variants
 - tileable dirt variants
@@ -45,6 +44,7 @@ ArtGen 3.2 exports:
 - trench neighbor-seam, lip-continuity, and floor-continuity heatmaps plus amplified edge heatmaps
 - trench validation metrics for role coverage, piece coverage, floor darkness, wall/floor contrast, lip contrast, shadow continuity, cap presence, anchor validity, mask coverage, cap/corner/junction coverage, and continuity scores
 - worst-offending trench neighbor pairs in `trench_neighbor_pairs.json`
+- worst-offending trench neighbor pair preview in `trench_worst_neighbor_pairs.png`
 - oblique berm top, front-face, lip, end-cap, corner, contact-shadow, spoil, and grass-fringe sprites
 - berm straight, caps, corner, shadow, and mask-debug previews
 - `berm_mask_00` through `berm_mask_15`
@@ -52,6 +52,8 @@ ArtGen 3.2 exports:
 - sparse, dense, loop, junction, corner, and dead-end berm topology previews
 - berm neighbor-seam, lip-continuity, face-continuity, and shadow-continuity heatmaps
 - worst-offending berm neighbor pairs in `berm_neighbor_pairs.json`
+- worst-offending berm neighbor pair preview in `berm_worst_neighbor_pairs.png`
+- side-by-side path/trench/berm topology preview in `terrain_engineering_topology_preview.png`
 - berm validation metrics for piece coverage, role coverage, face/top contrast, face rectangularity, silhouette variance, base shadow strength, cap taper, corner continuity, shadow continuity, cap presence, anchor validity, mask coverage, cap/corner/junction coverage, and continuity scores
 - `sprite_manifest.ron` / `sprite_manifest.json` with role, anchor, footprint, z-bias, occlusion, and projection metadata
 - neighbor seam heatmap
@@ -74,7 +76,7 @@ cargo run -p ground_sprite_app
 Export the sprite bundle:
 
 ```bash
-cargo run -p ground_sprite_cli -- export exports/artgen_03_2 assets/sprite_styles/cozy_upland/style.ron
+cargo run -p ground_sprite_cli -- export exports/artgen_03_3 assets/sprite_styles/cozy_upland/style.ron
 ```
 
 Promote the current generated sprites into a profile's override folder as editable starting art:
