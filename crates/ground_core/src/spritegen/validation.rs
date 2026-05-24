@@ -29,6 +29,15 @@ pub struct TrenchSpriteValidationSummary {
     pub trench_shadow_continuity: f32,
     pub trench_cap_presence: bool,
     pub trench_oblique_anchor_validity: f32,
+    pub trench_mask_coverage: usize,
+    pub missing_trench_masks: Vec<u8>,
+    pub trench_neighbor_seam_score: f32,
+    pub trench_floor_continuity_score: f32,
+    pub trench_wall_alignment_score: f32,
+    pub trench_lip_continuity_score: f32,
+    pub trench_cap_coverage: usize,
+    pub trench_corner_coverage: usize,
+    pub trench_junction_coverage: usize,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -73,7 +82,7 @@ pub fn validate_terrain_sprites(
 
     for sprite in sprites {
         let summary = summarize(sprite);
-        if !sprite.kind.is_trench() {
+        if !sprite.kind.is_trench() && !sprite.kind.is_trench_mask() {
             seam_total += summary.seam_score;
             noise_total += summary.single_pixel_noise_count as f32;
             motif_total += summary.motif_repetition_score;
@@ -95,14 +104,17 @@ pub fn validate_terrain_sprites(
                 message: "surface tile has a visible opposing-edge seam risk".to_string(),
             });
         }
-        if !sprite.kind.is_trench() && summary.single_pixel_noise_count > 6 {
+        if !sprite.kind.is_trench()
+            && !sprite.kind.is_trench_mask()
+            && summary.single_pixel_noise_count > 6
+        {
             issues.push(TerrainSpriteValidationIssue {
                 severity: TerrainSpriteValidationSeverity::Warning,
                 sprite_id: Some(sprite.id.clone()),
                 message: "sprite contains several isolated single-pixel color changes".to_string(),
             });
         }
-        if !sprite.kind.is_trench() && summary.unique_colors > 10 {
+        if !sprite.kind.is_trench() && !sprite.kind.is_trench_mask() && summary.unique_colors > 10 {
             issues.push(TerrainSpriteValidationIssue {
                 severity: TerrainSpriteValidationSeverity::Info,
                 sprite_id: Some(sprite.id.clone()),
@@ -160,6 +172,23 @@ pub fn validate_terrain_sprites(
             message: format!("missing path mask coverage for {:?}", missing_path_masks),
         });
     }
+    let missing_trench_masks = (0..16)
+        .filter(|mask| {
+            !sprites
+                .iter()
+                .any(|sprite| sprite.kind.trench_mask() == Some(*mask))
+        })
+        .collect::<Vec<_>>();
+    if !missing_trench_masks.is_empty() {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Error,
+            sprite_id: None,
+            message: format!(
+                "missing trench mask coverage for {:?}",
+                missing_trench_masks
+            ),
+        });
+    }
 
     let count = f32::max(aggregate_count, 1.0);
     let variant_similarity_score = variant_similarity_score(sprites);
@@ -169,6 +198,14 @@ pub fn validate_terrain_sprites(
             severity: TerrainSpriteValidationSeverity::Warning,
             sprite_id: None,
             message: "path masks have visible neighbor seam discontinuity".to_string(),
+        });
+    }
+    let trench_neighbor_score = trench_neighbor_seam_score(sprites);
+    if trench_neighbor_score > 0.46 {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Warning,
+            sprite_id: None,
+            message: "trench masks have visible neighbor seam discontinuity".to_string(),
         });
     }
     if variant_similarity_score > 0.985 {
@@ -311,6 +348,46 @@ fn validate_trench_sprites(
     } else {
         valid_anchors / trench_sprites.len() as f32
     };
+    let trench_mask_sprites = sprites
+        .iter()
+        .filter(|sprite| sprite.kind.is_trench_mask())
+        .collect::<Vec<_>>();
+    let missing_trench_masks = (0..16)
+        .filter(|mask| {
+            !trench_mask_sprites
+                .iter()
+                .any(|sprite| sprite.kind.trench_mask() == Some(*mask))
+        })
+        .collect::<Vec<_>>();
+    let trench_mask_coverage = 16 - missing_trench_masks.len();
+    let trench_neighbor_seam_score = trench_neighbor_seam_score(sprites);
+    let trench_floor_continuity_score = trench_mask_band_continuity_score(sprites, 0.50);
+    let trench_lip_continuity_score = trench_mask_band_continuity_score(sprites, 0.18);
+    let trench_wall_alignment_score = trench_mask_band_continuity_score(sprites, 0.78);
+    let trench_cap_coverage = [0_u8, 1, 2, 4, 8]
+        .into_iter()
+        .filter(|mask| {
+            trench_mask_sprites
+                .iter()
+                .any(|sprite| sprite.kind.trench_mask() == Some(*mask))
+        })
+        .count();
+    let trench_corner_coverage = [3_u8, 6, 9, 12]
+        .into_iter()
+        .filter(|mask| {
+            trench_mask_sprites
+                .iter()
+                .any(|sprite| sprite.kind.trench_mask() == Some(*mask))
+        })
+        .count();
+    let trench_junction_coverage = [7_u8, 11, 13, 14, 15]
+        .into_iter()
+        .filter(|mask| {
+            trench_mask_sprites
+                .iter()
+                .any(|sprite| sprite.kind.trench_mask() == Some(*mask))
+        })
+        .count();
 
     if trench_floor_darkness_score < 0.42 {
         issues.push(TerrainSpriteValidationIssue {
@@ -349,6 +426,34 @@ fn validate_trench_sprites(
             message: "trench end/corner cap coverage is incomplete".to_string(),
         });
     }
+    if trench_mask_coverage < 16 {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Error,
+            sprite_id: None,
+            message: format!("missing trench topology masks {:?}", missing_trench_masks),
+        });
+    }
+    if trench_cap_coverage < 5 {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Error,
+            sprite_id: None,
+            message: "trench cap mask coverage is incomplete".to_string(),
+        });
+    }
+    if trench_corner_coverage < 4 {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Error,
+            sprite_id: None,
+            message: "trench corner mask coverage is incomplete".to_string(),
+        });
+    }
+    if trench_junction_coverage < 5 {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Error,
+            sprite_id: None,
+            message: "trench junction mask coverage is incomplete".to_string(),
+        });
+    }
 
     TrenchSpriteValidationSummary {
         trench_piece_coverage,
@@ -359,6 +464,15 @@ fn validate_trench_sprites(
         trench_shadow_continuity,
         trench_cap_presence,
         trench_oblique_anchor_validity,
+        trench_mask_coverage,
+        missing_trench_masks,
+        trench_neighbor_seam_score,
+        trench_floor_continuity_score,
+        trench_wall_alignment_score,
+        trench_lip_continuity_score,
+        trench_cap_coverage,
+        trench_corner_coverage,
+        trench_junction_coverage,
     }
 }
 
@@ -591,6 +705,62 @@ fn path_neighbor_seam_score(sprites: &[GeneratedTerrainSprite]) -> f32 {
     }
 }
 
+fn trench_neighbor_seam_score(sprites: &[GeneratedTerrainSprite]) -> f32 {
+    let mut total = 0.0;
+    let mut count = 0.0;
+    for sprite in sprites.iter().filter(|sprite| sprite.kind.is_trench_mask()) {
+        let Some(mask) = sprite.kind.trench_mask() else {
+            continue;
+        };
+        for (direction, opposite) in [(1, 4), (2, 8), (4, 1), (8, 2)] {
+            if mask & direction == 0 {
+                continue;
+            }
+            let Some(neighbor) = sprites
+                .iter()
+                .find(|candidate| candidate.kind.trench_mask() == Some(opposite))
+            else {
+                continue;
+            };
+            total += trench_edge_difference(sprite, neighbor, direction, 0.0);
+            count += 1.0;
+        }
+    }
+    if count == 0.0 {
+        0.0
+    } else {
+        total / count
+    }
+}
+
+fn trench_mask_band_continuity_score(sprites: &[GeneratedTerrainSprite], band: f32) -> f32 {
+    let mut total = 0.0;
+    let mut count = 0.0;
+    for sprite in sprites.iter().filter(|sprite| sprite.kind.is_trench_mask()) {
+        let Some(mask) = sprite.kind.trench_mask() else {
+            continue;
+        };
+        for (direction, opposite) in [(1, 4), (2, 8), (4, 1), (8, 2)] {
+            if mask & direction == 0 {
+                continue;
+            }
+            let Some(neighbor) = sprites
+                .iter()
+                .find(|candidate| candidate.kind.trench_mask() == Some(opposite))
+            else {
+                continue;
+            };
+            total += trench_edge_difference(sprite, neighbor, direction, band);
+            count += 1.0;
+        }
+    }
+    if count == 0.0 {
+        0.0
+    } else {
+        total / count
+    }
+}
+
 fn path_edge_difference(
     sprite: &GeneratedTerrainSprite,
     neighbor: &GeneratedTerrainSprite,
@@ -621,6 +791,71 @@ fn path_edge_difference(
         total += a.rgb_distance(b).min(120.0) / 120.0;
     }
     total / tile.max(1) as f32
+}
+
+fn trench_edge_difference(
+    sprite: &GeneratedTerrainSprite,
+    neighbor: &GeneratedTerrainSprite,
+    direction: u8,
+    band: f32,
+) -> f32 {
+    let width = sprite.image.width.min(neighbor.image.width).max(1);
+    let height = sprite.image.height.min(neighbor.image.height).max(1);
+    let surface_h = ((height as f32 * 0.68).round() as u32).clamp(1, height);
+    let mut total = 0.0;
+    let mut count = 0.0;
+    match direction {
+        1 | 4 => {
+            let y_a = if direction == 1 { 0 } else { surface_h - 1 };
+            let y_b = if direction == 1 { surface_h - 1 } else { 0 };
+            let offset = (surface_h as f32 * band).round() as u32;
+            let ya = if direction == 1 {
+                (y_a + offset).min(surface_h - 1)
+            } else {
+                y_a.saturating_sub(offset)
+            };
+            let yb = if direction == 1 {
+                y_b.saturating_sub(offset)
+            } else {
+                (y_b + offset).min(surface_h - 1)
+            };
+            for x in 0..width {
+                total += sprite
+                    .image
+                    .get(x, ya)
+                    .rgb_distance(neighbor.image.get(x, yb));
+                count += 1.0;
+            }
+        }
+        2 | 8 => {
+            let x_a = if direction == 8 { 0 } else { width - 1 };
+            let x_b = if direction == 8 { width - 1 } else { 0 };
+            let offset = (width as f32 * band * 0.5).round() as u32;
+            let xa = if direction == 8 {
+                (x_a + offset).min(width - 1)
+            } else {
+                x_a.saturating_sub(offset)
+            };
+            let xb = if direction == 8 {
+                x_b.saturating_sub(offset)
+            } else {
+                (x_b + offset).min(width - 1)
+            };
+            for y in 0..surface_h {
+                total += sprite
+                    .image
+                    .get(xa, y)
+                    .rgb_distance(neighbor.image.get(xb, y));
+                count += 1.0;
+            }
+        }
+        _ => {}
+    }
+    if count == 0.0 {
+        0.0
+    } else {
+        (total / count).min(140.0) / 140.0
+    }
 }
 
 fn image_similarity(a: &GeneratedTerrainSprite, b: &GeneratedTerrainSprite) -> f32 {

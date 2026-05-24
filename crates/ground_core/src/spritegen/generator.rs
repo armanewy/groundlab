@@ -83,6 +83,16 @@ pub fn generate_terrain_sprites(recipe: &TerrainSpriteRecipe) -> Vec<GeneratedTe
             image: generate_trench_piece(&recipe, kind, 1),
         });
     }
+    for mask in 0..16 {
+        let kind = TerrainSpriteKind::from_trench_mask(mask).expect("valid trench mask");
+        sprites.push(GeneratedTerrainSprite {
+            id: format!("trench_mask_{mask:02}"),
+            kind,
+            variant: 1,
+            metadata: kind.default_piece_metadata(),
+            image: generate_trench_mask_tile(&recipe, mask),
+        });
+    }
 
     sprites
 }
@@ -348,6 +358,411 @@ pub fn generate_trench_piece(
         TerrainSpriteKind::TrenchSpoilPile => generate_trench_spoil_pile(recipe, variant),
         _ => PixelImage::transparent(1, 1),
     }
+}
+
+pub fn generate_trench_mask_tile(recipe: &TerrainSpriteRecipe, mask: u8) -> PixelImage {
+    let projection = &recipe.style.projection;
+    let palette = &recipe.style.palette;
+    let rules = &recipe.style.trench;
+    let width = projection.cell_width_px.max(recipe.tile_size * 2);
+    let surface_h = projection.cell_height_px.max(recipe.tile_size * 2);
+    let face_h = projection.face_height_px.max(12);
+    let height = surface_h + face_h + 12;
+    let seed = sprite_seed(recipe.seed, mask as u32 + 1, 0x3401);
+    let grass = generate_grass_tile(recipe, mask as u32 % recipe.variant_count.max(1) + 1);
+    let mut image = PixelImage::transparent(width, height);
+
+    for y in 0..surface_h {
+        for x in 0..width {
+            let sx = x * grass.width / width.max(1);
+            let sy = y * grass.height / surface_h.max(1);
+            image.set(x, y, grass.get(sx, sy));
+        }
+    }
+
+    let soft_edge = (surface_h as f32 * 0.055).clamp(2.0, 5.0);
+    let lip_band = (surface_h as f32 * 0.075).clamp(3.0, 7.0);
+    let floor = palette.dirt_shadow.darken(rules.floor_darkness * 0.66);
+    let floor_hi = palette.dirt_dark.darken(rules.floor_darkness * 0.36);
+    let wall_top = palette.dirt_mid.darken(rules.wall_shadow_strength * 0.12);
+    let wall_mid = palette.dirt_dark.darken(rules.wall_shadow_strength * 0.10);
+    let wall_bottom = palette.dirt_shadow.darken(0.24);
+    let lip = palette
+        .dirt_mid
+        .lighten(rules.lip_highlight_strength * 0.40);
+    let lip_shadow = palette.dirt_dark.darken(0.12);
+
+    let mut bottom_edge = vec![None; width as usize];
+    let mut top_edge = vec![None; width as usize];
+    let mut left_edge = vec![None; surface_h as usize];
+    let mut right_edge = vec![None; surface_h as usize];
+
+    for y in 0..surface_h {
+        for x in 0..width {
+            let signed = trench_mask_signed_distance(recipe, mask, x, y, width, surface_h, seed);
+            if signed <= -lip_band {
+                let floor_noise = trench_noise(seed ^ 0x3402, x / 4, y / 4);
+                let mut color = if y as f32 > surface_h as f32 * 0.58 {
+                    floor.darken(0.09)
+                } else if floor_noise > 0.45 {
+                    floor_hi
+                } else {
+                    floor
+                };
+                if (x / 18 + y / 8 + mask as u32).is_multiple_of(3) && floor_noise > 0.38 {
+                    color = color.blend(palette.dirt_light.darken(0.46), 0.18);
+                }
+                image.set(x, y, color.with_alpha(245));
+            } else if signed <= 0.0 {
+                let t = 1.0 - signed.abs() / lip_band;
+                let color = lip_shadow.blend(lip, t * 0.72);
+                image.set(x, y, color.with_alpha(248));
+            } else if signed <= soft_edge {
+                let t = 1.0 - signed / soft_edge;
+                image.blend_pixel(x, y, palette.dirt_mid, 0.35 * t);
+                image.blend_pixel(x, y, Rgba8::BLACK, 0.10 * t * rules.contact_shadow_strength);
+            } else if signed <= soft_edge * 2.8 {
+                let chance = hash01(seed ^ 0x3403 ^ ((x as u64) << 18) ^ y as u64);
+                if chance < rules.spoil_density * 0.30 {
+                    image.blend_pixel(x, y, palette.dirt_mid, 0.18);
+                }
+            }
+
+            if signed <= 0.0 {
+                let xi = x as usize;
+                let yi = y as usize;
+                bottom_edge[xi] = Some(bottom_edge[xi].map_or(y, |old: u32| old.max(y)));
+                top_edge[xi] = Some(top_edge[xi].map_or(y, |old: u32| old.min(y)));
+                left_edge[yi] = Some(left_edge[yi].map_or(x, |old: u32| old.min(x)));
+                right_edge[yi] = Some(right_edge[yi].map_or(x, |old: u32| old.max(x)));
+            }
+        }
+    }
+
+    for x in 0..width {
+        let Some(edge_y) = bottom_edge[x as usize] else {
+            continue;
+        };
+        let open_south = mask & 4 != 0 && edge_y + 4 >= surface_h;
+        if open_south {
+            continue;
+        }
+        let wall_h = if edge_y > surface_h / 2 {
+            face_h * 3 / 4
+        } else {
+            face_h / 3
+        }
+        .max(5);
+        for dy in 0..wall_h {
+            let ty = edge_y + dy + 1;
+            if ty >= height {
+                break;
+            }
+            let t = dy as f32 / wall_h.max(1) as f32;
+            let color = if t > 0.68 {
+                wall_bottom
+            } else if t < 0.18 {
+                wall_top
+            } else {
+                wall_mid
+            };
+            image.set(x, ty, color.with_alpha((236.0 - t * 28.0) as u8));
+        }
+        if edge_y + wall_h + 1 < height {
+            image.blend_pixel(
+                x,
+                edge_y + wall_h + 1,
+                Rgba8::BLACK,
+                rules.contact_shadow_strength * 0.32,
+            );
+        }
+    }
+
+    draw_trench_mask_lip_segments(&mut image, recipe, seed ^ 0x3404, &top_edge, true);
+    draw_trench_mask_lip_segments(&mut image, recipe, seed ^ 0x3405, &bottom_edge, false);
+    draw_trench_mask_side_lips(&mut image, recipe, seed ^ 0x3406, &left_edge, true);
+    draw_trench_mask_side_lips(&mut image, recipe, seed ^ 0x3407, &right_edge, false);
+    draw_trench_mask_caps(&mut image, recipe, mask, seed ^ 0x3408);
+    draw_trench_mask_spoil(&mut image, recipe, mask, seed ^ 0x3409);
+    image
+}
+
+fn draw_trench_mask_lip_segments(
+    image: &mut PixelImage,
+    recipe: &TerrainSpriteRecipe,
+    seed: u64,
+    edges: &[Option<u32>],
+    back_lip: bool,
+) {
+    let palette = &recipe.style.palette;
+    let lip = if back_lip {
+        palette.dirt_mid.lighten(0.12)
+    } else {
+        palette.dirt_dark.lighten(0.05)
+    };
+    let shadow = palette.dirt_shadow.darken(0.14);
+    let step = (image.width / 11).max(7);
+    for x0 in (0..image.width).step_by(step as usize) {
+        let x1 = (x0 + step + (hash(seed ^ x0 as u64) % 5) as u32).min(image.width);
+        let mut samples = Vec::new();
+        for x in x0..x1 {
+            if let Some(y) = edges.get(x as usize).and_then(|edge| *edge) {
+                samples.push(y);
+            }
+        }
+        if samples.is_empty() {
+            continue;
+        }
+        let y = samples.iter().sum::<u32>() / samples.len() as u32;
+        let jitter = (hash(seed ^ 0x11 ^ x0 as u64) % 5) as i32 - 2;
+        let ty = y as i32 + if back_lip { -2 } else { 1 } + jitter.signum();
+        let color = if back_lip {
+            lip
+        } else {
+            shadow.blend(lip, 0.45)
+        };
+        let h = if back_lip { 3 } else { 4 };
+        for dy in 0..h {
+            for x in x0..x1 {
+                let tx = x as i32;
+                let py = ty + dy;
+                if image.in_bounds(tx, py) {
+                    image.blend_pixel(tx as u32, py as u32, color, 0.62);
+                }
+            }
+        }
+    }
+}
+
+fn draw_trench_mask_side_lips(
+    image: &mut PixelImage,
+    recipe: &TerrainSpriteRecipe,
+    seed: u64,
+    edges: &[Option<u32>],
+    left: bool,
+) {
+    let palette = &recipe.style.palette;
+    let lip = palette.dirt_mid.lighten(0.05);
+    let step = (image.height / 12).max(6);
+    for y0 in (0..image.height.min(edges.len() as u32)).step_by(step as usize) {
+        let y1 = (y0 + step).min(edges.len() as u32);
+        let mut samples = Vec::new();
+        for y in y0..y1 {
+            if let Some(x) = edges.get(y as usize).and_then(|edge| *edge) {
+                samples.push(x);
+            }
+        }
+        if samples.is_empty() {
+            continue;
+        }
+        let x = samples.iter().sum::<u32>() / samples.len() as u32;
+        let jitter = (hash(seed ^ y0 as u64) % 3) as i32 - 1;
+        let tx = x as i32 + if left { -1 } else { 1 } + jitter;
+        for y in y0..y1 {
+            for dx in 0..3 {
+                let px = tx + if left { -dx } else { dx };
+                if image.in_bounds(px, y as i32) {
+                    image.blend_pixel(px as u32, y, lip, 0.36);
+                }
+            }
+        }
+    }
+}
+
+fn draw_trench_mask_caps(
+    image: &mut PixelImage,
+    recipe: &TerrainSpriteRecipe,
+    mask: u8,
+    seed: u64,
+) {
+    let palette = &recipe.style.palette;
+    let width = image.width;
+    let surface_h = recipe
+        .style
+        .projection
+        .cell_height_px
+        .max(recipe.tile_size * 2);
+    let cx = width as i32 / 2;
+    let cy = surface_h as i32 / 2;
+    let cap_w = (width / 5).max(13) as i32;
+    let cap_h = (surface_h / 5).max(10) as i32;
+    let cap_color = palette.dirt_mid.lighten(0.08);
+    let shadow = palette.dirt_shadow.darken(0.20);
+    let degree = mask.count_ones();
+    let endpoint_cap = if degree == 1 {
+        match mask {
+            1 => Some(4),
+            2 => Some(8),
+            4 => Some(1),
+            8 => Some(2),
+            _ => None,
+        }
+    } else {
+        None
+    };
+    for (bit, center_x, center_y, horizontal) in [
+        (1_u8, cx, cy - cap_h * 2, true),
+        (2_u8, cx + cap_w * 2, cy, false),
+        (4_u8, cx, cy + cap_h * 2, true),
+        (8_u8, cx - cap_w * 2, cy, false),
+    ] {
+        if endpoint_cap != Some(bit) && degree != 0 {
+            continue;
+        }
+        let rx = if horizontal { cap_w } else { cap_w / 2 };
+        let ry = if horizontal { cap_h / 2 } else { cap_h };
+        for y in center_y - ry..=center_y + ry {
+            for x in center_x - rx..=center_x + rx {
+                if !image.in_bounds(x, y) {
+                    continue;
+                }
+                let dx = (x - center_x).abs() as f32 / rx.max(1) as f32;
+                let dy = (y - center_y).abs() as f32 / ry.max(1) as f32;
+                if dx * dx + dy * dy > 1.12 {
+                    continue;
+                }
+                let noise =
+                    trench_noise(seed ^ bit as u64, x.max(0) as u32 / 3, y.max(0) as u32 / 3);
+                let color = if dy > 0.55 || noise < -0.45 {
+                    shadow.blend(cap_color, 0.32)
+                } else {
+                    cap_color
+                };
+                image.blend_pixel(x as u32, y as u32, color, 0.44);
+            }
+        }
+    }
+}
+
+fn draw_trench_mask_spoil(
+    image: &mut PixelImage,
+    recipe: &TerrainSpriteRecipe,
+    mask: u8,
+    seed: u64,
+) {
+    let palette = &recipe.style.palette;
+    let rules = &recipe.style.trench;
+    let count = ((image.width * recipe.style.projection.cell_height_px) as f32
+        * rules.spoil_density
+        / 310.0)
+        .round()
+        .max(3.0) as u32;
+    for i in 0..count {
+        let x = (hash(seed ^ 0x31 ^ i as u64) % image.width as u64) as u32;
+        let y = (hash(seed ^ 0x32 ^ (i as u64 * 17))
+            % recipe.style.projection.cell_height_px.max(1) as u64) as u32;
+        let signed = trench_mask_signed_distance(
+            recipe,
+            mask,
+            x,
+            y,
+            image.width,
+            recipe
+                .style
+                .projection
+                .cell_height_px
+                .max(recipe.tile_size * 2),
+            seed,
+        );
+        if !(1.0..=11.0).contains(&signed) {
+            continue;
+        }
+        let color = if i % 3 == 0 {
+            palette.dirt_light.blend(palette.dirt_mid, 0.38)
+        } else {
+            palette.dirt_mid
+        };
+        let w = 3 + (hash(seed ^ i as u64 ^ 0x33) % 5) as u32;
+        let h = 2 + (hash(seed ^ i as u64 ^ 0x34) % 3) as u32;
+        for dy in 0..h {
+            for dx in 0..w {
+                if dx + dy > w {
+                    continue;
+                }
+                let tx = x + dx;
+                let ty = y + dy;
+                if tx < image.width && ty < image.height {
+                    image.blend_pixel(tx, ty, color, 0.36);
+                }
+            }
+        }
+    }
+}
+
+fn trench_mask_signed_distance(
+    recipe: &TerrainSpriteRecipe,
+    mask: u8,
+    x: u32,
+    y: u32,
+    width: u32,
+    surface_h: u32,
+    seed: u64,
+) -> f32 {
+    let cx = (width as f32 - 1.0) * 0.5;
+    let cy = (surface_h as f32 - 1.0) * 0.50;
+    let xf = x as f32 + 0.5;
+    let yf = y as f32 + 0.5;
+    let trench_half_w = (width as f32 * 0.145).max(8.0);
+    let trench_half_h = (surface_h as f32 * 0.145).max(7.0);
+    let core_half_w = (width as f32 * 0.19).max(trench_half_w);
+    let core_half_h = (surface_h as f32 * 0.18).max(trench_half_h);
+    let mut distance = rect_signed_distance(
+        xf,
+        yf,
+        cx - core_half_w,
+        cx + core_half_w,
+        cy - core_half_h,
+        cy + core_half_h,
+    );
+    if mask & 1 != 0 {
+        distance = distance.min(rect_signed_distance(
+            xf,
+            yf,
+            cx - trench_half_w,
+            cx + trench_half_w,
+            -3.0,
+            cy + core_half_h,
+        ));
+    }
+    if mask & 2 != 0 {
+        distance = distance.min(rect_signed_distance(
+            xf,
+            yf,
+            cx - core_half_w,
+            width as f32 + 3.0,
+            cy - trench_half_h,
+            cy + trench_half_h,
+        ));
+    }
+    if mask & 4 != 0 {
+        distance = distance.min(rect_signed_distance(
+            xf,
+            yf,
+            cx - trench_half_w,
+            cx + trench_half_w,
+            cy - core_half_h,
+            surface_h as f32 + 3.0,
+        ));
+    }
+    if mask & 8 != 0 {
+        distance = distance.min(rect_signed_distance(
+            xf,
+            yf,
+            -3.0,
+            cx + core_half_w,
+            cy - trench_half_h,
+            cy + trench_half_h,
+        ));
+    }
+    if mask == 0 {
+        let dx = (xf - cx) / (width as f32 * 0.22).max(1.0);
+        let dy = (yf - cy) / (surface_h as f32 * 0.20).max(1.0);
+        distance = (dx * dx + dy * dy).sqrt() * surface_h as f32 * 0.15 - surface_h as f32 * 0.13;
+    }
+    let organic = trench_noise(seed ^ 0x3410, x / 3, y / 3)
+        * recipe.style.trench.lip_irregularity_px.max(1) as f32
+        * 0.45;
+    distance + organic
 }
 
 pub fn scale_nearest(image: &PixelImage, scale: u32) -> PixelImage {

@@ -11,12 +11,16 @@ use crate::spritegen::{
     build_path_preview_dense, build_path_preview_junctions, build_path_preview_loop,
     build_path_preview_random, build_path_preview_sparse, build_repeat_preview, build_seam_heatmap,
     build_single_repeat_preview, build_sprite_contact_sheet, build_transition_edges_preview,
-    build_transition_repeat_preview, build_trench_contact_sheet, build_trench_mask_debug_preview,
+    build_transition_repeat_preview, build_trench_autotile_sheet, build_trench_contact_sheet,
+    build_trench_floor_continuity_heatmap, build_trench_lip_continuity_heatmap,
+    build_trench_mask_debug_preview, build_trench_neighbor_seam_heatmap,
     build_trench_oblique_caps_preview, build_trench_oblique_corner_preview,
     build_trench_oblique_shadow_preview, build_trench_oblique_straight_preview,
-    build_variant_repeat_preview, generate_terrain_sprites, validate_terrain_sprites,
-    GeneratedTerrainSprite, TerrainSpriteBundleManifest, TerrainSpriteKind,
-    TerrainSpritePieceManifest, TerrainSpriteRecipe, DEFAULT_SPRITEGEN_EXPORT_DIR,
+    build_trench_preview_dense, build_trench_preview_junctions, build_trench_preview_loop,
+    build_trench_preview_sparse, build_variant_repeat_preview, generate_terrain_sprites,
+    validate_terrain_sprites, GeneratedTerrainSprite, TerrainSpriteBundleManifest,
+    TerrainSpriteKind, TerrainSpritePieceManifest, TerrainSpriteRecipe,
+    DEFAULT_SPRITEGEN_EXPORT_DIR,
 };
 use crate::terrain_artkit::{
     TerrainArtKitFile, TerrainArtOcclusion, TerrainArtOrientationSupport, TerrainArtPiece,
@@ -129,6 +133,22 @@ pub fn export_terrain_sprite_bundle(
     build_trench_oblique_shadow_preview(&sprites, &recipe)
         .save_png(out_dir.join("trench_preview_oblique_shadow.png"))?;
     build_trench_mask_debug_preview(&recipe).save_png(out_dir.join("trench_mask_debug.png"))?;
+    build_trench_autotile_sheet(&sprites, &recipe)
+        .save_png(out_dir.join("trench_autotile_sheet.png"))?;
+    build_trench_preview_sparse(&sprites, &recipe)
+        .save_png(out_dir.join("trench_preview_sparse.png"))?;
+    build_trench_preview_dense(&sprites, &recipe)
+        .save_png(out_dir.join("trench_preview_dense.png"))?;
+    build_trench_preview_loop(&sprites, &recipe)
+        .save_png(out_dir.join("trench_preview_loop.png"))?;
+    build_trench_preview_junctions(&sprites, &recipe)
+        .save_png(out_dir.join("trench_preview_junctions.png"))?;
+    build_trench_neighbor_seam_heatmap(&sprites, &recipe)
+        .save_png(out_dir.join("trench_neighbor_seam_heatmap.png"))?;
+    build_trench_lip_continuity_heatmap(&sprites, &recipe)
+        .save_png(out_dir.join("trench_lip_continuity_heatmap.png"))?;
+    build_trench_floor_continuity_heatmap(&sprites, &recipe)
+        .save_png(out_dir.join("trench_floor_continuity_heatmap.png"))?;
     build_path_mask_debug_preview(&recipe).save_png(out_dir.join("path_preview_mask_debug.png"))?;
     build_path_neighbor_seam_heatmap(&sprites, &recipe)
         .save_png(out_dir.join("path_neighbor_seam_heatmap.png"))?;
@@ -203,6 +223,27 @@ fn art_piece_for_sprite(sprite: &GeneratedTerrainSprite) -> TerrainArtPiece {
             Some(GroundMaterial::Dirt),
             TerrainArtRepeatMode::Tile,
             vec!["spritegen", "cozy", "path-mask"],
+        ),
+        TerrainSpriteKind::TrenchMask00
+        | TerrainSpriteKind::TrenchMask01
+        | TerrainSpriteKind::TrenchMask02
+        | TerrainSpriteKind::TrenchMask03
+        | TerrainSpriteKind::TrenchMask04
+        | TerrainSpriteKind::TrenchMask05
+        | TerrainSpriteKind::TrenchMask06
+        | TerrainSpriteKind::TrenchMask07
+        | TerrainSpriteKind::TrenchMask08
+        | TerrainSpriteKind::TrenchMask09
+        | TerrainSpriteKind::TrenchMask10
+        | TerrainSpriteKind::TrenchMask11
+        | TerrainSpriteKind::TrenchMask12
+        | TerrainSpriteKind::TrenchMask13
+        | TerrainSpriteKind::TrenchMask14
+        | TerrainSpriteKind::TrenchMask15 => (
+            TerrainArtPieceKind::TrenchFloor,
+            Some(GroundMaterial::TrenchFloor),
+            TerrainArtRepeatMode::Stamp,
+            vec!["spritegen", "cozy", "trench", "trench-mask"],
         ),
         TerrainSpriteKind::TrenchFloorTop => (
             TerrainArtPieceKind::TrenchFloor,

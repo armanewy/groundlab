@@ -5,13 +5,18 @@ use ground_core::{
     build_path_preview_dense, build_path_preview_junctions, build_path_preview_loop,
     build_path_preview_random, build_path_preview_sparse, build_seam_heatmap,
     build_single_repeat_preview, build_sprite_contact_sheet, build_transition_edges_preview,
-    build_transition_repeat_preview, build_trench_contact_sheet, build_trench_mask_debug_preview,
+    build_transition_repeat_preview, build_trench_autotile_sheet, build_trench_contact_sheet,
+    build_trench_floor_continuity_heatmap, build_trench_lip_continuity_heatmap,
+    build_trench_mask_debug_preview, build_trench_neighbor_seam_heatmap,
     build_trench_oblique_caps_preview, build_trench_oblique_corner_preview,
     build_trench_oblique_shadow_preview, build_trench_oblique_straight_preview,
-    build_variant_repeat_preview, export_terrain_sprite_bundle, generate_terrain_sprites,
-    scale_nearest, GeneratedTerrainSprite, PixelImage, TerrainSpriteKind, TerrainSpriteRecipe,
-    BUILTIN_SPRITE_STYLE_PROFILES, DEFAULT_SPRITEGEN_EXPORT_DIR,
+    build_trench_preview_dense, build_trench_preview_junctions, build_trench_preview_loop,
+    build_trench_preview_sparse, build_variant_repeat_preview, export_terrain_sprite_bundle,
+    generate_terrain_sprites, scale_nearest, GeneratedTerrainSprite, PixelImage, TerrainSpriteKind,
+    TerrainSpriteRecipe, BUILTIN_SPRITE_STYLE_PROFILES, DEFAULT_SPRITEGEN_EXPORT_DIR,
 };
+
+const MAX_UI_TEXTURE_SIDE: usize = 2048;
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
@@ -50,7 +55,15 @@ enum PreviewPanel {
     TrenchCapsPreview,
     TrenchCornerPreview,
     TrenchShadowPreview,
+    TrenchAutotileSheet,
+    TrenchSparsePreview,
+    TrenchDensePreview,
+    TrenchLoopPreview,
+    TrenchJunctionPreview,
     TrenchMaskDebug,
+    TrenchNeighborSeam,
+    TrenchLipContinuity,
+    TrenchFloorContinuity,
     PathMaskDebug,
     PathNeighborSeam,
     SeamHeatmap,
@@ -59,7 +72,7 @@ enum PreviewPanel {
 }
 
 impl PreviewPanel {
-    const ALL: [PreviewPanel; 26] = [
+    const ALL: [PreviewPanel; 34] = [
         PreviewPanel::Selected,
         PreviewPanel::ContactSheet,
         PreviewPanel::GrassSingleRepeat,
@@ -80,7 +93,15 @@ impl PreviewPanel {
         PreviewPanel::TrenchCapsPreview,
         PreviewPanel::TrenchCornerPreview,
         PreviewPanel::TrenchShadowPreview,
+        PreviewPanel::TrenchAutotileSheet,
+        PreviewPanel::TrenchSparsePreview,
+        PreviewPanel::TrenchDensePreview,
+        PreviewPanel::TrenchLoopPreview,
+        PreviewPanel::TrenchJunctionPreview,
         PreviewPanel::TrenchMaskDebug,
+        PreviewPanel::TrenchNeighborSeam,
+        PreviewPanel::TrenchLipContinuity,
+        PreviewPanel::TrenchFloorContinuity,
         PreviewPanel::PathMaskDebug,
         PreviewPanel::PathNeighborSeam,
         PreviewPanel::SeamHeatmap,
@@ -110,7 +131,15 @@ impl PreviewPanel {
             PreviewPanel::TrenchCapsPreview => "Trench caps preview",
             PreviewPanel::TrenchCornerPreview => "Trench corner preview",
             PreviewPanel::TrenchShadowPreview => "Trench shadow preview",
+            PreviewPanel::TrenchAutotileSheet => "Trench autotile sheet",
+            PreviewPanel::TrenchSparsePreview => "Sparse trench preview",
+            PreviewPanel::TrenchDensePreview => "Dense trench preview",
+            PreviewPanel::TrenchLoopPreview => "Loop trench preview",
+            PreviewPanel::TrenchJunctionPreview => "Junction trench preview",
             PreviewPanel::TrenchMaskDebug => "Trench mask debug",
+            PreviewPanel::TrenchNeighborSeam => "Trench neighbor seams",
+            PreviewPanel::TrenchLipContinuity => "Trench lip continuity",
+            PreviewPanel::TrenchFloorContinuity => "Trench floor continuity",
             PreviewPanel::PathMaskDebug => "Path mask debug",
             PreviewPanel::PathNeighborSeam => "Path neighbor seams",
             PreviewPanel::SeamHeatmap => "Seam heatmap",
@@ -149,7 +178,15 @@ struct SpriteForgeApp {
     trench_caps_texture: Option<egui::TextureHandle>,
     trench_corner_texture: Option<egui::TextureHandle>,
     trench_shadow_texture: Option<egui::TextureHandle>,
+    trench_autotile_texture: Option<egui::TextureHandle>,
+    trench_sparse_texture: Option<egui::TextureHandle>,
+    trench_dense_texture: Option<egui::TextureHandle>,
+    trench_loop_texture: Option<egui::TextureHandle>,
+    trench_junction_texture: Option<egui::TextureHandle>,
     trench_mask_debug_texture: Option<egui::TextureHandle>,
+    trench_neighbor_seam_texture: Option<egui::TextureHandle>,
+    trench_lip_continuity_texture: Option<egui::TextureHandle>,
+    trench_floor_continuity_texture: Option<egui::TextureHandle>,
     path_mask_debug_texture: Option<egui::TextureHandle>,
     path_neighbor_seam_texture: Option<egui::TextureHandle>,
     seam_heatmap_texture: Option<egui::TextureHandle>,
@@ -190,7 +227,15 @@ impl SpriteForgeApp {
             trench_caps_texture: None,
             trench_corner_texture: None,
             trench_shadow_texture: None,
+            trench_autotile_texture: None,
+            trench_sparse_texture: None,
+            trench_dense_texture: None,
+            trench_loop_texture: None,
+            trench_junction_texture: None,
             trench_mask_debug_texture: None,
+            trench_neighbor_seam_texture: None,
+            trench_lip_continuity_texture: None,
+            trench_floor_continuity_texture: None,
             path_mask_debug_texture: None,
             path_neighbor_seam_texture: None,
             seam_heatmap_texture: None,
@@ -376,12 +421,70 @@ impl SpriteForgeApp {
             "trench_shadow_preview",
             &trench_shadow,
         );
+        let trench_autotile = build_trench_autotile_sheet(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.trench_autotile_texture,
+            "trench_autotile_sheet",
+            &trench_autotile,
+        );
+        let trench_sparse = build_trench_preview_sparse(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.trench_sparse_texture,
+            "trench_sparse_preview",
+            &trench_sparse,
+        );
+        let trench_dense = build_trench_preview_dense(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.trench_dense_texture,
+            "trench_dense_preview",
+            &trench_dense,
+        );
+        let trench_loop = build_trench_preview_loop(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.trench_loop_texture,
+            "trench_loop_preview",
+            &trench_loop,
+        );
+        let trench_junction = build_trench_preview_junctions(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.trench_junction_texture,
+            "trench_junction_preview",
+            &trench_junction,
+        );
         let trench_mask_debug = build_trench_mask_debug_preview(&self.recipe);
         put_texture(
             ctx,
             &mut self.trench_mask_debug_texture,
             "trench_mask_debug",
             &trench_mask_debug,
+        );
+        let trench_neighbor_seam = build_trench_neighbor_seam_heatmap(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.trench_neighbor_seam_texture,
+            "trench_neighbor_seams",
+            &trench_neighbor_seam,
+        );
+        let trench_lip_continuity =
+            build_trench_lip_continuity_heatmap(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.trench_lip_continuity_texture,
+            "trench_lip_continuity",
+            &trench_lip_continuity,
+        );
+        let trench_floor_continuity =
+            build_trench_floor_continuity_heatmap(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.trench_floor_continuity_texture,
+            "trench_floor_continuity",
+            &trench_floor_continuity,
         );
         let path_mask_debug = build_path_mask_debug_preview(&self.recipe);
         put_texture(
@@ -417,7 +520,7 @@ impl SpriteForgeApp {
 
     fn show_controls(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.heading("Pixel Terrain Forge");
-        ui.label("ArtGen 2.0b: trench visual polish.");
+        ui.label("ArtGen 2.1: trench autotile topology.");
         ui.separator();
         let selected_profile = BUILTIN_SPRITE_STYLE_PROFILES
             .get(self.selected_profile_index)
@@ -792,12 +895,76 @@ impl SpriteForgeApp {
                     "No trench shadow preview",
                 );
             }
+            PreviewPanel::TrenchAutotileSheet => {
+                show_texture(
+                    ui,
+                    self.trench_autotile_texture.as_ref(),
+                    1.0,
+                    "No trench autotile sheet",
+                );
+            }
+            PreviewPanel::TrenchSparsePreview => {
+                show_texture(
+                    ui,
+                    self.trench_sparse_texture.as_ref(),
+                    1.0,
+                    "No sparse trench preview",
+                );
+            }
+            PreviewPanel::TrenchDensePreview => {
+                show_texture(
+                    ui,
+                    self.trench_dense_texture.as_ref(),
+                    1.0,
+                    "No dense trench preview",
+                );
+            }
+            PreviewPanel::TrenchLoopPreview => {
+                show_texture(
+                    ui,
+                    self.trench_loop_texture.as_ref(),
+                    1.0,
+                    "No loop trench preview",
+                );
+            }
+            PreviewPanel::TrenchJunctionPreview => {
+                show_texture(
+                    ui,
+                    self.trench_junction_texture.as_ref(),
+                    1.0,
+                    "No junction trench preview",
+                );
+            }
             PreviewPanel::TrenchMaskDebug => {
                 show_texture(
                     ui,
                     self.trench_mask_debug_texture.as_ref(),
                     1.0,
                     "No trench mask debug",
+                );
+            }
+            PreviewPanel::TrenchNeighborSeam => {
+                show_texture(
+                    ui,
+                    self.trench_neighbor_seam_texture.as_ref(),
+                    1.0,
+                    "No trench neighbor seam heatmap",
+                );
+            }
+            PreviewPanel::TrenchLipContinuity => {
+                show_texture(
+                    ui,
+                    self.trench_lip_continuity_texture.as_ref(),
+                    1.0,
+                    "No trench lip continuity heatmap",
+                );
+            }
+            PreviewPanel::TrenchFloorContinuity => {
+                show_texture(
+                    ui,
+                    self.trench_floor_continuity_texture.as_ref(),
+                    1.0,
+                    "No trench floor continuity heatmap",
                 );
             }
             PreviewPanel::PathMaskDebug => {
@@ -876,14 +1043,37 @@ fn put_texture(
     name: &str,
     image: &PixelImage,
 ) {
-    let rgba = image.to_rgba_bytes();
-    let color_image = egui::ColorImage::from_rgba_unmultiplied(image.size(), &rgba);
+    let color_image = color_image_for_upload(image);
     if let Some(texture) = handle {
         texture.set(color_image, egui::TextureOptions::NEAREST);
     } else {
         *handle =
             Some(ctx.load_texture(name.to_string(), color_image, egui::TextureOptions::NEAREST));
     }
+}
+
+fn color_image_for_upload(image: &PixelImage) -> egui::ColorImage {
+    let [width, height] = image.size();
+    let max_side = width.max(height);
+    if max_side <= MAX_UI_TEXTURE_SIDE {
+        let rgba = image.to_rgba_bytes();
+        return egui::ColorImage::from_rgba_unmultiplied([width, height], &rgba);
+    }
+
+    let factor = max_side.div_ceil(MAX_UI_TEXTURE_SIDE);
+    let upload_width = width.div_ceil(factor).max(1);
+    let upload_height = height.div_ceil(factor).max(1);
+    let mut rgba = Vec::with_capacity(upload_width * upload_height * 4);
+
+    for y in 0..upload_height {
+        let source_y = (y * factor).min(height - 1) as u32;
+        for x in 0..upload_width {
+            let source_x = (x * factor).min(width - 1) as u32;
+            rgba.extend_from_slice(&image.get(source_x, source_y).to_array());
+        }
+    }
+
+    egui::ColorImage::from_rgba_unmultiplied([upload_width, upload_height], &rgba)
 }
 
 fn show_texture(

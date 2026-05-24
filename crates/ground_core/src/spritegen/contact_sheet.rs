@@ -517,53 +517,121 @@ pub fn build_trench_oblique_shadow_preview(
 }
 
 pub fn build_trench_mask_debug_preview(recipe: &TerrainSpriteRecipe) -> PixelImage {
-    let projection = &recipe.style.projection;
-    let width = projection.cell_width_px * 4;
-    let height = projection.cell_height_px * 2;
-    let mut preview = PixelImage::new(width, height, Rgba8::opaque(25, 34, 26));
-    let top = Rgba8::opaque(86, 106, 60);
-    let floor = Rgba8::opaque(45, 32, 26);
-    let wall = Rgba8::opaque(91, 57, 37);
+    let scale = recipe.style.display_scale.max(1);
+    let tile = (recipe.tile_size * 2).max(28);
+    let mut preview = PixelImage::new(tile * 4, tile * 4, Rgba8::opaque(25, 34, 26));
+    let trench = Rgba8::opaque(45, 32, 26);
     let lip = Rgba8::opaque(174, 116, 69);
-    let x = projection.cell_width_px;
-    let y = projection.cell_height_px / 2;
-    preview.fill_rect(
-        x,
-        y,
-        projection.cell_width_px * 2,
-        projection.cell_height_px / 2,
-        top,
-    );
-    preview.fill_rect(
-        x + 16,
-        y + 20,
-        projection.cell_width_px * 2 - 32,
-        projection.cell_height_px / 3,
-        floor,
-    );
-    preview.fill_rect(
-        x + 16,
-        y + projection.cell_height_px / 2,
-        projection.cell_width_px * 2 - 32,
-        projection.face_height_px,
-        wall,
-    );
-    preview.fill_rect(x + 8, y + 12, projection.cell_width_px * 2 - 16, 6, lip);
-    preview.fill_rect(
-        x + 8,
-        y + projection.cell_height_px / 2 - 5,
-        projection.cell_width_px * 2 - 16,
-        6,
-        lip,
-    );
-    preview.outline_rect(
-        x,
-        y,
-        projection.cell_width_px * 2,
-        projection.cell_height_px,
-        Rgba8::WHITE,
-    );
-    preview
+    let edge = Rgba8::opaque(98, 125, 64);
+    let center = tile / 2;
+    let arm = (tile / 5).max(5);
+    for mask in 0..16 {
+        let ox = mask as u32 % 4 * tile;
+        let oy = mask as u32 / 4 * tile;
+        preview.outline_rect(ox, oy, tile, tile, edge);
+        preview.fill_rect(
+            ox + center - arm,
+            oy + center - arm,
+            arm * 2,
+            arm * 2,
+            trench,
+        );
+        if mask & 1 != 0 {
+            preview.fill_rect(ox + center - arm / 2, oy, arm, center, trench);
+        }
+        if mask & 2 != 0 {
+            preview.fill_rect(ox + center, oy + center - arm / 2, center, arm, trench);
+        }
+        if mask & 4 != 0 {
+            preview.fill_rect(ox + center - arm / 2, oy + center, arm, center, trench);
+        }
+        if mask & 8 != 0 {
+            preview.fill_rect(ox, oy + center - arm / 2, center, arm, trench);
+        }
+        preview.outline_rect(ox + center - arm, oy + center - arm, arm * 2, arm * 2, lip);
+    }
+    scale_nearest(&preview, scale)
+}
+
+pub fn build_trench_autotile_sheet(
+    sprites: &[GeneratedTerrainSprite],
+    _recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    let trench_masks = (0..16)
+        .filter_map(|mask| trench_mask_sprite(sprites, mask))
+        .collect::<Vec<_>>();
+    let cell_w = trench_masks
+        .iter()
+        .map(|sprite| sprite.image.width)
+        .max()
+        .unwrap_or(96)
+        + 12;
+    let cell_h = trench_masks
+        .iter()
+        .map(|sprite| sprite.image.height)
+        .max()
+        .unwrap_or(96)
+        + 12;
+    let mut sheet = PixelImage::new(cell_w * 4 + 8, cell_h * 4 + 8, Rgba8::opaque(13, 15, 17));
+    for mask in 0..16 {
+        let x = 8 + mask as u32 % 4 * cell_w;
+        let y = 8 + mask as u32 / 4 * cell_h;
+        sheet.fill_rect(x, y, cell_w - 6, cell_h - 6, Rgba8::opaque(28, 31, 28));
+        sheet.outline_rect(x, y, cell_w - 6, cell_h - 6, Rgba8::opaque(55, 60, 54));
+        if let Some(sprite) = trench_mask_sprite(sprites, mask) {
+            sheet.blit(&sprite.image, x + 3, y + 3);
+        }
+    }
+    sheet
+}
+
+pub fn build_trench_preview_sparse(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    build_trench_preview_for_pattern(sprites, recipe, PathPreviewPattern::Sparse)
+}
+
+pub fn build_trench_preview_dense(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    build_trench_preview_for_pattern(sprites, recipe, PathPreviewPattern::Dense)
+}
+
+pub fn build_trench_preview_loop(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    build_trench_preview_for_pattern(sprites, recipe, PathPreviewPattern::Loop)
+}
+
+pub fn build_trench_preview_junctions(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    build_trench_preview_for_pattern(sprites, recipe, PathPreviewPattern::Junctions)
+}
+
+pub fn build_trench_neighbor_seam_heatmap(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    build_trench_continuity_heatmap(sprites, recipe, TrenchContinuityMode::Neighbor)
+}
+
+pub fn build_trench_lip_continuity_heatmap(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    build_trench_continuity_heatmap(sprites, recipe, TrenchContinuityMode::Lip)
+}
+
+pub fn build_trench_floor_continuity_heatmap(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    build_trench_continuity_heatmap(sprites, recipe, TrenchContinuityMode::Floor)
 }
 
 fn build_path_preview_for_pattern(
@@ -595,6 +663,108 @@ fn build_path_preview_for_pattern(
         }
     }
     scale_nearest(&preview, scale)
+}
+
+fn build_trench_preview_for_pattern(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+    pattern: PathPreviewPattern,
+) -> PixelImage {
+    let projection = &recipe.style.projection;
+    let cell_w = projection.cell_width_px;
+    let cell_h = projection.cell_height_px;
+    let width = 10;
+    let height = 6;
+    let map = sample_path_map(width, height, pattern);
+    let mask_h = (projection.cell_height_px + projection.face_height_px + 12).max(cell_h);
+    let mut preview = PixelImage::new(
+        width * cell_w,
+        height * cell_h + mask_h.saturating_sub(cell_h),
+        Rgba8::opaque(40, 48, 34),
+    );
+    let grass = sprites
+        .iter()
+        .filter(|sprite| sprite.kind == TerrainSpriteKind::GrassTile)
+        .collect::<Vec<_>>();
+    for y in 0..height {
+        for x in 0..width {
+            if let Some(sprite) = grass.get(variant_index(x, y, grass.len().max(1))) {
+                blit_scaled_i32(
+                    &mut preview,
+                    &sprite.image,
+                    (x * cell_w) as i32,
+                    (y * cell_h) as i32,
+                    cell_w,
+                    cell_h,
+                );
+            }
+        }
+    }
+    for y in 0..height {
+        for x in 0..width {
+            if !map[(y * width + x) as usize] {
+                continue;
+            }
+            let mask = path_neighbor_mask(&map, width, height, x, y);
+            if let Some(sprite) = trench_mask_sprite(sprites, mask) {
+                preview.blit(&sprite.image, x * cell_w, y * cell_h);
+            }
+        }
+    }
+    preview
+}
+
+#[derive(Clone, Copy)]
+enum TrenchContinuityMode {
+    Neighbor,
+    Lip,
+    Floor,
+}
+
+fn build_trench_continuity_heatmap(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+    mode: TrenchContinuityMode,
+) -> PixelImage {
+    let cell_w = recipe.style.projection.cell_width_px;
+    let cell_h = recipe.style.projection.cell_height_px;
+    let mut image = PixelImage::new(cell_w * 4, cell_h * 4, Rgba8::opaque(15, 18, 16));
+    for mask in 0..16 {
+        let ox = mask as u32 % 4 * cell_w;
+        let oy = mask as u32 / 4 * cell_h;
+        let Some(sprite) = trench_mask_sprite(sprites, mask) else {
+            continue;
+        };
+        for x in 0..cell_w.min(sprite.image.width) {
+            let v = if mask & 1 != 0 {
+                trench_connected_edge_score(sprite, sprites, mask, 1, x, mode, recipe)
+            } else {
+                0.0
+            };
+            image.set(ox + x, oy, heat(v));
+            let v = if mask & 4 != 0 {
+                trench_connected_edge_score(sprite, sprites, mask, 4, x, mode, recipe)
+            } else {
+                0.0
+            };
+            image.set(ox + x, oy + cell_h - 1, heat(v));
+        }
+        for y in 0..cell_h.min(sprite.image.height) {
+            let v = if mask & 8 != 0 {
+                trench_connected_edge_score(sprite, sprites, mask, 8, y, mode, recipe)
+            } else {
+                0.0
+            };
+            image.set(ox, oy + y, heat(v));
+            let v = if mask & 2 != 0 {
+                trench_connected_edge_score(sprite, sprites, mask, 2, y, mode, recipe)
+            } else {
+                0.0
+            };
+            image.set(ox + cell_w - 1, oy + y, heat(v));
+        }
+    }
+    scale_nearest(&image, recipe.style.display_scale.max(1))
 }
 
 pub fn build_path_neighbor_seam_heatmap(
@@ -862,6 +1032,15 @@ fn path_mask_sprite(
     sprites
         .iter()
         .find(|sprite| sprite.kind.path_mask() == Some(mask))
+}
+
+fn trench_mask_sprite(
+    sprites: &[GeneratedTerrainSprite],
+    mask: u8,
+) -> Option<&GeneratedTerrainSprite> {
+    sprites
+        .iter()
+        .find(|sprite| sprite.kind.trench_mask() == Some(mask))
 }
 
 #[derive(Clone, Copy)]
@@ -1152,6 +1331,89 @@ fn connected_edge_score(
     };
     let connection_weight = if mask & direction != 0 { 1.0 } else { 0.25 };
     (a.rgb_distance(b).min(120.0) / 120.0) * connection_weight
+}
+
+fn trench_connected_edge_score(
+    sprite: &GeneratedTerrainSprite,
+    sprites: &[GeneratedTerrainSprite],
+    _mask: u8,
+    direction: u8,
+    offset: u32,
+    mode: TrenchContinuityMode,
+    recipe: &TerrainSpriteRecipe,
+) -> f32 {
+    let opposite = match direction {
+        1 => 4,
+        2 => 8,
+        4 => 1,
+        8 => 2,
+        _ => return 0.0,
+    };
+    let Some(neighbor) = trench_mask_sprite(sprites, opposite) else {
+        return 1.0;
+    };
+    let surface_h = recipe
+        .style
+        .projection
+        .cell_height_px
+        .min(sprite.image.height)
+        .min(neighbor.image.height)
+        .max(1);
+    let width = sprite.image.width.min(neighbor.image.width).max(1);
+    let (a, b) = match direction {
+        1 => {
+            let x = offset.min(width - 1);
+            let band = match mode {
+                TrenchContinuityMode::Neighbor => 0,
+                TrenchContinuityMode::Lip => 2.min(surface_h - 1),
+                TrenchContinuityMode::Floor => (surface_h / 2).min(surface_h - 1),
+            };
+            (
+                sprite.image.get(x, band),
+                neighbor
+                    .image
+                    .get(x, surface_h - 1 - band.min(surface_h - 1)),
+            )
+        }
+        4 => {
+            let x = offset.min(width - 1);
+            let band = match mode {
+                TrenchContinuityMode::Neighbor => 0,
+                TrenchContinuityMode::Lip => 2.min(surface_h - 1),
+                TrenchContinuityMode::Floor => (surface_h / 2).min(surface_h - 1),
+            };
+            (
+                sprite.image.get(x, surface_h - 1 - band.min(surface_h - 1)),
+                neighbor.image.get(x, band),
+            )
+        }
+        8 => {
+            let y = offset.min(surface_h - 1);
+            let band = match mode {
+                TrenchContinuityMode::Neighbor => 0,
+                TrenchContinuityMode::Lip => 2.min(width - 1),
+                TrenchContinuityMode::Floor => (width / 2).min(width - 1),
+            };
+            (
+                sprite.image.get(band, y),
+                neighbor.image.get(width - 1 - band.min(width - 1), y),
+            )
+        }
+        2 => {
+            let y = offset.min(surface_h - 1);
+            let band = match mode {
+                TrenchContinuityMode::Neighbor => 0,
+                TrenchContinuityMode::Lip => 2.min(width - 1),
+                TrenchContinuityMode::Floor => (width / 2).min(width - 1),
+            };
+            (
+                sprite.image.get(width - 1 - band.min(width - 1), y),
+                neighbor.image.get(band, y),
+            )
+        }
+        _ => return 0.0,
+    };
+    a.rgb_distance(b).min(140.0) / 140.0
 }
 
 fn variant_index(x: u32, y: u32, len: usize) -> usize {

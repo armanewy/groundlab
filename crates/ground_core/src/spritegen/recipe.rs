@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::pixel_image::PixelImage;
 use crate::spritegen::{ObliqueProjectionProfile, TerrainMotifLibrary, TerrainSpriteStyle};
 
-pub const DEFAULT_SPRITEGEN_EXPORT_DIR: &str = "exports/artgen_02_0b";
+pub const DEFAULT_SPRITEGEN_EXPORT_DIR: &str = "exports/artgen_02_1";
 pub const DEFAULT_SPRITE_STYLE_PATH: &str = "assets/sprite_styles/cozy_upland/style.ron";
 
 pub const BUILTIN_SPRITE_STYLE_PROFILES: [(&str, &str); 3] = [
@@ -377,10 +377,26 @@ pub enum TerrainSpriteKind {
     TrenchCornerOuter,
     TrenchContactShadow,
     TrenchSpoilPile,
+    TrenchMask00,
+    TrenchMask01,
+    TrenchMask02,
+    TrenchMask03,
+    TrenchMask04,
+    TrenchMask05,
+    TrenchMask06,
+    TrenchMask07,
+    TrenchMask08,
+    TrenchMask09,
+    TrenchMask10,
+    TrenchMask11,
+    TrenchMask12,
+    TrenchMask13,
+    TrenchMask14,
+    TrenchMask15,
 }
 
 impl TerrainSpriteKind {
-    pub const ALL: [TerrainSpriteKind; 32] = [
+    pub const ALL: [TerrainSpriteKind; 48] = [
         TerrainSpriteKind::GrassTile,
         TerrainSpriteKind::DirtTile,
         TerrainSpriteKind::GrassToDirtEdgeNorth,
@@ -413,6 +429,22 @@ impl TerrainSpriteKind {
         TerrainSpriteKind::TrenchCornerOuter,
         TerrainSpriteKind::TrenchContactShadow,
         TerrainSpriteKind::TrenchSpoilPile,
+        TerrainSpriteKind::TrenchMask00,
+        TerrainSpriteKind::TrenchMask01,
+        TerrainSpriteKind::TrenchMask02,
+        TerrainSpriteKind::TrenchMask03,
+        TerrainSpriteKind::TrenchMask04,
+        TerrainSpriteKind::TrenchMask05,
+        TerrainSpriteKind::TrenchMask06,
+        TerrainSpriteKind::TrenchMask07,
+        TerrainSpriteKind::TrenchMask08,
+        TerrainSpriteKind::TrenchMask09,
+        TerrainSpriteKind::TrenchMask10,
+        TerrainSpriteKind::TrenchMask11,
+        TerrainSpriteKind::TrenchMask12,
+        TerrainSpriteKind::TrenchMask13,
+        TerrainSpriteKind::TrenchMask14,
+        TerrainSpriteKind::TrenchMask15,
     ];
 
     pub fn id(self) -> &'static str {
@@ -449,6 +481,22 @@ impl TerrainSpriteKind {
             TerrainSpriteKind::TrenchCornerOuter => "trench_corner_outer",
             TerrainSpriteKind::TrenchContactShadow => "trench_contact_shadow",
             TerrainSpriteKind::TrenchSpoilPile => "trench_spoil_pile",
+            TerrainSpriteKind::TrenchMask00 => "trench_mask_00",
+            TerrainSpriteKind::TrenchMask01 => "trench_mask_01",
+            TerrainSpriteKind::TrenchMask02 => "trench_mask_02",
+            TerrainSpriteKind::TrenchMask03 => "trench_mask_03",
+            TerrainSpriteKind::TrenchMask04 => "trench_mask_04",
+            TerrainSpriteKind::TrenchMask05 => "trench_mask_05",
+            TerrainSpriteKind::TrenchMask06 => "trench_mask_06",
+            TerrainSpriteKind::TrenchMask07 => "trench_mask_07",
+            TerrainSpriteKind::TrenchMask08 => "trench_mask_08",
+            TerrainSpriteKind::TrenchMask09 => "trench_mask_09",
+            TerrainSpriteKind::TrenchMask10 => "trench_mask_10",
+            TerrainSpriteKind::TrenchMask11 => "trench_mask_11",
+            TerrainSpriteKind::TrenchMask12 => "trench_mask_12",
+            TerrainSpriteKind::TrenchMask13 => "trench_mask_13",
+            TerrainSpriteKind::TrenchMask14 => "trench_mask_14",
+            TerrainSpriteKind::TrenchMask15 => "trench_mask_15",
         }
     }
 
@@ -486,6 +534,22 @@ impl TerrainSpriteKind {
             TerrainSpriteKind::TrenchCornerOuter => "Trench outer corner",
             TerrainSpriteKind::TrenchContactShadow => "Trench contact shadow",
             TerrainSpriteKind::TrenchSpoilPile => "Trench spoil pile",
+            TerrainSpriteKind::TrenchMask00 => "Trench mask 00",
+            TerrainSpriteKind::TrenchMask01 => "Trench mask 01",
+            TerrainSpriteKind::TrenchMask02 => "Trench mask 02",
+            TerrainSpriteKind::TrenchMask03 => "Trench mask 03",
+            TerrainSpriteKind::TrenchMask04 => "Trench mask 04",
+            TerrainSpriteKind::TrenchMask05 => "Trench mask 05",
+            TerrainSpriteKind::TrenchMask06 => "Trench mask 06",
+            TerrainSpriteKind::TrenchMask07 => "Trench mask 07",
+            TerrainSpriteKind::TrenchMask08 => "Trench mask 08",
+            TerrainSpriteKind::TrenchMask09 => "Trench mask 09",
+            TerrainSpriteKind::TrenchMask10 => "Trench mask 10",
+            TerrainSpriteKind::TrenchMask11 => "Trench mask 11",
+            TerrainSpriteKind::TrenchMask12 => "Trench mask 12",
+            TerrainSpriteKind::TrenchMask13 => "Trench mask 13",
+            TerrainSpriteKind::TrenchMask14 => "Trench mask 14",
+            TerrainSpriteKind::TrenchMask15 => "Trench mask 15",
         }
     }
 
@@ -545,6 +609,54 @@ impl TerrainSpriteKind {
 
     pub fn is_path_mask(self) -> bool {
         self.path_mask().is_some()
+    }
+
+    pub fn trench_mask(self) -> Option<u8> {
+        match self {
+            TerrainSpriteKind::TrenchMask00 => Some(0),
+            TerrainSpriteKind::TrenchMask01 => Some(1),
+            TerrainSpriteKind::TrenchMask02 => Some(2),
+            TerrainSpriteKind::TrenchMask03 => Some(3),
+            TerrainSpriteKind::TrenchMask04 => Some(4),
+            TerrainSpriteKind::TrenchMask05 => Some(5),
+            TerrainSpriteKind::TrenchMask06 => Some(6),
+            TerrainSpriteKind::TrenchMask07 => Some(7),
+            TerrainSpriteKind::TrenchMask08 => Some(8),
+            TerrainSpriteKind::TrenchMask09 => Some(9),
+            TerrainSpriteKind::TrenchMask10 => Some(10),
+            TerrainSpriteKind::TrenchMask11 => Some(11),
+            TerrainSpriteKind::TrenchMask12 => Some(12),
+            TerrainSpriteKind::TrenchMask13 => Some(13),
+            TerrainSpriteKind::TrenchMask14 => Some(14),
+            TerrainSpriteKind::TrenchMask15 => Some(15),
+            _ => None,
+        }
+    }
+
+    pub fn from_trench_mask(mask: u8) -> Option<Self> {
+        match mask {
+            0 => Some(TerrainSpriteKind::TrenchMask00),
+            1 => Some(TerrainSpriteKind::TrenchMask01),
+            2 => Some(TerrainSpriteKind::TrenchMask02),
+            3 => Some(TerrainSpriteKind::TrenchMask03),
+            4 => Some(TerrainSpriteKind::TrenchMask04),
+            5 => Some(TerrainSpriteKind::TrenchMask05),
+            6 => Some(TerrainSpriteKind::TrenchMask06),
+            7 => Some(TerrainSpriteKind::TrenchMask07),
+            8 => Some(TerrainSpriteKind::TrenchMask08),
+            9 => Some(TerrainSpriteKind::TrenchMask09),
+            10 => Some(TerrainSpriteKind::TrenchMask10),
+            11 => Some(TerrainSpriteKind::TrenchMask11),
+            12 => Some(TerrainSpriteKind::TrenchMask12),
+            13 => Some(TerrainSpriteKind::TrenchMask13),
+            14 => Some(TerrainSpriteKind::TrenchMask14),
+            15 => Some(TerrainSpriteKind::TrenchMask15),
+            _ => None,
+        }
+    }
+
+    pub fn is_trench_mask(self) -> bool {
+        self.trench_mask().is_some()
     }
 
     pub fn is_trench(self) -> bool {
@@ -619,6 +731,25 @@ impl TerrainSpriteKind {
             TerrainSpriteKind::TrenchSpoilPile => SpritePieceMetadata::new(SpriteRole::Decal)
                 .footprint((1, 1))
                 .z_bias(18),
+            TerrainSpriteKind::TrenchMask00
+            | TerrainSpriteKind::TrenchMask01
+            | TerrainSpriteKind::TrenchMask02
+            | TerrainSpriteKind::TrenchMask03
+            | TerrainSpriteKind::TrenchMask04
+            | TerrainSpriteKind::TrenchMask05
+            | TerrainSpriteKind::TrenchMask06
+            | TerrainSpriteKind::TrenchMask07
+            | TerrainSpriteKind::TrenchMask08
+            | TerrainSpriteKind::TrenchMask09
+            | TerrainSpriteKind::TrenchMask10
+            | TerrainSpriteKind::TrenchMask11
+            | TerrainSpriteKind::TrenchMask12
+            | TerrainSpriteKind::TrenchMask13
+            | TerrainSpriteKind::TrenchMask14
+            | TerrainSpriteKind::TrenchMask15 => SpritePieceMetadata::new(SpriteRole::TopSurface)
+                .footprint((1, 1))
+                .z_bias(20)
+                .occludes(true),
         }
     }
 }

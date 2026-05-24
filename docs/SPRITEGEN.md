@@ -2,8 +2,8 @@
 
 GroundLab's active visual milestone is now a dedicated terrain sprite generator, not the large
 editable scene renderer. The generator first produces cozy top-surface terrain primitives: grass,
-dirt, grass-to-dirt transitions, and connected dirt path masks. ArtGen 2.0b then extends that
-foundation with polished oblique trench pieces for the desired high-oblique 2.5D terrain grammar.
+dirt, grass-to-dirt transitions, and connected dirt path masks. ArtGen 2.1 then extends that
+foundation with connected oblique trench masks for the desired high-oblique 2.5D terrain grammar.
 
 The generator does not require reference images. It uses:
 
@@ -20,10 +20,11 @@ The generator does not require reference images. It uses:
 - seam/noise validation
 - art-kit-compatible PNG piece export
 
-ArtGen 2.0b keeps the ArtGen 1.2b path topology, ArtGen 1.3 style profiles, and ArtGen 1.4
-projection-aware sprite contract. Grass/dirt/path pieces are still top-surface material primitives,
-and trench pieces now introduce the first polished front faces, chunked lips, tapered caps,
-L-shaped corners, contact shadows, integrated spoil, and recessed terrain metadata:
+ArtGen 2.1 keeps the ArtGen 1.2b path topology, ArtGen 1.3 style profiles, ArtGen 1.4
+projection-aware sprite contract, and ArtGen 2.0b trench polish. Grass/dirt/path pieces are still
+top-surface material primitives, and trench pieces now include both the base role pieces and
+`trench_mask_00` through `trench_mask_15` for connected straights, ends, corners, T-junctions, and
+crosses:
 
 ```txt
 sprite role
@@ -68,13 +69,13 @@ cargo run -p ground_sprite_app
 Export the deterministic bundle:
 
 ```bash
-cargo run -p ground_sprite_cli -- export exports/artgen_02_0b assets/sprite_styles/cozy_upland/style.ron
+cargo run -p ground_sprite_cli -- export exports/artgen_02_1 assets/sprite_styles/cozy_upland/style.ron
 ```
 
 Export output:
 
 ```txt
-exports/artgen_02_0b/
+exports/artgen_02_1/
   manifest.ron
   sprite_manifest.ron
   sprite_manifest.json
@@ -86,7 +87,15 @@ exports/artgen_02_0b/
   trench_preview_oblique_caps.png
   trench_preview_oblique_corner.png
   trench_preview_oblique_shadow.png
+  trench_autotile_sheet.png
+  trench_preview_sparse.png
+  trench_preview_dense.png
+  trench_preview_loop.png
+  trench_preview_junctions.png
   trench_mask_debug.png
+  trench_neighbor_seam_heatmap.png
+  trench_lip_continuity_heatmap.png
+  trench_floor_continuity_heatmap.png
   path_autotile_sheet.png
   path_preview_random.png
   path_preview_random_sparse.png
@@ -133,6 +142,9 @@ exports/artgen_02_0b/
     trench_corner_outer_01.png
     trench_contact_shadow_01.png
     trench_spoil_pile_01.png
+    trench_mask_00.png
+    ...
+    trench_mask_15.png
 ```
 
 The full-scene GroundLab renderer remains in the repository as downstream infrastructure for terrain
