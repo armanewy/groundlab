@@ -6,13 +6,14 @@ use ron::ser::PrettyConfig;
 
 use crate::recipe::{GroundMaterial, TransitionEdge};
 use crate::spritegen::{
-    build_motif_heatmap, build_palette_preview, build_path_autotile_sheet,
-    build_path_mask_debug_preview, build_path_neighbor_seam_heatmap, build_path_preview_dense,
-    build_path_preview_junctions, build_path_preview_loop, build_path_preview_random,
-    build_path_preview_sparse, build_repeat_preview, build_seam_heatmap,
+    build_motif_heatmap, build_oblique_material_preview, build_palette_preview,
+    build_path_autotile_sheet, build_path_mask_debug_preview, build_path_neighbor_seam_heatmap,
+    build_path_preview_dense, build_path_preview_junctions, build_path_preview_loop,
+    build_path_preview_random, build_path_preview_sparse, build_repeat_preview, build_seam_heatmap,
     build_single_repeat_preview, build_sprite_contact_sheet, build_transition_edges_preview,
     build_transition_repeat_preview, build_variant_repeat_preview, generate_terrain_sprites,
-    validate_terrain_sprites, GeneratedTerrainSprite, TerrainSpriteKind, TerrainSpriteRecipe,
+    validate_terrain_sprites, GeneratedTerrainSprite, TerrainSpriteBundleManifest,
+    TerrainSpriteKind, TerrainSpritePieceManifest, TerrainSpriteRecipe,
     DEFAULT_SPRITEGEN_EXPORT_DIR,
 };
 use crate::terrain_artkit::{
@@ -57,6 +58,33 @@ pub fn export_terrain_sprite_bundle(
         out_dir.join("manifest.ron"),
         ron::ser::to_string_pretty(&manifest, PrettyConfig::new())?,
     )?;
+    let sprite_manifest = TerrainSpriteBundleManifest {
+        id: recipe.id.clone(),
+        projection: recipe.style.projection.clone(),
+        pieces: sprites
+            .iter()
+            .map(|sprite| TerrainSpritePieceManifest {
+                id: sprite.id.clone(),
+                kind: sprite.kind,
+                role: sprite.metadata.role,
+                file: format!("pieces/{}.png", sprite.id),
+                width_px: sprite.image.width,
+                height_px: sprite.image.height,
+                anchor_px: sprite.metadata.anchor_px,
+                footprint_cells: sprite.metadata.footprint_cells,
+                z_bias: sprite.metadata.z_bias,
+                occludes: sprite.metadata.occludes,
+            })
+            .collect(),
+    };
+    fs::write(
+        out_dir.join("sprite_manifest.ron"),
+        ron::ser::to_string_pretty(&sprite_manifest, PrettyConfig::new())?,
+    )?;
+    fs::write(
+        out_dir.join("sprite_manifest.json"),
+        serde_json::to_string_pretty(&sprite_manifest)?,
+    )?;
     fs::write(
         out_dir.join("recipe.ron"),
         ron::ser::to_string_pretty(&recipe, PrettyConfig::new())?,
@@ -86,6 +114,8 @@ pub fn export_terrain_sprite_bundle(
     build_path_preview_loop(&sprites, &recipe).save_png(out_dir.join("path_preview_loop.png"))?;
     build_path_preview_junctions(&sprites, &recipe)
         .save_png(out_dir.join("path_preview_junctions.png"))?;
+    build_oblique_material_preview(&sprites, &recipe)
+        .save_png(out_dir.join("oblique_material_preview.png"))?;
     build_path_mask_debug_preview(&recipe).save_png(out_dir.join("path_preview_mask_debug.png"))?;
     build_path_neighbor_seam_heatmap(&sprites, &recipe)
         .save_png(out_dir.join("path_neighbor_seam_heatmap.png"))?;
@@ -168,14 +198,25 @@ fn art_piece_for_sprite(sprite: &GeneratedTerrainSprite) -> TerrainArtPiece {
         material,
         width_px: sprite.image.width,
         height_px: sprite.image.height,
-        anchor_px: (0, 0),
-        footprint_cells: (1, 1),
+        anchor_px: sprite.metadata.anchor_px,
+        footprint_cells: sprite.metadata.footprint_cells,
         repeat_mode,
         orientation: orientation_for_sprite(sprite.kind),
-        z_bias: 0,
+        z_bias: sprite.metadata.z_bias,
         opacity: 1.0,
-        occlusion: TerrainArtOcclusion::None,
-        tags: tags.into_iter().map(str::to_string).collect(),
+        occlusion: if sprite.metadata.occludes {
+            TerrainArtOcclusion::Soft
+        } else {
+            TerrainArtOcclusion::None
+        },
+        tags: tags
+            .into_iter()
+            .map(str::to_string)
+            .chain(std::iter::once(format!(
+                "role:{}",
+                sprite.metadata.role.id()
+            )))
+            .collect(),
     }
 }
 

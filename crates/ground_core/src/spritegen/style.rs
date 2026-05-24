@@ -7,6 +7,7 @@ use crate::color::Rgba8;
 pub struct TerrainSpriteStyle {
     pub id: String,
     pub display_scale: u32,
+    pub projection: ObliqueProjectionProfile,
     pub palette: CozyTerrainPalette,
     pub pixel: PixelRules,
     pub grass: GrassRules,
@@ -20,12 +21,50 @@ impl Default for TerrainSpriteStyle {
         Self {
             id: "cozy_upland_pixel".to_string(),
             display_scale: 6,
+            projection: ObliqueProjectionProfile::default(),
             palette: CozyTerrainPalette::default(),
             pixel: PixelRules::default(),
             grass: GrassRules::default(),
             dirt: DirtRules::default(),
             transition: TransitionRules::default(),
             path: PathRules::default(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub enum SpriteProjectionKind {
+    HighOblique2D,
+}
+
+#[derive(Clone, Copy, Debug, Serialize, Deserialize)]
+pub enum SpriteLightDirection {
+    Northwest,
+    Northeast,
+    Southwest,
+    Southeast,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ObliqueProjectionProfile {
+    pub kind: SpriteProjectionKind,
+    pub cell_width_px: u32,
+    pub cell_height_px: u32,
+    pub face_height_px: u32,
+    pub light_direction: SpriteLightDirection,
+    pub shadow_offset_px: (i32, i32),
+}
+
+impl Default for ObliqueProjectionProfile {
+    fn default() -> Self {
+        Self {
+            kind: SpriteProjectionKind::HighOblique2D,
+            cell_width_px: 96,
+            cell_height_px: 72,
+            face_height_px: 28,
+            light_direction: SpriteLightDirection::Northwest,
+            shadow_offset_px: (10, 18),
         }
     }
 }

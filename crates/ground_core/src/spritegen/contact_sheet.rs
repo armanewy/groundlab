@@ -275,6 +275,126 @@ pub fn build_path_preview_junctions(
     build_path_preview_for_pattern(sprites, recipe, PathPreviewPattern::Junctions)
 }
 
+pub fn build_oblique_material_preview(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    let projection = &recipe.style.projection;
+    let cell_w = projection.cell_width_px.max(recipe.tile_size);
+    let cell_h = projection.cell_height_px.max(recipe.tile_size);
+    let face_h = projection.face_height_px.max(1);
+    let step_y = (cell_h * 7 / 12).max(recipe.tile_size);
+    let width = 7;
+    let height = 5;
+    let margin = 24 + face_h + projection.shadow_offset_px.1.unsigned_abs();
+    let canvas_w =
+        margin * 2 + width * cell_w + projection.shadow_offset_px.0.unsigned_abs() + cell_w / 3;
+    let canvas_h = margin * 2
+        + (height - 1) * step_y
+        + cell_h
+        + face_h * 2
+        + projection.shadow_offset_px.1.unsigned_abs();
+    let mut preview = PixelImage::new(canvas_w, canvas_h, Rgba8::opaque(25, 30, 24));
+    let map = sample_path_map(width, height, PathPreviewPattern::Random);
+    let grass = sprites
+        .iter()
+        .filter(|sprite| sprite.kind == TerrainSpriteKind::GrassTile)
+        .collect::<Vec<_>>();
+    let palette = &recipe.style.palette;
+
+    for y in 0..height {
+        for x in 0..width {
+            let h = oblique_height(x, y);
+            if h == 0 {
+                continue;
+            }
+            let (sx, sy) = oblique_cell_position(margin, step_y, cell_w, face_h, x, y, h);
+            blend_rect_i32(
+                &mut preview,
+                sx + projection.shadow_offset_px.0,
+                sy + projection.shadow_offset_px.1,
+                cell_w,
+                cell_h / 3,
+                Rgba8::BLACK,
+                0.24,
+            );
+        }
+    }
+
+    for y in 0..height {
+        for x in 0..width {
+            let h = oblique_height(x, y);
+            let (sx, sy) = oblique_cell_position(margin, step_y, cell_w, face_h, x, y, h);
+            let path = map[(y * width + x) as usize];
+            if path {
+                let mask = path_neighbor_mask(&map, width, height, x, y);
+                if let Some(sprite) = path_mask_sprite(sprites, mask) {
+                    blit_scaled_i32(&mut preview, &sprite.image, sx, sy, cell_w, cell_h);
+                }
+            } else if !grass.is_empty() {
+                let sprite = grass[variant_index(x, y, grass.len())];
+                blit_scaled_i32(&mut preview, &sprite.image, sx, sy, cell_w, cell_h);
+            }
+            if h > 0 {
+                preview.draw_line(
+                    sx,
+                    sy + cell_h as i32 - 1,
+                    sx + cell_w as i32 - 1,
+                    sy + cell_h as i32 - 1,
+                    palette.grass_dark,
+                );
+            }
+        }
+    }
+
+    for y in 0..height {
+        for x in 0..width {
+            let h = oblique_height(x, y);
+            let south = if y + 1 < height {
+                oblique_height(x, y + 1)
+            } else {
+                0
+            };
+            let east = if x + 1 < width {
+                oblique_height(x + 1, y)
+            } else {
+                0
+            };
+            let (sx, sy) = oblique_cell_position(margin, step_y, cell_w, face_h, x, y, h);
+            if h > south {
+                draw_oblique_front_face(
+                    &mut preview,
+                    sx,
+                    sy + cell_h as i32 - 1,
+                    cell_w,
+                    face_h * (h - south),
+                    palette,
+                );
+                preview.draw_line(
+                    sx,
+                    sy + cell_h as i32 - 1,
+                    sx + cell_w as i32 - 1,
+                    sy + cell_h as i32 - 1,
+                    palette.grass_dark,
+                );
+            }
+            if h > east {
+                draw_oblique_side_face(
+                    &mut preview,
+                    sx + cell_w as i32 - cell_w as i32 / 8,
+                    sy + cell_h as i32 / 6,
+                    cell_w / 8,
+                    cell_h * 2 / 3,
+                    face_h * (h - east),
+                    palette,
+                );
+            }
+        }
+    }
+
+    preview
+}
+
 fn build_path_preview_for_pattern(
     sprites: &[GeneratedTerrainSprite],
     recipe: &TerrainSpriteRecipe,
@@ -615,6 +735,126 @@ fn path_neighbor_mask(map: &[bool], width: u32, height: u32, x: u32, y: u32) -> 
         mask |= 8;
     }
     mask
+}
+
+fn oblique_height(x: u32, y: u32) -> u32 {
+    u32::from(x >= 4 && y <= 2)
+}
+
+fn oblique_cell_position(
+    margin: u32,
+    step_y: u32,
+    cell_w: u32,
+    face_h: u32,
+    x: u32,
+    y: u32,
+    height: u32,
+) -> (i32, i32) {
+    (
+        (margin + x * cell_w) as i32,
+        (margin + y * step_y) as i32 - (height * face_h) as i32,
+    )
+}
+
+fn blit_scaled_i32(
+    target: &mut PixelImage,
+    src: &PixelImage,
+    dst_x: i32,
+    dst_y: i32,
+    width: u32,
+    height: u32,
+) {
+    for y in 0..height {
+        for x in 0..width {
+            let sx = x * src.width / width.max(1);
+            let sy = y * src.height / height.max(1);
+            let tx = dst_x + x as i32;
+            let ty = dst_y + y as i32;
+            if target.in_bounds(tx, ty) {
+                let color = src.get(sx, sy);
+                if color.a == 255 {
+                    target.set(tx as u32, ty as u32, color);
+                } else if color.a > 0 {
+                    let base = target.get(tx as u32, ty as u32);
+                    target.set(
+                        tx as u32,
+                        ty as u32,
+                        base.blend(color, color.a as f32 / 255.0),
+                    );
+                }
+            }
+        }
+    }
+}
+
+fn blend_rect_i32(
+    target: &mut PixelImage,
+    x0: i32,
+    y0: i32,
+    width: u32,
+    height: u32,
+    color: Rgba8,
+    alpha: f32,
+) {
+    for y in 0..height {
+        for x in 0..width {
+            let tx = x0 + x as i32;
+            let ty = y0 + y as i32;
+            if target.in_bounds(tx, ty) {
+                let base = target.get(tx as u32, ty as u32);
+                target.set(tx as u32, ty as u32, base.blend(color, alpha));
+            }
+        }
+    }
+}
+
+fn draw_oblique_front_face(
+    target: &mut PixelImage,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    palette: &crate::spritegen::CozyTerrainPalette,
+) {
+    blend_rect_i32(target, x, y, width, height, palette.dirt_dark, 0.82);
+    blend_rect_i32(
+        target,
+        x,
+        y + height as i32 / 2,
+        width,
+        height / 2,
+        Rgba8::BLACK,
+        0.16,
+    );
+    for line_x in (4..width).step_by(11) {
+        target.draw_line(
+            x + line_x as i32,
+            y + 2,
+            x + line_x as i32 + 5,
+            y + height as i32 - 3,
+            palette.dirt_shadow,
+        );
+    }
+}
+
+fn draw_oblique_side_face(
+    target: &mut PixelImage,
+    x: i32,
+    y: i32,
+    width: u32,
+    height: u32,
+    face_height: u32,
+    palette: &crate::spritegen::CozyTerrainPalette,
+) {
+    blend_rect_i32(
+        target,
+        x,
+        y + height as i32 - 1,
+        width,
+        face_height,
+        palette.dirt_shadow,
+        0.74,
+    );
 }
 
 fn connected_edge_score(

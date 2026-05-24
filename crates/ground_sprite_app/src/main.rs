@@ -1,13 +1,13 @@
 use eframe::egui;
 use ground_core::{
-    build_motif_heatmap, build_palette_preview, build_path_autotile_sheet,
-    build_path_mask_debug_preview, build_path_neighbor_seam_heatmap, build_path_preview_dense,
-    build_path_preview_junctions, build_path_preview_loop, build_path_preview_random,
-    build_path_preview_sparse, build_seam_heatmap, build_single_repeat_preview,
-    build_sprite_contact_sheet, build_transition_edges_preview, build_transition_repeat_preview,
-    build_variant_repeat_preview, export_terrain_sprite_bundle, generate_terrain_sprites,
-    scale_nearest, GeneratedTerrainSprite, PixelImage, TerrainSpriteKind, TerrainSpriteRecipe,
-    BUILTIN_SPRITE_STYLE_PROFILES, DEFAULT_SPRITEGEN_EXPORT_DIR,
+    build_motif_heatmap, build_oblique_material_preview, build_palette_preview,
+    build_path_autotile_sheet, build_path_mask_debug_preview, build_path_neighbor_seam_heatmap,
+    build_path_preview_dense, build_path_preview_junctions, build_path_preview_loop,
+    build_path_preview_random, build_path_preview_sparse, build_seam_heatmap,
+    build_single_repeat_preview, build_sprite_contact_sheet, build_transition_edges_preview,
+    build_transition_repeat_preview, build_variant_repeat_preview, export_terrain_sprite_bundle,
+    generate_terrain_sprites, scale_nearest, GeneratedTerrainSprite, PixelImage, TerrainSpriteKind,
+    TerrainSpriteRecipe, BUILTIN_SPRITE_STYLE_PROFILES, DEFAULT_SPRITEGEN_EXPORT_DIR,
 };
 
 fn main() -> eframe::Result {
@@ -41,6 +41,7 @@ enum PreviewPanel {
     PathDensePreview,
     PathLoopPreview,
     PathJunctionPreview,
+    ObliqueMaterialPreview,
     PathMaskDebug,
     PathNeighborSeam,
     SeamHeatmap,
@@ -49,7 +50,7 @@ enum PreviewPanel {
 }
 
 impl PreviewPanel {
-    const ALL: [PreviewPanel; 19] = [
+    const ALL: [PreviewPanel; 20] = [
         PreviewPanel::Selected,
         PreviewPanel::ContactSheet,
         PreviewPanel::GrassSingleRepeat,
@@ -64,6 +65,7 @@ impl PreviewPanel {
         PreviewPanel::PathDensePreview,
         PreviewPanel::PathLoopPreview,
         PreviewPanel::PathJunctionPreview,
+        PreviewPanel::ObliqueMaterialPreview,
         PreviewPanel::PathMaskDebug,
         PreviewPanel::PathNeighborSeam,
         PreviewPanel::SeamHeatmap,
@@ -87,6 +89,7 @@ impl PreviewPanel {
             PreviewPanel::PathDensePreview => "Dense path preview",
             PreviewPanel::PathLoopPreview => "Loop path preview",
             PreviewPanel::PathJunctionPreview => "Junction path preview",
+            PreviewPanel::ObliqueMaterialPreview => "Oblique material preview",
             PreviewPanel::PathMaskDebug => "Path mask debug",
             PreviewPanel::PathNeighborSeam => "Path neighbor seams",
             PreviewPanel::SeamHeatmap => "Seam heatmap",
@@ -119,6 +122,7 @@ struct SpriteForgeApp {
     path_dense_texture: Option<egui::TextureHandle>,
     path_loop_texture: Option<egui::TextureHandle>,
     path_junction_texture: Option<egui::TextureHandle>,
+    oblique_material_texture: Option<egui::TextureHandle>,
     path_mask_debug_texture: Option<egui::TextureHandle>,
     path_neighbor_seam_texture: Option<egui::TextureHandle>,
     seam_heatmap_texture: Option<egui::TextureHandle>,
@@ -153,6 +157,7 @@ impl SpriteForgeApp {
             path_dense_texture: None,
             path_loop_texture: None,
             path_junction_texture: None,
+            oblique_material_texture: None,
             path_mask_debug_texture: None,
             path_neighbor_seam_texture: None,
             seam_heatmap_texture: None,
@@ -296,6 +301,13 @@ impl SpriteForgeApp {
             "path_junction_preview",
             &path_junction,
         );
+        let oblique_material = build_oblique_material_preview(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.oblique_material_texture,
+            "oblique_material_preview",
+            &oblique_material,
+        );
         let path_mask_debug = build_path_mask_debug_preview(&self.recipe);
         put_texture(
             ctx,
@@ -330,7 +342,7 @@ impl SpriteForgeApp {
 
     fn show_controls(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.heading("Pixel Terrain Forge");
-        ui.label("ArtGen 1.3: swappable grass, dirt, and path style profiles.");
+        ui.label("ArtGen 1.4: 2.5D sprite contract and oblique material preview.");
         ui.separator();
         let selected_profile = BUILTIN_SPRITE_STYLE_PROFILES
             .get(self.selected_profile_index)
@@ -460,6 +472,26 @@ impl SpriteForgeApp {
                     0.0..=1.0,
                 )
                 .text("grass intrusion"),
+            )
+            .changed();
+        ui.separator();
+        ui.label("Oblique projection");
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.recipe.style.projection.cell_width_px, 32..=160)
+                    .text("cell width"),
+            )
+            .changed();
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.recipe.style.projection.cell_height_px, 24..=128)
+                    .text("cell height"),
+            )
+            .changed();
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.recipe.style.projection.face_height_px, 4..=64)
+                    .text("face height"),
             )
             .changed();
         if changed {
@@ -600,6 +632,14 @@ impl SpriteForgeApp {
                     self.path_junction_texture.as_ref(),
                     1.0,
                     "No junction path preview",
+                );
+            }
+            PreviewPanel::ObliqueMaterialPreview => {
+                show_texture(
+                    ui,
+                    self.oblique_material_texture.as_ref(),
+                    1.0,
+                    "No oblique material preview",
                 );
             }
             PreviewPanel::PathMaskDebug => {

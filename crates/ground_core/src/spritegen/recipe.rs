@@ -5,9 +5,9 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 
 use crate::pixel_image::PixelImage;
-use crate::spritegen::{TerrainMotifLibrary, TerrainSpriteStyle};
+use crate::spritegen::{ObliqueProjectionProfile, TerrainMotifLibrary, TerrainSpriteStyle};
 
-pub const DEFAULT_SPRITEGEN_EXPORT_DIR: &str = "exports/artgen_01_3";
+pub const DEFAULT_SPRITEGEN_EXPORT_DIR: &str = "exports/artgen_01_4";
 pub const DEFAULT_SPRITE_STYLE_PATH: &str = "assets/sprite_styles/cozy_upland/style.ron";
 
 pub const BUILTIN_SPRITE_STYLE_PROFILES: [(&str, &str); 3] = [
@@ -82,6 +82,21 @@ impl TerrainSpriteRecipe {
         self.style.transition.dirt_speckle_density =
             self.style.transition.dirt_speckle_density.clamp(0.0, 1.0);
         self.style.transition.edge_softness = self.style.transition.edge_softness.clamp(0.0, 1.0);
+        self.style.projection.cell_width_px = self
+            .style
+            .projection
+            .cell_width_px
+            .clamp(self.tile_size, 256);
+        self.style.projection.cell_height_px = self
+            .style
+            .projection
+            .cell_height_px
+            .clamp(self.tile_size, 192);
+        self.style.projection.face_height_px = self.style.projection.face_height_px.clamp(1, 96);
+        self.style.projection.shadow_offset_px.0 =
+            self.style.projection.shadow_offset_px.0.clamp(-64, 64);
+        self.style.projection.shadow_offset_px.1 =
+            self.style.projection.shadow_offset_px.1.clamp(-64, 96);
         self.style.path.width_px = self.style.path.width_px.clamp(2.0, self.tile_size as f32);
         self.style.path.core_width_px = self
             .style
@@ -195,6 +210,80 @@ fn resolve_profile_path(base_dir: &Path, value: &str) -> PathBuf {
         path
     } else {
         base_dir.join(path)
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TerrainSpriteBundleManifest {
+    pub id: String,
+    pub projection: ObliqueProjectionProfile,
+    pub pieces: Vec<TerrainSpritePieceManifest>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TerrainSpritePieceManifest {
+    pub id: String,
+    pub kind: TerrainSpriteKind,
+    pub role: SpriteRole,
+    pub file: String,
+    pub width_px: u32,
+    pub height_px: u32,
+    pub anchor_px: (i32, i32),
+    pub footprint_cells: (u32, u32),
+    pub z_bias: i32,
+    pub occludes: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum SpriteRole {
+    TopSurface,
+    FrontFace,
+    SideFace,
+    Lip,
+    CornerCap,
+    ContactShadow,
+    Prop,
+    Decal,
+}
+
+impl SpriteRole {
+    pub fn id(self) -> &'static str {
+        match self {
+            SpriteRole::TopSurface => "top_surface",
+            SpriteRole::FrontFace => "front_face",
+            SpriteRole::SideFace => "side_face",
+            SpriteRole::Lip => "lip",
+            SpriteRole::CornerCap => "corner_cap",
+            SpriteRole::ContactShadow => "contact_shadow",
+            SpriteRole::Prop => "prop",
+            SpriteRole::Decal => "decal",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct SpritePieceMetadata {
+    pub role: SpriteRole,
+    pub anchor_px: (i32, i32),
+    pub footprint_cells: (u32, u32),
+    pub z_bias: i32,
+    pub occludes: bool,
+}
+
+impl SpritePieceMetadata {
+    pub fn new(role: SpriteRole) -> Self {
+        Self {
+            role,
+            anchor_px: (0, 0),
+            footprint_cells: (1, 1),
+            z_bias: 0,
+            occludes: false,
+        }
+    }
+
+    pub fn z_bias(mut self, z_bias: i32) -> Self {
+        self.z_bias = z_bias;
+        self
     }
 }
 
@@ -361,6 +450,35 @@ impl TerrainSpriteKind {
     pub fn is_path_mask(self) -> bool {
         self.path_mask().is_some()
     }
+
+    pub fn default_piece_metadata(self) -> SpritePieceMetadata {
+        match self {
+            TerrainSpriteKind::GrassTile
+            | TerrainSpriteKind::DirtTile
+            | TerrainSpriteKind::PathMask00
+            | TerrainSpriteKind::PathMask01
+            | TerrainSpriteKind::PathMask02
+            | TerrainSpriteKind::PathMask03
+            | TerrainSpriteKind::PathMask04
+            | TerrainSpriteKind::PathMask05
+            | TerrainSpriteKind::PathMask06
+            | TerrainSpriteKind::PathMask07
+            | TerrainSpriteKind::PathMask08
+            | TerrainSpriteKind::PathMask09
+            | TerrainSpriteKind::PathMask10
+            | TerrainSpriteKind::PathMask11
+            | TerrainSpriteKind::PathMask12
+            | TerrainSpriteKind::PathMask13
+            | TerrainSpriteKind::PathMask14
+            | TerrainSpriteKind::PathMask15 => SpritePieceMetadata::new(SpriteRole::TopSurface),
+            TerrainSpriteKind::GrassToDirtEdgeNorth
+            | TerrainSpriteKind::GrassToDirtEdgeSouth
+            | TerrainSpriteKind::GrassToDirtEdgeEast
+            | TerrainSpriteKind::GrassToDirtEdgeWest => {
+                SpritePieceMetadata::new(SpriteRole::Decal).z_bias(2)
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -368,5 +486,6 @@ pub struct GeneratedTerrainSprite {
     pub id: String,
     pub kind: TerrainSpriteKind,
     pub variant: u32,
+    pub metadata: SpritePieceMetadata,
     pub image: PixelImage,
 }

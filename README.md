@@ -4,31 +4,39 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: ArtGen 1.3 — swappable terrain style profiles
+## Current status: ArtGen 1.4 — 2.5D sprite contract and oblique preview
 
 GroundLab's active visual work has pivoted away from the large editable scene renderer. The current
 focus is a dedicated, fast terrain sprite generator that produces simple, cozy, top-down pixel
 terrain primitives from swappable style profiles, palettes, motif libraries, and art rules. It does
 not require reference images.
 
-ArtGen 1.3 externalizes the cozy grass/dirt/path generator into data-driven style profiles under
-`assets/sprite_styles/`. The current built-in profiles are:
+ArtGen 1.4 keeps grass/dirt/path generation focused on top-surface material quality, but it now
+packages every generated piece with the metadata needed by the later high-oblique 2.5D renderer:
+sprite role, anchor, footprint, z-bias, occlusion intent, and a projection profile. The Forge app
+and CLI export also include a small oblique material preview with a dirt path, raised placeholder
+step, contact shadow, and front/side terrain faces.
+
+The style profiles remain data-driven under `assets/sprite_styles/`. The current built-in profiles
+are:
 
 - `cozy_upland`
 - `cozy_upland_lush`
 - `cozy_upland_sparse`
 
-Each profile has a `style.ron` for palette/rule tuning and a `motifs.ron` for tiny pixel-cluster
-motifs. The Forge app can switch profiles from a dropdown, and the CLI can export with an explicit
-profile path.
+Each profile has a `style.ron` for palette/rule/projection tuning and a `motifs.ron` for tiny
+pixel-cluster motifs. The Forge app can switch profiles from a dropdown, and the CLI can export with
+an explicit profile path.
 
-ArtGen 1.3 generates:
+ArtGen 1.4 generates:
 
 - tileable grass variants
 - tileable dirt variants
 - grass-to-dirt transition edges
 - `path_mask_00` through `path_mask_15`
 - path autotile and multiple path-map previews
+- oblique material preview for the high-oblique 2.5D contract
+- `sprite_manifest.ron` / `sprite_manifest.json` with role, anchor, footprint, z-bias, occlusion, and projection metadata
 - neighbor seam heatmap
 - contact sheets
 - grass, dirt, and transition repeat previews
@@ -45,7 +53,7 @@ cargo run -p ground_sprite_app
 Export the sprite bundle:
 
 ```bash
-cargo run -p ground_sprite_cli -- export exports/artgen_01_3 assets/sprite_styles/cozy_upland/style.ron
+cargo run -p ground_sprite_cli -- export exports/artgen_01_4 assets/sprite_styles/cozy_upland/style.ron
 ```
 
 The full-scene terrain renderer remains in the repository as downstream infrastructure for terrain

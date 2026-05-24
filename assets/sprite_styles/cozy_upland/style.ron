@@ -7,6 +7,14 @@
     style: (
         id: "cozy_upland_pixel",
         display_scale: 6,
+        projection: (
+            kind: HighOblique2D,
+            cell_width_px: 96,
+            cell_height_px: 72,
+            face_height_px: 28,
+            light_direction: Northwest,
+            shadow_offset_px: (10, 18),
+        ),
         palette: (
             grass_shadow: (r: 58, g: 82, b: 43, a: 255),
             grass_dark: (r: 79, g: 107, b: 54, a: 255),

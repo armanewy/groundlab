@@ -12,14 +12,34 @@ The generator does not require reference images. It uses:
 - external `motifs.ron` pixel-cluster motif libraries
 - cozy palette ramps
 - grass, dirt, transition, path, and pixel-cluster rules
+- a high-oblique 2.5D projection profile
+- per-piece sprite role, anchor, footprint, z-bias, and occlusion metadata
 - deterministic seeds
 - contact sheets and repeat previews
 - seam/noise validation
 - art-kit-compatible PNG piece export
 
-ArtGen 1.3 keeps the ArtGen 1.2b path topology and externalizes the style layer. The generator now
-loads palette ramps, grass/dirt/transition/path rules, validation-facing output settings, and motif
-libraries from profile folders:
+ArtGen 1.4 keeps the ArtGen 1.2b path topology and ArtGen 1.3 style profiles, then adds the first
+projection-aware sprite contract. Grass/dirt/path pieces are still top-surface material primitives,
+but the bundle now declares how those pieces will sit in the later high-oblique 2.5D renderer:
+
+```txt
+sprite role
+anchor_px
+footprint_cells
+z_bias
+occludes
+projection:
+  kind: HighOblique2D
+  cell_width_px
+  cell_height_px
+  face_height_px
+  light_direction
+  shadow_offset_px
+```
+
+The generator still loads palette ramps, grass/dirt/transition/path rules, projection settings, and
+motif libraries from profile folders:
 
 ```txt
 assets/sprite_styles/
@@ -34,7 +54,8 @@ assets/sprite_styles/
     motifs.ron
 ```
 
-This keeps future terrain materials from baking the cozy look directly into Rust code.
+This keeps future terrain materials from baking the cozy look or the projection assumptions directly
+into Rust code.
 
 Run the fast workbench:
 
@@ -45,16 +66,19 @@ cargo run -p ground_sprite_app
 Export the deterministic bundle:
 
 ```bash
-cargo run -p ground_sprite_cli -- export exports/artgen_01_3 assets/sprite_styles/cozy_upland/style.ron
+cargo run -p ground_sprite_cli -- export exports/artgen_01_4 assets/sprite_styles/cozy_upland/style.ron
 ```
 
 Export output:
 
 ```txt
-exports/artgen_01_3/
+exports/artgen_01_4/
   manifest.ron
+  sprite_manifest.ron
+  sprite_manifest.json
   recipe.ron
   contact_sheet.png
+  oblique_material_preview.png
   path_autotile_sheet.png
   path_preview_random.png
   path_preview_random_sparse.png
