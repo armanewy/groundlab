@@ -63,6 +63,23 @@ Implemented in this drop.
 This milestone still avoids moving enemies, combat, waves, morale, damage, or assault simulation.
 Its job is only to answer whether prep-phase terrain work changes likely enemy approach routes.
 
+## GamePivot 4 — Tactical prep UI
+
+Implemented in this drop.
+
+- reorganized Mission Lab around a prep-screen layout instead of an editor/debug panel
+- added a persistent mission status panel for prep time, labor, crew, tools, materials, and queued orders
+- added order mode buttons for inspect, dig, build, harvest, deploy, and cancel workflows
+- added route/map controls for terrain, height, cover, resources, initial routes, current routes, route deltas, and per-enemy route filtering
+- kept context-sensitive order buttons tied to the selected terrain cell or environment object
+- improved the work-order queue panel with explicit run/clear controls and status coloring
+- added enemy intel and objective panels to keep doctrine and mission goals visible during prep
+- added a compact minimap/schematic beside the main mission grid
+- added a notification stack for queue, run, export, reset, and selection feedback
+
+This milestone is UI-only. It does not add enemy movement, combat resolution, assault simulation,
+new art systems, or new terrain rules.
+
 ## Milestone 0 — Project seed
 
 Implemented.

@@ -98,11 +98,73 @@ impl RouteOverlayMode {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MissionActionMode {
+    Inspect,
+    Dig,
+    Build,
+    Harvest,
+    Deploy,
+    Cancel,
+}
+
+impl MissionActionMode {
+    const ALL: [MissionActionMode; 6] = [
+        MissionActionMode::Inspect,
+        MissionActionMode::Dig,
+        MissionActionMode::Build,
+        MissionActionMode::Harvest,
+        MissionActionMode::Deploy,
+        MissionActionMode::Cancel,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            MissionActionMode::Inspect => "Inspect",
+            MissionActionMode::Dig => "Dig",
+            MissionActionMode::Build => "Build",
+            MissionActionMode::Harvest => "Harvest",
+            MissionActionMode::Deploy => "Deploy",
+            MissionActionMode::Cancel => "Cancel",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum MissionMapMode {
+    Terrain,
+    Height,
+    Cover,
+    Resources,
+}
+
+impl MissionMapMode {
+    const ALL: [MissionMapMode; 4] = [
+        MissionMapMode::Terrain,
+        MissionMapMode::Height,
+        MissionMapMode::Cover,
+        MissionMapMode::Resources,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            MissionMapMode::Terrain => "terrain",
+            MissionMapMode::Height => "height",
+            MissionMapMode::Cover => "cover",
+            MissionMapMode::Resources => "resources",
+        }
+    }
+}
+
 struct GroundLabApp {
     active_panel: WorkbenchPanel,
     mission_state: MissionState,
     selected_mission_cell: CellCoord,
+    mission_action_mode: MissionActionMode,
+    mission_map_mode: MissionMapMode,
     route_overlay_mode: RouteOverlayMode,
+    route_group_filter: usize,
+    notifications: Vec<String>,
     paths: WorkbenchAssetPaths,
     recipe_path_text: String,
     palette_path_text: String,
@@ -148,7 +210,13 @@ impl GroundLabApp {
             active_panel: WorkbenchPanel::MissionLab,
             mission_state: MissionState::road_below_seed(),
             selected_mission_cell: CellCoord::new(5, 4),
+            mission_action_mode: MissionActionMode::Inspect,
+            mission_map_mode: MissionMapMode::Terrain,
             route_overlay_mode: RouteOverlayMode::Current,
+            route_group_filter: 0,
+            notifications: vec![
+                "Mission Lab ready. Select terrain or an object to issue prep orders.".to_string(),
+            ],
             recipe_path_text: paths.recipe_path.to_string_lossy().to_string(),
             palette_path_text: paths.palette_path.to_string_lossy().to_string(),
             file_snapshot: FileSnapshot::capture(&paths),
@@ -187,7 +255,7 @@ impl GroundLabApp {
             dirty_assets: true,
             dirty_preview: true,
             last_preview_size: [1, 1],
-            status: "Ready. GamePivot 3 doctrine route previews are active.".to_string(),
+            status: "Ready. GamePivot 4 tactical prep UI is active.".to_string(),
         };
         app.refresh_if_dirty(&cc.egui_ctx);
         app
@@ -320,28 +388,97 @@ impl GroundLabApp {
     fn show_mission_controls(&mut self, ui: &mut egui::Ui) {
         self.show_panel_tabs(ui);
         ui.heading("Mission Lab");
-        ui.label("GamePivot 3: work orders now drive doctrine-specific route previews");
+        ui.label("GamePivot 4: tactical prep UI over work orders, materials, and doctrine routes");
         ui.separator();
 
-        ui.strong(&self.mission_state.spec.title);
-        ui.label(&self.mission_state.spec.objective.label);
-        ui.small(format!(
-            "Prep: {}s · labor: {}s · crews: {} · queued: {}",
-            self.mission_state.remaining_prep_seconds,
-            self.mission_state.remaining_labor_seconds,
-            self.mission_state.spec.crew.crews,
-            self.mission_state.work_queue.len()
-        ));
-        ui.small(format!(
-            "Objective cell: ({}, {}) · health {}",
-            self.mission_state.spec.objective.defend_cell.x,
-            self.mission_state.spec.objective.defend_cell.y,
-            self.mission_state.spec.objective.objective_health
-        ));
-
+        self.show_mission_status_panel(ui);
         ui.separator();
-        ui.strong("Route preview");
-        egui::ComboBox::from_label("Overlay")
+        self.show_mission_action_toolbar(ui);
+        ui.separator();
+        self.show_mission_route_panel(ui);
+        ui.separator();
+        self.show_selected_mission_context(ui);
+        ui.separator();
+        self.show_work_order_queue_panel(ui);
+        ui.separator();
+        self.show_enemy_intel_panel(ui);
+        ui.separator();
+        self.show_objective_panel(ui);
+        ui.separator();
+        self.show_mission_scenario_controls(ui);
+        ui.separator();
+        self.show_feedback_panel(ui);
+    }
+
+    fn show_mission_status_panel(&self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.strong(format!("Mission: {}", self.mission_state.spec.title));
+            ui.label(&self.mission_state.spec.objective.label);
+            ui.horizontal_wrapped(|ui| {
+                ui.label(format!(
+                    "Prep {}",
+                    format_duration(self.mission_state.remaining_prep_seconds)
+                ));
+                ui.separator();
+                ui.label(format!(
+                    "Labor {}",
+                    format_duration(self.mission_state.remaining_labor_seconds)
+                ));
+                ui.separator();
+                ui.label(format!("Crew {}", self.mission_state.spec.crew.crews));
+                ui.separator();
+                ui.label(format!("Queued {}", self.mission_state.work_queue.len()));
+            });
+            let material_summary = self.mission_state.material_totals().positive_summary();
+            ui.small(format!(
+                "Materials: {}",
+                if material_summary.is_empty() {
+                    "none stockpiled".to_string()
+                } else {
+                    material_summary.join(" · ")
+                }
+            ));
+            ui.small(format!(
+                "Tools: {}",
+                self.mission_state
+                    .spec
+                    .starting_tools
+                    .tools
+                    .iter()
+                    .map(|tool| tool.label())
+                    .collect::<Vec<_>>()
+                    .join(" · ")
+            ));
+        });
+    }
+
+    fn show_mission_action_toolbar(&mut self, ui: &mut egui::Ui) {
+        ui.strong("Orders");
+        ui.horizontal_wrapped(|ui| {
+            for mode in MissionActionMode::ALL {
+                ui.selectable_value(&mut self.mission_action_mode, mode, mode.label());
+            }
+        });
+        ui.small(match self.mission_action_mode {
+            MissionActionMode::Inspect => {
+                "Inspect selected terrain, object state, and route consequences."
+            }
+            MissionActionMode::Dig => "Dig or flatten earthwork cells.",
+            MissionActionMode::Build => "Spend local material to raise cover or positions.",
+            MissionActionMode::Harvest => "Transform trees and objects into local material.",
+            MissionActionMode::Deploy => "Place prepared obstacles and field defenses.",
+            MissionActionMode::Cancel => "Review and clear queued work before execution.",
+        });
+    }
+
+    fn show_mission_route_panel(&mut self, ui: &mut egui::Ui) {
+        ui.strong("Overlays");
+        ui.horizontal_wrapped(|ui| {
+            for mode in MissionMapMode::ALL {
+                ui.selectable_value(&mut self.mission_map_mode, mode, mode.label());
+            }
+        });
+        egui::ComboBox::from_label("Route")
             .selected_text(self.route_overlay_mode.label())
             .show_ui(ui, |ui| {
                 for mode in RouteOverlayMode::ALL {
@@ -349,112 +486,142 @@ impl GroundLabApp {
                 }
             });
         let current_routes = self.mission_state.route_preview();
+        if self.route_group_filter > current_routes.routes.len() {
+            self.route_group_filter = 0;
+        }
+        egui::ComboBox::from_label("Enemy group")
+            .selected_text(route_filter_label(&current_routes, self.route_group_filter))
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut self.route_group_filter, 0, "all groups");
+                for (index, route) in current_routes.routes.iter().enumerate() {
+                    ui.selectable_value(
+                        &mut self.route_group_filter,
+                        index + 1,
+                        route.group_label.as_str(),
+                    );
+                }
+            });
         for route in &current_routes.routes {
             ui.small(format!(
-                "{} · {:?} · {} cell(s) · cost {:.1}",
+                "{} · {} · {} cell(s) · cost {:.1}",
                 route.group_label,
-                route.doctrine,
+                route.doctrine.label(),
                 route.points.len(),
                 route.total_cost
             ));
-            if let Some(note) = route.explanation.first() {
-                ui.small(note);
-            }
         }
+    }
 
-        ui.separator();
-        ui.strong("Tools");
-        ui.label(
-            self.mission_state
-                .spec
-                .starting_tools
-                .tools
-                .iter()
-                .map(|tool| tool.label())
-                .collect::<Vec<_>>()
-                .join(" · "),
-        );
-
-        ui.separator();
-        ui.strong("Local material");
-        let material_summary = self.mission_state.material_totals().positive_summary();
-        if material_summary.is_empty() {
-            ui.label("none stockpiled");
-        } else {
-            for material in material_summary {
-                ui.label(material);
-            }
-        }
-
-        ui.separator();
-        self.show_selected_mission_context(ui);
-
-        ui.separator();
-        ui.strong("Work-order queue");
-        ui.horizontal(|ui| {
-            if ui.button("Queue Road Below seed plan").clicked() {
+    fn show_work_order_queue_panel(&mut self, ui: &mut egui::Ui) {
+        ui.strong("Work order queue");
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Queue seed plan").clicked() {
                 for (kind, target) in road_below_seed_orders() {
                     self.queue_mission_order(kind, target);
                 }
-                self.status = "Queued scripted Road Below engineering plan.".to_string();
+                self.notify("Queued scripted Road Below engineering plan.");
             }
             if ui.button("Run next").clicked() {
                 match self.mission_state.run_next_queued_order() {
-                    Some(order) => {
-                        self.status = format!(
-                            "Ran order #{:02}: {} · {}",
-                            order.id,
-                            order.kind.label(),
-                            order.status.label()
-                        );
-                    }
-                    None => self.status = "No queued work order to run.".to_string(),
+                    Some(order) => self.notify(format!(
+                        "Ran order #{:02}: {} · {}",
+                        order.id,
+                        order.kind.label(),
+                        order.status.label()
+                    )),
+                    None => self.notify("No queued work order to run."),
                 }
             }
             if ui.button("Run all").clicked() {
                 self.mission_state.run_all_queued_orders();
-                self.status = "Ran all queued work orders.".to_string();
+                self.notify("Ran all queued work orders.");
+            }
+            if ui.button("Clear queue").clicked() {
+                self.mission_state.work_queue.clear();
+                self.notify("Cleared queued work orders.");
             }
         });
         if self.mission_state.work_queue.is_empty() {
             ui.label("No queued work orders.");
         } else {
             for order in &self.mission_state.work_queue {
-                ui.label(format!(
-                    "#{:02} {} · {}s · crew {} · {}",
-                    order.id,
-                    order.kind.label(),
-                    order.duration_seconds,
-                    order.assigned_crews,
-                    order.status.label()
-                ));
+                let color = if matches!(order.status, ground_game::WorkOrderStatus::Rejected { .. })
+                {
+                    egui::Color32::from_rgb(230, 160, 120)
+                } else {
+                    egui::Color32::from_rgb(224, 214, 176)
+                };
+                ui.colored_label(
+                    color,
+                    format!(
+                        "#{:02} {} · {} · crew {} · {}",
+                        order.id,
+                        order.kind.label(),
+                        format_duration(order.duration_seconds),
+                        order.assigned_crews,
+                        order.status.label()
+                    ),
+                );
             }
         }
+    }
 
-        ui.separator();
-        ui.strong("Mission actions");
-        if ui.button("Apply seed plan immediately").clicked() {
-            self.mission_state.apply_seed_orders();
-            self.status = "Applied scripted Road Below engineering plan immediately.".to_string();
+    fn show_enemy_intel_panel(&self, ui: &mut egui::Ui) {
+        ui.strong("Enemy intel");
+        let current_routes = self.mission_state.route_preview();
+        for (index, group) in self.mission_state.spec.enemy_groups.iter().enumerate() {
+            let cost = current_routes
+                .routes
+                .get(index)
+                .map(|route| format!("{:.1}", route.total_cost))
+                .unwrap_or_else(|| "unknown".to_string());
+            ui.label(format!(
+                "{} · {} units · {} · route cost {}",
+                group.label,
+                group.count,
+                group.doctrine.label(),
+                cost
+            ));
         }
-        if ui.button("Reset mission").clicked() {
-            self.mission_state = MissionState::road_below_seed();
-            self.selected_mission_cell = CellCoord::new(5, 4);
-            self.status = "Reset Road Below mission state.".to_string();
-        }
-        if ui.button("Export mission seed").clicked() {
-            match export_road_below_seed(DEFAULT_MISSION_EXPORT_DIR) {
-                Ok(()) => {
-                    self.status = format!("Exported mission seed to {DEFAULT_MISSION_EXPORT_DIR}");
-                }
-                Err(err) => {
-                    self.status = format!("Mission seed export failed: {err}");
+    }
+
+    fn show_objective_panel(&self, ui: &mut egui::Ui) {
+        ui.strong("Objective");
+        ui.label(format!(
+            "Primary: {}",
+            self.mission_state.spec.objective.label
+        ));
+        ui.small(format!(
+            "Hold cell ({}, {}) · health {}",
+            self.mission_state.spec.objective.defend_cell.x,
+            self.mission_state.spec.objective.defend_cell.y,
+            self.mission_state.spec.objective.objective_health
+        ));
+        ui.small("Bonus constraints are not active yet.");
+    }
+
+    fn show_mission_scenario_controls(&mut self, ui: &mut egui::Ui) {
+        ui.collapsing("Scenario controls", |ui| {
+            if ui.button("Apply seed plan immediately").clicked() {
+                self.mission_state.apply_seed_orders();
+                self.notify("Applied scripted Road Below engineering plan immediately.");
+            }
+            if ui.button("Reset mission").clicked() {
+                self.mission_state = MissionState::road_below_seed();
+                self.selected_mission_cell = CellCoord::new(5, 4);
+                self.notify("Reset Road Below mission state.");
+            }
+            if ui.button("Export mission seed").clicked() {
+                match export_road_below_seed(DEFAULT_MISSION_EXPORT_DIR) {
+                    Ok(()) => self.notify(format!(
+                        "Exported mission seed to {DEFAULT_MISSION_EXPORT_DIR}"
+                    )),
+                    Err(err) => self.notify(format!("Mission seed export failed: {err}")),
                 }
             }
-        }
-
-        ui.collapsing("Quick queue", |ui| {
-            if ui.button("Queue trench across road").clicked() {
+        });
+        ui.collapsing("Scripted quick queue", |ui| {
+            if ui.button("Trench across road").clicked() {
                 self.queue_mission_order(
                     WorkOrderKind::DigTrench,
                     WorkTarget::Rect(ground_game::CellRect {
@@ -464,7 +631,7 @@ impl GroundLabApp {
                     }),
                 );
             }
-            if ui.button("Queue berm behind trench").clicked() {
+            if ui.button("Berm behind trench").clicked() {
                 self.queue_mission_order(
                     WorkOrderKind::RaiseBerm,
                     WorkTarget::Rect(ground_game::CellRect {
@@ -474,43 +641,53 @@ impl GroundLabApp {
                     }),
                 );
             }
-            if ui.button("Queue fell roadside pine").clicked() {
+            if ui.button("Fell roadside pine").clicked() {
                 self.queue_mission_order(
                     WorkOrderKind::FellTree,
                     WorkTarget::Object("tree_west_01".to_string()),
                 );
             }
-            if ui.button("Queue cut pine into logs").clicked() {
+            if ui.button("Cut pine into logs").clicked() {
                 self.queue_mission_order(
                     WorkOrderKind::CutIntoLogs,
                     WorkTarget::Object("tree_west_01".to_string()),
                 );
             }
-            if ui.button("Queue stakes in road").clicked() {
+            if ui.button("Stakes in road").clicked() {
                 self.queue_mission_order(
                     WorkOrderKind::PlaceStakes,
                     WorkTarget::Cell(CellCoord::new(3, 4)),
                 );
             }
         });
+    }
 
-        ui.separator();
-        ui.strong("Enemy intel");
-        for group in &self.mission_state.spec.enemy_groups {
-            ui.label(format!(
-                "{} · {} units · {:?}",
-                group.label, group.count, group.doctrine
-            ));
+    fn show_feedback_panel(&self, ui: &mut egui::Ui) {
+        ui.strong("Notifications");
+        ui.label(&self.status);
+        for note in self.notifications.iter().rev().take(5) {
+            ui.small(note);
         }
-
+        ui.separator();
+        ui.strong("Order validation");
+        if self.mission_state.order_validation.is_empty() {
+            ui.label("No order validation issues.");
+        } else {
+            for issue in self.mission_state.order_validation.iter().rev().take(6) {
+                ui.colored_label(
+                    egui::Color32::from_rgb(230, 160, 120),
+                    format!("{:?} · {}", issue.severity, issue.message),
+                );
+            }
+        }
         ui.separator();
         ui.strong("Material ledger");
         if self.mission_state.material_ledger.is_empty() {
             ui.label("No material changes yet.");
         } else {
-            for entry in self.mission_state.material_ledger.iter().rev().take(8) {
+            for entry in self.mission_state.material_ledger.iter().rev().take(6) {
                 let summary = entry.net.signed_summary().join(", ");
-                ui.label(format!(
+                ui.small(format!(
                     "#{:02} {} · {}",
                     entry.order_id,
                     entry.order_kind.label(),
@@ -522,40 +699,26 @@ impl GroundLabApp {
                 ));
             }
         }
-
-        ui.separator();
-        ui.strong("Order validation");
-        if self.mission_state.order_validation.is_empty() {
-            ui.label("No order validation issues.");
-        } else {
-            for issue in self.mission_state.order_validation.iter().rev().take(6) {
-                ui.label(format!("{:?} · {}", issue.severity, issue.message));
-            }
-        }
-
         ui.separator();
         ui.strong("Work log");
         if self.mission_state.work_orders.is_empty() {
             ui.label("No work orders applied yet.");
         } else {
-            for order in self.mission_state.work_orders.iter().rev().take(10) {
-                ui.label(format!(
-                    "#{:02} {} · {} · {}s",
+            for order in self.mission_state.work_orders.iter().rev().take(6) {
+                ui.small(format!(
+                    "#{:02} {} · {} · {}",
                     order.id,
                     order.kind.label(),
                     order.status.label(),
-                    order.labor_seconds
+                    format_duration(order.labor_seconds)
                 ));
             }
         }
-
-        ui.separator();
-        ui.label(&self.status);
     }
 
     fn show_selected_mission_context(&mut self, ui: &mut egui::Ui) {
         let cell_coord = self.selected_mission_cell;
-        ui.strong("Selected terrain");
+        ui.strong(format!("{} context", self.mission_action_mode.label()));
         let Some(cell) = self.mission_state.map.cell(cell_coord) else {
             ui.label("Selection is outside the mission map.");
             return;
@@ -591,50 +754,94 @@ impl GroundLabApp {
 
     fn show_cell_order_buttons(&mut self, ui: &mut egui::Ui, cell: CellCoord) {
         ui.horizontal_wrapped(|ui| {
-            if ui.button("Queue dig trench").clicked() {
-                self.queue_mission_order(WorkOrderKind::DigTrench, WorkTarget::Cell(cell));
+            if matches!(
+                self.mission_action_mode,
+                MissionActionMode::Inspect | MissionActionMode::Dig
+            ) {
+                if ui.button("Dig trench").clicked() {
+                    self.queue_mission_order(WorkOrderKind::DigTrench, WorkTarget::Cell(cell));
+                }
+                if ui.button("Flatten").clicked() {
+                    self.queue_mission_order(WorkOrderKind::Flatten, WorkTarget::Cell(cell));
+                }
             }
-            if ui.button("Queue raise berm").clicked() {
+            if matches!(
+                self.mission_action_mode,
+                MissionActionMode::Inspect | MissionActionMode::Build
+            ) && ui.button("Raise berm").clicked()
+            {
                 self.queue_mission_order(WorkOrderKind::RaiseBerm, WorkTarget::Cell(cell));
             }
-            if ui.button("Queue flatten").clicked() {
-                self.queue_mission_order(WorkOrderKind::Flatten, WorkTarget::Cell(cell));
-            }
-            if ui.button("Queue stakes").clicked() {
+            if matches!(
+                self.mission_action_mode,
+                MissionActionMode::Inspect | MissionActionMode::Deploy
+            ) && ui.button("Place stakes").clicked()
+            {
                 self.queue_mission_order(WorkOrderKind::PlaceStakes, WorkTarget::Cell(cell));
             }
         });
-        self.show_order_preview_card(ui, WorkOrderKind::DigTrench, WorkTarget::Cell(cell));
+        match self.mission_action_mode {
+            MissionActionMode::Build => {
+                self.show_order_preview_card(ui, WorkOrderKind::RaiseBerm, WorkTarget::Cell(cell));
+            }
+            MissionActionMode::Deploy => {
+                self.show_order_preview_card(
+                    ui,
+                    WorkOrderKind::PlaceStakes,
+                    WorkTarget::Cell(cell),
+                );
+            }
+            MissionActionMode::Cancel => {
+                ui.label("Use the queue controls to clear or run queued work.");
+            }
+            _ => {
+                self.show_order_preview_card(ui, WorkOrderKind::DigTrench, WorkTarget::Cell(cell));
+            }
+        }
     }
 
     fn show_object_order_buttons(&mut self, ui: &mut egui::Ui, object: &EnvironmentObject) {
         match object.kind {
             EnvironmentObjectKind::Tree(TreeState::Standing)
             | EnvironmentObjectKind::Tree(TreeState::PartiallyCut { .. }) => {
-                if ui.button("Queue fell tree").clicked() {
-                    self.queue_mission_order(
+                if matches!(
+                    self.mission_action_mode,
+                    MissionActionMode::Inspect | MissionActionMode::Harvest
+                ) {
+                    if ui.button("Fell tree").clicked() {
+                        self.queue_mission_order(
+                            WorkOrderKind::FellTree,
+                            WorkTarget::Object(object.id.clone()),
+                        );
+                    }
+                    self.show_order_preview_card(
+                        ui,
                         WorkOrderKind::FellTree,
                         WorkTarget::Object(object.id.clone()),
                     );
+                } else {
+                    ui.label("Switch to Harvest to work this tree.");
                 }
-                self.show_order_preview_card(
-                    ui,
-                    WorkOrderKind::FellTree,
-                    WorkTarget::Object(object.id.clone()),
-                );
             }
             EnvironmentObjectKind::Tree(TreeState::FallenTrunk { .. }) => {
-                if ui.button("Queue cut into logs").clicked() {
-                    self.queue_mission_order(
+                if matches!(
+                    self.mission_action_mode,
+                    MissionActionMode::Inspect | MissionActionMode::Harvest
+                ) {
+                    if ui.button("Cut into logs").clicked() {
+                        self.queue_mission_order(
+                            WorkOrderKind::CutIntoLogs,
+                            WorkTarget::Object(object.id.clone()),
+                        );
+                    }
+                    self.show_order_preview_card(
+                        ui,
                         WorkOrderKind::CutIntoLogs,
                         WorkTarget::Object(object.id.clone()),
                     );
+                } else {
+                    ui.label("Switch to Harvest to process this trunk.");
                 }
-                self.show_order_preview_card(
-                    ui,
-                    WorkOrderKind::CutIntoLogs,
-                    WorkTarget::Object(object.id.clone()),
-                );
             }
             _ => {
                 ui.label("No context work orders for this object yet.");
@@ -683,12 +890,22 @@ impl GroundLabApp {
 
     fn queue_mission_order(&mut self, kind: WorkOrderKind, target: WorkTarget) {
         let order = self.mission_state.queue_work_order(kind, target);
-        self.status = format!(
+        self.notify(format!(
             "Queued order #{:02}: {} · {}",
             order.id,
             order.kind.label(),
             order.status.label()
-        );
+        ));
+    }
+
+    fn notify(&mut self, message: impl Into<String>) {
+        let message = message.into();
+        self.status = message.clone();
+        self.notifications.push(message);
+        if self.notifications.len() > 12 {
+            let excess = self.notifications.len() - 12;
+            self.notifications.drain(0..excess);
+        }
     }
 
     fn show_controls(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
@@ -1324,8 +1541,13 @@ impl GroundLabApp {
     }
 
     fn show_mission_canvas(&mut self, ui: &mut egui::Ui) {
-        ui.heading("Road Below mission seed");
-        ui.label("Legend: S spawn, O objective, T tree, L logs/trunk, ^ stakes, = trench, # berm, : road, . grass.");
+        ui.heading("Mission Prep");
+        self.show_mission_command_bar(ui);
+        ui.horizontal(|ui| {
+            self.show_mission_minimap(ui);
+            ui.label("Legend: S spawn, O objective, T tree, L logs/trunk, ^ stakes, = trench, # berm, : road.");
+        });
+        ui.add_space(8.0);
         let cell_size = 44.0;
         let map_w = self.mission_state.map.width as f32 * cell_size;
         let map_h = self.mission_state.map.height as f32 * cell_size;
@@ -1338,7 +1560,7 @@ impl GroundLabApp {
                 let y = (local.y / cell_size).floor().max(0.0) as u32;
                 if x < self.mission_state.map.width && y < self.mission_state.map.height {
                     self.selected_mission_cell = CellCoord::new(x, y);
-                    self.status = format!("Selected mission cell ({x}, {y}).");
+                    self.notify(format!("Selected mission cell ({x}, {y})."));
                 }
             }
         }
@@ -1358,7 +1580,11 @@ impl GroundLabApp {
                     egui::pos2(x0, y0),
                     egui::vec2(cell_size - 1.0, cell_size - 1.0),
                 );
-                painter.rect_filled(tile_rect, 0.0, mission_cell_color(cell));
+                painter.rect_filled(
+                    tile_rect,
+                    0.0,
+                    mission_cell_color(cell, self.mission_map_mode),
+                );
                 painter.rect_stroke(
                     tile_rect,
                     0.0,
@@ -1393,6 +1619,79 @@ impl GroundLabApp {
         );
     }
 
+    fn show_mission_command_bar(&self, ui: &mut egui::Ui) {
+        egui::Frame::group(ui.style()).show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.strong(self.mission_state.spec.title.as_str());
+                ui.separator();
+                ui.label(format!(
+                    "Phase PREP · time {}",
+                    format_duration(self.mission_state.remaining_prep_seconds)
+                ));
+                ui.separator();
+                ui.label(format!(
+                    "crew {} · labor {}",
+                    self.mission_state.spec.crew.crews,
+                    format_duration(self.mission_state.remaining_labor_seconds)
+                ));
+                ui.separator();
+                ui.label(format!("mode {}", self.mission_action_mode.label()));
+                ui.separator();
+                ui.label(format!("map {}", self.mission_map_mode.label()));
+            });
+        });
+    }
+
+    fn show_mission_minimap(&self, ui: &mut egui::Ui) {
+        let scale = 8.0;
+        let size = egui::vec2(
+            self.mission_state.map.width as f32 * scale,
+            self.mission_state.map.height as f32 * scale,
+        );
+        let (rect, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+        let painter = ui.painter_at(rect);
+        for y in 0..self.mission_state.map.height {
+            for x in 0..self.mission_state.map.width {
+                let coord = CellCoord::new(x, y);
+                let cell = self
+                    .mission_state
+                    .map
+                    .cell(coord)
+                    .expect("mission minimap only reads in-bounds cells");
+                let tile = egui::Rect::from_min_size(
+                    egui::pos2(
+                        rect.left() + x as f32 * scale,
+                        rect.top() + y as f32 * scale,
+                    ),
+                    egui::vec2(scale - 1.0, scale - 1.0),
+                );
+                painter.rect_filled(tile, 0.0, mission_cell_color(cell, self.mission_map_mode));
+                if self.mission_state.map.spawn_cells.contains(&coord) {
+                    painter.rect_filled(
+                        tile.shrink(2.0),
+                        0.0,
+                        egui::Color32::from_rgb(88, 140, 230),
+                    );
+                }
+                if self.mission_state.spec.objective.defend_cell == coord {
+                    painter.rect_filled(
+                        tile.shrink(2.0),
+                        0.0,
+                        egui::Color32::from_rgb(232, 205, 86),
+                    );
+                }
+                if self.selected_mission_cell == coord {
+                    painter.rect_stroke(
+                        tile,
+                        0.0,
+                        egui::Stroke::new(1.0, egui::Color32::from_rgb(250, 235, 120)),
+                        egui::StrokeKind::Inside,
+                    );
+                }
+            }
+        }
+    }
+
     fn draw_mission_route_overlay(
         &self,
         painter: &egui::Painter,
@@ -1409,6 +1708,7 @@ impl GroundLabApp {
                     cell_size,
                     &initial,
                     RouteOverlayMode::Initial,
+                    self.route_group_filter,
                 );
             }
             RouteOverlayMode::Current => {
@@ -1419,6 +1719,7 @@ impl GroundLabApp {
                     cell_size,
                     &current,
                     RouteOverlayMode::Current,
+                    self.route_group_filter,
                 );
             }
             RouteOverlayMode::Delta => {
@@ -1430,6 +1731,7 @@ impl GroundLabApp {
                     cell_size,
                     &initial,
                     RouteOverlayMode::Initial,
+                    self.route_group_filter,
                 );
                 draw_route_set_on_mission(
                     painter,
@@ -1437,6 +1739,7 @@ impl GroundLabApp {
                     cell_size,
                     &current,
                     RouteOverlayMode::Current,
+                    self.route_group_filter,
                 );
             }
         }
@@ -1471,18 +1774,57 @@ impl eframe::App for GroundLabApp {
     }
 }
 
-fn mission_cell_color(cell: &ground_game::MissionCell) -> egui::Color32 {
-    match cell.earth_state {
-        EarthState::Trench | EarthState::DeepTrench => egui::Color32::from_rgb(42, 31, 24),
-        EarthState::Berm | EarthState::SpoilPile => egui::Color32::from_rgb(122, 88, 50),
-        EarthState::Scraped | EarthState::Ditch => egui::Color32::from_rgb(110, 84, 55),
-        _ => match cell.ground {
-            GroundKind::Grass => egui::Color32::from_rgb(73, 105, 53),
-            GroundKind::Dirt => egui::Color32::from_rgb(135, 91, 52),
-            GroundKind::Mud => egui::Color32::from_rgb(71, 61, 48),
-            GroundKind::Rock => egui::Color32::from_rgb(101, 105, 96),
-            GroundKind::Road => egui::Color32::from_rgb(154, 109, 66),
+fn format_duration(seconds: u32) -> String {
+    format!("{:02}:{:02}", seconds / 60, seconds % 60)
+}
+
+fn route_filter_label(routes: &ground_game::DoctrineRouteSet, route_filter: usize) -> String {
+    if route_filter == 0 {
+        return "all groups".to_string();
+    }
+    routes
+        .routes
+        .get(route_filter.saturating_sub(1))
+        .map(|route| route.group_label.clone())
+        .unwrap_or_else(|| "all groups".to_string())
+}
+
+fn mission_cell_color(cell: &ground_game::MissionCell, mode: MissionMapMode) -> egui::Color32 {
+    match mode {
+        MissionMapMode::Terrain => match cell.earth_state {
+            EarthState::Trench | EarthState::DeepTrench => egui::Color32::from_rgb(42, 31, 24),
+            EarthState::Berm | EarthState::SpoilPile => egui::Color32::from_rgb(122, 88, 50),
+            EarthState::Scraped | EarthState::Ditch => egui::Color32::from_rgb(110, 84, 55),
+            _ => match cell.ground {
+                GroundKind::Grass => egui::Color32::from_rgb(73, 105, 53),
+                GroundKind::Dirt => egui::Color32::from_rgb(135, 91, 52),
+                GroundKind::Mud => egui::Color32::from_rgb(71, 61, 48),
+                GroundKind::Rock => egui::Color32::from_rgb(101, 105, 96),
+                GroundKind::Road => egui::Color32::from_rgb(154, 109, 66),
+            },
         },
+        MissionMapMode::Height => {
+            let value = (72 + cell.height.max(0) as u8 * 34).min(220);
+            egui::Color32::from_rgb(value / 2, value, 72)
+        }
+        MissionMapMode::Cover => match cell.cover {
+            CoverClass::None => egui::Color32::from_rgb(62, 72, 58),
+            CoverClass::Light => egui::Color32::from_rgb(91, 105, 66),
+            CoverClass::Partial => egui::Color32::from_rgb(117, 126, 68),
+            CoverClass::Strong => egui::Color32::from_rgb(148, 139, 78),
+        },
+        MissionMapMode::Resources => {
+            if !cell.local_material.is_zero() {
+                egui::Color32::from_rgb(156, 128, 66)
+            } else if matches!(
+                cell.earth_state,
+                EarthState::Trench | EarthState::Berm | EarthState::SpoilPile
+            ) {
+                egui::Color32::from_rgb(118, 86, 50)
+            } else {
+                egui::Color32::from_rgb(63, 88, 54)
+            }
+        }
     }
 }
 
@@ -1551,8 +1893,12 @@ fn draw_route_set_on_mission(
     cell_size: f32,
     routes: &ground_game::DoctrineRouteSet,
     mode: RouteOverlayMode,
+    route_filter: usize,
 ) {
     for (index, route) in routes.routes.iter().enumerate() {
+        if route_filter > 0 && route_filter != index + 1 {
+            continue;
+        }
         if route.points.is_empty() {
             continue;
         }

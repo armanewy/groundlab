@@ -6,6 +6,8 @@ for one future game family: terrain-first prepared-ground defense.
 The active roadmap has pivoted to a mission-first workbench. SpriteGen remains the terrain art
 forge, while `ground_game` owns mission specs, prep-phase work orders, local materials,
 environment-object states, doctrine route preview, and future assault simulation.
+`ground_app` now treats Mission Lab as the primary tactical prep surface rather than a generic
+terrain editor panel.
 
 ## What is custom-owned now
 
@@ -51,6 +53,7 @@ GamePivot mission flow:
 ```txt
 MissionSpec
   -> MissionState
+  -> tactical prep UI
   -> prep-phase work-order queue
   -> order validation
   -> terrain/object/material state changes
