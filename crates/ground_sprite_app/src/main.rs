@@ -3,19 +3,20 @@ use ground_core::{
     build_berm_contact_sheet, build_berm_mask_debug_preview, build_berm_oblique_caps_preview,
     build_berm_oblique_corner_preview, build_berm_oblique_shadow_preview,
     build_berm_oblique_straight_preview, build_motif_heatmap, build_oblique_material_preview,
-    build_palette_preview, build_path_autotile_sheet, build_path_mask_debug_preview,
-    build_path_neighbor_seam_heatmap, build_path_preview_dense, build_path_preview_junctions,
-    build_path_preview_loop, build_path_preview_random, build_path_preview_sparse,
-    build_seam_heatmap, build_single_repeat_preview, build_sprite_contact_sheet,
-    build_transition_edges_preview, build_transition_repeat_preview, build_trench_autotile_sheet,
-    build_trench_contact_sheet, build_trench_floor_continuity_heatmap,
-    build_trench_lip_continuity_heatmap, build_trench_mask_debug_preview,
-    build_trench_neighbor_seam_heatmap, build_trench_oblique_caps_preview,
-    build_trench_oblique_corner_preview, build_trench_oblique_shadow_preview,
-    build_trench_oblique_straight_preview, build_trench_preview_dense,
-    build_trench_preview_junctions, build_trench_preview_loop, build_trench_preview_sparse,
-    build_variant_repeat_preview, export_terrain_sprite_bundle, generate_terrain_sprites,
-    scale_nearest, GeneratedTerrainSprite, PixelImage, TerrainSpriteKind, TerrainSpriteRecipe,
+    build_override_contact_sheet, build_override_diff_sheet, build_palette_preview,
+    build_path_autotile_sheet, build_path_mask_debug_preview, build_path_neighbor_seam_heatmap,
+    build_path_preview_dense, build_path_preview_junctions, build_path_preview_loop,
+    build_path_preview_random, build_path_preview_sparse, build_seam_heatmap,
+    build_single_repeat_preview, build_sprite_contact_sheet, build_transition_edges_preview,
+    build_transition_repeat_preview, build_trench_autotile_sheet, build_trench_contact_sheet,
+    build_trench_floor_continuity_heatmap, build_trench_lip_continuity_heatmap,
+    build_trench_mask_debug_preview, build_trench_neighbor_seam_heatmap,
+    build_trench_oblique_caps_preview, build_trench_oblique_corner_preview,
+    build_trench_oblique_shadow_preview, build_trench_oblique_straight_preview,
+    build_trench_preview_dense, build_trench_preview_junctions, build_trench_preview_loop,
+    build_trench_preview_sparse, build_variant_repeat_preview, export_terrain_sprite_bundle,
+    generate_effective_terrain_sprites, scale_nearest, GeneratedTerrainSprite, PixelImage,
+    TerrainSpriteKind, TerrainSpriteOverrideReport, TerrainSpriteRecipe,
     BUILTIN_SPRITE_STYLE_PROFILES, DEFAULT_SPRITEGEN_EXPORT_DIR,
 };
 
@@ -40,6 +41,9 @@ fn main() -> eframe::Result {
 enum PreviewPanel {
     Selected,
     ContactSheet,
+    GeneratedContactSheet,
+    OverrideContactSheet,
+    OverrideDiffSheet,
     GrassSingleRepeat,
     GrassVariantRepeat,
     DirtSingleRepeat,
@@ -81,9 +85,12 @@ enum PreviewPanel {
 }
 
 impl PreviewPanel {
-    const ALL: [PreviewPanel; 40] = [
+    const ALL: [PreviewPanel; 43] = [
         PreviewPanel::Selected,
         PreviewPanel::ContactSheet,
+        PreviewPanel::GeneratedContactSheet,
+        PreviewPanel::OverrideContactSheet,
+        PreviewPanel::OverrideDiffSheet,
         PreviewPanel::GrassSingleRepeat,
         PreviewPanel::GrassVariantRepeat,
         PreviewPanel::DirtSingleRepeat,
@@ -127,7 +134,10 @@ impl PreviewPanel {
     fn label(self) -> &'static str {
         match self {
             PreviewPanel::Selected => "Selected tile",
-            PreviewPanel::ContactSheet => "Contact sheet",
+            PreviewPanel::ContactSheet => "Effective contact sheet",
+            PreviewPanel::GeneratedContactSheet => "Generated contact sheet",
+            PreviewPanel::OverrideContactSheet => "Override contact sheet",
+            PreviewPanel::OverrideDiffSheet => "Override diff sheet",
             PreviewPanel::GrassSingleRepeat => "Grass single repeat",
             PreviewPanel::GrassVariantRepeat => "Grass variant repeat",
             PreviewPanel::DirtSingleRepeat => "Dirt single repeat",
@@ -174,13 +184,18 @@ struct SpriteForgeApp {
     recipe: TerrainSpriteRecipe,
     selected_profile_index: usize,
     export_dir: String,
+    generated_sprites: Vec<GeneratedTerrainSprite>,
     sprites: Vec<GeneratedTerrainSprite>,
+    override_report: TerrainSpriteOverrideReport,
     selected_kind: TerrainSpriteKind,
     selected_index: usize,
     panel: PreviewPanel,
     zoom: f32,
     selected_texture: Option<egui::TextureHandle>,
     contact_texture: Option<egui::TextureHandle>,
+    generated_contact_texture: Option<egui::TextureHandle>,
+    override_contact_texture: Option<egui::TextureHandle>,
+    override_diff_texture: Option<egui::TextureHandle>,
     grass_single_texture: Option<egui::TextureHandle>,
     grass_variant_texture: Option<egui::TextureHandle>,
     dirt_single_texture: Option<egui::TextureHandle>,
@@ -229,13 +244,26 @@ impl SpriteForgeApp {
             recipe: TerrainSpriteRecipe::from_default_style_profile(),
             selected_profile_index: 0,
             export_dir: DEFAULT_SPRITEGEN_EXPORT_DIR.to_string(),
+            generated_sprites: Vec::new(),
             sprites: Vec::new(),
+            override_report: TerrainSpriteOverrideReport {
+                override_dir: None,
+                generated_count: 0,
+                overridden_count: 0,
+                invalid_count: 0,
+                warning_count: 0,
+                unused_override_files: Vec::new(),
+                entries: Vec::new(),
+            },
             selected_kind: TerrainSpriteKind::GrassTile,
             selected_index: 0,
             panel: PreviewPanel::Selected,
             zoom: 8.0,
             selected_texture: None,
             contact_texture: None,
+            generated_contact_texture: None,
+            override_contact_texture: None,
+            override_diff_texture: None,
             grass_single_texture: None,
             grass_variant_texture: None,
             dirt_single_texture: None,
@@ -286,14 +314,22 @@ impl SpriteForgeApp {
             return;
         }
         self.recipe.sanitize();
-        self.sprites = generate_terrain_sprites(&self.recipe);
+        let effective = generate_effective_terrain_sprites(&self.recipe);
+        self.generated_sprites = effective.generated;
+        self.sprites = effective.effective;
+        self.override_report = effective.report;
         self.selected_index = self
             .sprites
             .iter()
             .position(|sprite| sprite.kind == self.selected_kind)
             .unwrap_or(0);
         self.refresh_textures(ctx);
-        self.status = format!("Generated {} terrain sprites.", self.sprites.len());
+        self.status = format!(
+            "Generated {} effective sprites · {} override(s) · {} override issue(s).",
+            self.sprites.len(),
+            self.override_report.overridden_count,
+            self.override_report.issue_count()
+        );
         self.dirty = false;
     }
 
@@ -308,6 +344,29 @@ impl SpriteForgeApp {
         }
         let contact = build_sprite_contact_sheet(&self.sprites, &self.recipe);
         put_texture(ctx, &mut self.contact_texture, "sprite_contact", &contact);
+        let generated_contact = build_sprite_contact_sheet(&self.generated_sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.generated_contact_texture,
+            "generated_sprite_contact",
+            &generated_contact,
+        );
+        let override_contact =
+            build_override_contact_sheet(&self.generated_sprites, &self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.override_contact_texture,
+            "override_sprite_contact",
+            &override_contact,
+        );
+        let override_diff =
+            build_override_diff_sheet(&self.generated_sprites, &self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.override_diff_texture,
+            "override_sprite_diff",
+            &override_diff,
+        );
         let grass_single = build_single_repeat_preview(
             &self.sprites,
             TerrainSpriteKind::GrassTile,
@@ -595,7 +654,7 @@ impl SpriteForgeApp {
 
     fn show_controls(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.heading("Pixel Terrain Forge");
-        ui.label("ArtGen 3.0b: berm visual polish.");
+        ui.label("ArtGen 3.0c: art override workflow.");
         ui.separator();
         let selected_profile = BUILTIN_SPRITE_STYLE_PROFILES
             .get(self.selected_profile_index)
@@ -625,6 +684,14 @@ impl SpriteForgeApp {
             });
         ui.label("Export directory");
         ui.text_edit_singleline(&mut self.export_dir);
+        ui.label(format!(
+            "Override directory: {}",
+            if self.recipe.override_dir.trim().is_empty() {
+                "(disabled)"
+            } else {
+                self.recipe.override_dir.as_str()
+            }
+        ));
 
         egui::ComboBox::from_label("Sprite")
             .selected_text(self.selected_kind.label())
@@ -831,8 +898,11 @@ impl SpriteForgeApp {
                 match export_terrain_sprite_bundle(&self.export_dir, &self.recipe) {
                     Ok(summary) => {
                         self.status = format!(
-                            "Exported {} sprites to {} with {} validation issue(s).",
-                            summary.sprite_count, summary.out_dir, summary.validation_issue_count
+                            "Exported {} sprites to {} with {} validation issue(s), {} override(s).",
+                            summary.sprite_count,
+                            summary.out_dir,
+                            summary.validation_issue_count,
+                            summary.overridden_count
                         );
                     }
                     Err(err) => self.status = format!("Export failed: {err}"),
@@ -849,9 +919,23 @@ impl SpriteForgeApp {
             PreviewPanel::Selected => {
                 if let Some(sprite) = self.sprites.get(self.selected_index) {
                     ui.label(format!(
-                        "{} · {}x{}",
-                        sprite.id, sprite.image.width, sprite.image.height
+                        "{} · {}x{} · {}",
+                        sprite.id,
+                        sprite.image.width,
+                        sprite.image.height,
+                        sprite.source.id()
                     ));
+                    if let Some(entry) = self
+                        .override_report
+                        .entries
+                        .iter()
+                        .find(|entry| entry.id == sprite.id)
+                    {
+                        ui.label(format!("Override status: {}", entry.status.label()));
+                        for warning in &entry.warnings {
+                            ui.label(format!("Warning: {warning}"));
+                        }
+                    }
                     let scaled = scale_nearest(&sprite.image, self.zoom.round() as u32);
                     put_temp_image(ui, &scaled);
                 } else {
@@ -860,6 +944,30 @@ impl SpriteForgeApp {
             }
             PreviewPanel::ContactSheet => {
                 show_texture(ui, self.contact_texture.as_ref(), 1.0, "No contact sheet");
+            }
+            PreviewPanel::GeneratedContactSheet => {
+                show_texture(
+                    ui,
+                    self.generated_contact_texture.as_ref(),
+                    1.0,
+                    "No generated contact sheet",
+                );
+            }
+            PreviewPanel::OverrideContactSheet => {
+                show_texture(
+                    ui,
+                    self.override_contact_texture.as_ref(),
+                    1.0,
+                    "No override contact sheet",
+                );
+            }
+            PreviewPanel::OverrideDiffSheet => {
+                show_texture(
+                    ui,
+                    self.override_diff_texture.as_ref(),
+                    1.0,
+                    "No override diff sheet",
+                );
             }
             PreviewPanel::GrassSingleRepeat => {
                 show_texture(

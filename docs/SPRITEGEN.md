@@ -4,7 +4,8 @@ GroundLab's active visual milestone is now a dedicated terrain sprite generator,
 editable scene renderer. The generator first produces cozy top-surface terrain primitives: grass,
 dirt, grass-to-dirt transitions, and connected dirt path masks. ArtGen 2.1b extends that foundation
 with polished connected oblique trench masks; ArtGen 3.0b improves the first raised-terrain
-counterpart: an oblique berm/mound sprite kit for the desired high-oblique 2.5D terrain grammar.
+counterpart; and ArtGen 3.0c formalizes the art override workflow so rough generated sprites can be
+replaced by better authored PNGs without changing metadata or renderer contracts.
 
 The generator does not require reference images. It uses:
 
@@ -20,15 +21,19 @@ The generator does not require reference images. It uses:
 - contact sheets and repeat previews
 - seam/noise validation
 - art-kit-compatible PNG piece export
+- per-style override folders for replacement PNGs
+- generated/effective/override/diff contact sheets
+- override compatibility validation
 
-ArtGen 3.0b keeps the ArtGen 1.2b path topology, ArtGen 1.3 style profiles, ArtGen 1.4
+ArtGen 3.0c keeps the ArtGen 1.2b path topology, ArtGen 1.3 style profiles, ArtGen 1.4
 projection-aware sprite contract, ArtGen 2.0b trench polish, and ArtGen 2.1b connected trench
 topology. Grass/dirt/path pieces are still top-surface material primitives, trench pieces include
 both the base role pieces and `trench_mask_00` through `trench_mask_15`, and berm pieces now test
 the raised-earth side of the same 2.5D contract with top, front face, lips, caps, corners, contact
-shadow, spoil, and grass fringe. The 3.0b pass specifically reduces the flat retaining-wall read by
-adding a more irregular face silhouette, stronger lower shadow, tapered caps, and stricter berm
-shape diagnostics:
+shadow, spoil, and grass fringe. The 3.0c pass adds a replacement layer after procedural generation:
+Forge always generates the source sprites, then swaps in `overrides/{sprite_id}.png` when it is
+compatible. The effective sprites are what get previewed, validated, and packed into the art-kit
+manifest:
 
 ```txt
 sprite role
@@ -53,12 +58,15 @@ assets/sprite_styles/
   cozy_upland/
     style.ron
     motifs.ron
+    overrides/
   cozy_upland_lush/
     style.ron
     motifs.ron
+    overrides/
   cozy_upland_sparse/
     style.ron
     motifs.ron
+    overrides/
 ```
 
 This keeps future terrain materials from baking the cozy look or the projection assumptions directly
@@ -73,18 +81,30 @@ cargo run -p ground_sprite_app
 Export the deterministic bundle:
 
 ```bash
-cargo run -p ground_sprite_cli -- export exports/artgen_03_0b assets/sprite_styles/cozy_upland/style.ron
+cargo run -p ground_sprite_cli -- export exports/artgen_03_0c assets/sprite_styles/cozy_upland/style.ron
+```
+
+Copy the current generated sprites into a profile's override folder so they can be edited or
+replaced externally:
+
+```bash
+cargo run -p ground_sprite_cli -- promote-overrides assets/sprite_styles/cozy_upland/style.ron
 ```
 
 Export output:
 
 ```txt
-exports/artgen_03_0b/
+exports/artgen_03_0c/
   manifest.ron
   sprite_manifest.ron
   sprite_manifest.json
   recipe.ron
   contact_sheet.png
+  generated_contact_sheet.png
+  effective_contact_sheet.png
+  override_contact_sheet.png
+  override_diff_sheet.png
+  override_report.json
   oblique_material_preview.png
   berm_contact_sheet.png
   berm_preview_oblique_straight.png
@@ -132,6 +152,9 @@ exports/artgen_03_0b/
   motif_heatmap.png
   palette_preview.png
   validation.json
+  generated_pieces/
+    grass_tile_01.png
+    ...
   pieces/
     grass_tile_01.png
     grass_tile_02.png

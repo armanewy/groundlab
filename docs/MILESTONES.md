@@ -332,6 +332,26 @@ Implemented in this drop.
 This is the raised-terrain equivalent of the trench 2.0b polish pass. Berm topology should wait
 until the straight/cap/corner previews read as mounded earth rather than a flat retaining wall.
 
+## ArtGen 3.0c — Art override / replacement workflow
+
+Implemented in this drop.
+
+- each sprite style profile can now declare an `overrides/` folder
+- generated sprites remain the deterministic source layer
+- compatible `overrides/{sprite_id}.png` files replace generated pixels while preserving sprite id, kind, role, anchor, footprint, z-bias, occlusion, and projection metadata
+- missing overrides fall back to generated sprites and are reported as `Missing override`, not validation failures
+- invalid override sizes and load errors fall back to generated sprites and are reported in `override_report.json`
+- override warnings report suspicious alpha changes and unused override PNGs
+- `sprite_manifest.ron` and `sprite_manifest.json` now record whether each effective sprite source is generated or overridden
+- exports now include `generated_pieces/`, effective `pieces/`, `generated_contact_sheet.png`, `effective_contact_sheet.png`, `override_contact_sheet.png`, `override_diff_sheet.png`, and `override_report.json`
+- Pixel Terrain Forge adds generated/effective/override/diff preview panels and selected-sprite override status
+- sprite CLI adds `promote-overrides [style_profile]` to copy the current generated sprites into a profile override folder as editable starting art
+- sprite CLI/app default export target is `exports/artgen_03_0c`
+
+This is a workflow milestone, not a new terrain feature. It makes generated art replaceable without
+breaking the metadata contract that later berm topology, stone, props, and editable-scene integration
+will consume.
+
 ## Milestone 5 — Custom renderer/runtime
 
 - introduce `ground_render`

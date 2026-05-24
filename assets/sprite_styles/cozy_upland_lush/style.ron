@@ -4,6 +4,7 @@
     seed: 1592619265,
     variant_count: 4,
     motifs: "motifs.ron",
+    overrides: "overrides",
     style: (
         id: "cozy_upland_lush_pixel",
         display_scale: 6,

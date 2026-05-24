@@ -9,12 +9,12 @@ use crate::spritegen::{
     build_berm_contact_sheet, build_berm_mask_debug_preview, build_berm_oblique_caps_preview,
     build_berm_oblique_corner_preview, build_berm_oblique_shadow_preview,
     build_berm_oblique_straight_preview, build_motif_heatmap, build_oblique_material_preview,
-    build_palette_preview, build_path_autotile_sheet, build_path_mask_debug_preview,
-    build_path_neighbor_seam_heatmap, build_path_preview_dense, build_path_preview_junctions,
-    build_path_preview_loop, build_path_preview_random, build_path_preview_sparse,
-    build_repeat_preview, build_seam_heatmap, build_single_repeat_preview,
-    build_sprite_contact_sheet, build_transition_edges_preview, build_transition_repeat_preview,
-    build_trench_autotile_sheet, build_trench_contact_sheet,
+    build_override_contact_sheet, build_override_diff_sheet, build_palette_preview,
+    build_path_autotile_sheet, build_path_mask_debug_preview, build_path_neighbor_seam_heatmap,
+    build_path_preview_dense, build_path_preview_junctions, build_path_preview_loop,
+    build_path_preview_random, build_path_preview_sparse, build_repeat_preview, build_seam_heatmap,
+    build_single_repeat_preview, build_sprite_contact_sheet, build_transition_edges_preview,
+    build_transition_repeat_preview, build_trench_autotile_sheet, build_trench_contact_sheet,
     build_trench_floor_continuity_edge_heatmap, build_trench_floor_continuity_heatmap,
     build_trench_lip_continuity_edge_heatmap, build_trench_lip_continuity_heatmap,
     build_trench_mask_debug_preview, build_trench_neighbor_seam_edge_heatmap,
@@ -23,10 +23,10 @@ use crate::spritegen::{
     build_trench_oblique_straight_preview, build_trench_preview_corners,
     build_trench_preview_dead_ends, build_trench_preview_dense, build_trench_preview_dense_clean,
     build_trench_preview_junctions, build_trench_preview_loop, build_trench_preview_single_masks,
-    build_trench_preview_sparse, build_variant_repeat_preview, generate_terrain_sprites,
-    validate_terrain_sprites, GeneratedTerrainSprite, TerrainSpriteBundleManifest,
-    TerrainSpriteKind, TerrainSpritePieceManifest, TerrainSpriteRecipe,
-    DEFAULT_SPRITEGEN_EXPORT_DIR,
+    build_trench_preview_sparse, build_variant_repeat_preview, generate_effective_terrain_sprites,
+    promote_generated_sprites_to_overrides, validate_terrain_sprites, GeneratedTerrainSprite,
+    TerrainSpriteBundleManifest, TerrainSpriteKind, TerrainSpritePieceManifest,
+    TerrainSpriteRecipe, DEFAULT_SPRITEGEN_EXPORT_DIR,
 };
 use crate::terrain_artkit::{
     TerrainArtKitFile, TerrainArtOcclusion, TerrainArtOrientationSupport, TerrainArtPiece,
@@ -38,6 +38,8 @@ pub struct TerrainSpriteExportSummary {
     pub out_dir: String,
     pub sprite_count: usize,
     pub validation_issue_count: usize,
+    pub overridden_count: usize,
+    pub override_issue_count: usize,
 }
 
 pub fn export_terrain_sprite_bundle(
@@ -46,10 +48,21 @@ pub fn export_terrain_sprite_bundle(
 ) -> Result<TerrainSpriteExportSummary> {
     let out_dir = out_dir.as_ref();
     fs::create_dir_all(out_dir.join("pieces"))?;
+    fs::create_dir_all(out_dir.join("generated_pieces"))?;
 
     let mut recipe = recipe.clone();
     recipe.sanitize();
-    let sprites = generate_terrain_sprites(&recipe);
+    let effective_bundle = generate_effective_terrain_sprites(&recipe);
+    let generated_sprites = effective_bundle.generated;
+    let sprites = effective_bundle.effective;
+    let override_report = effective_bundle.report;
+    for sprite in &generated_sprites {
+        sprite.image.save_png(
+            out_dir
+                .join("generated_pieces")
+                .join(format!("{}.png", sprite.id)),
+        )?;
+    }
     for sprite in &sprites {
         sprite
             .image
@@ -79,6 +92,7 @@ pub fn export_terrain_sprite_bundle(
                 id: sprite.id.clone(),
                 kind: sprite.kind,
                 role: sprite.metadata.role,
+                source: sprite.source,
                 file: format!("pieces/{}.png", sprite.id),
                 width_px: sprite.image.width,
                 height_px: sprite.image.height,
@@ -103,6 +117,14 @@ pub fn export_terrain_sprite_bundle(
     )?;
 
     build_sprite_contact_sheet(&sprites, &recipe).save_png(out_dir.join("contact_sheet.png"))?;
+    build_sprite_contact_sheet(&generated_sprites, &recipe)
+        .save_png(out_dir.join("generated_contact_sheet.png"))?;
+    build_sprite_contact_sheet(&sprites, &recipe)
+        .save_png(out_dir.join("effective_contact_sheet.png"))?;
+    build_override_contact_sheet(&generated_sprites, &sprites, &recipe)
+        .save_png(out_dir.join("override_contact_sheet.png"))?;
+    build_override_diff_sheet(&generated_sprites, &sprites, &recipe)
+        .save_png(out_dir.join("override_diff_sheet.png"))?;
     build_single_repeat_preview(&sprites, TerrainSpriteKind::GrassTile, &recipe, 5)
         .save_png(out_dir.join("repeat_preview_grass_single.png"))?;
     build_variant_repeat_preview(&sprites, TerrainSpriteKind::GrassTile, &recipe, 5)
@@ -192,6 +214,10 @@ pub fn export_terrain_sprite_bundle(
 
     let validation = validate_terrain_sprites(&sprites);
     fs::write(
+        out_dir.join("override_report.json"),
+        serde_json::to_string_pretty(&override_report)?,
+    )?;
+    fs::write(
         out_dir.join("trench_neighbor_pairs.json"),
         serde_json::to_string_pretty(&validation.trench.worst_trench_neighbor_pairs)?,
     )?;
@@ -203,7 +229,22 @@ pub fn export_terrain_sprite_bundle(
     Ok(TerrainSpriteExportSummary {
         out_dir: out_dir.to_string_lossy().to_string(),
         sprite_count: sprites.len(),
-        validation_issue_count: validation.issues.len(),
+        validation_issue_count: validation.issues.len() + override_report.issue_count(),
+        overridden_count: override_report.overridden_count,
+        override_issue_count: override_report.issue_count(),
+    })
+}
+
+pub fn promote_terrain_sprite_overrides(
+    profile_path: impl AsRef<Path>,
+) -> Result<TerrainSpriteExportSummary> {
+    let report = promote_generated_sprites_to_overrides(profile_path.as_ref())?;
+    Ok(TerrainSpriteExportSummary {
+        out_dir: report.override_dir.clone().unwrap_or_default(),
+        sprite_count: report.generated_count,
+        validation_issue_count: report.issue_count(),
+        overridden_count: report.overridden_count,
+        override_issue_count: report.issue_count(),
     })
 }
 

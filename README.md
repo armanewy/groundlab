@@ -4,20 +4,19 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: ArtGen 3.0b — berm visual polish
+## Current status: ArtGen 3.0c — art override / replacement workflow
 
 GroundLab's active visual work has pivoted away from the large editable scene renderer. The current
 focus is a dedicated, fast terrain sprite generator that produces simple, cozy, top-down pixel
 terrain primitives from swappable style profiles, palettes, motif libraries, and art rules. It does
 not require reference images.
 
-ArtGen 3.0b keeps grass/dirt/path generation as the top-surface foundation and preserves the
-polished connected trench topology from ArtGen 2.1b. It focuses the first raised-terrain kit on
-visual polish: the berm front face now uses an irregular mounded silhouette, darker grounded
-underside, stronger contact shadow, and better top/face integration before any berm topology is
-generated. The goal of this pass is not final berm art or full berm masks; it is to make raised
-earth pieces participate in the same high-oblique 2.5D sprite contract as trenches, with explicit
-sprite role, anchor, footprint, z-bias, occlusion intent, and projection metadata.
+ArtGen 3.0c keeps the grass/dirt/path, trench, and berm generators intact, but adds the production
+workflow that lets rough generated sprites be replaced one piece at a time. Each style profile can
+now point at an `overrides/` folder. If `overrides/{sprite_id}.png` exists and matches the generated
+sprite size, Forge uses that PNG as the effective sprite while preserving the generated metadata:
+sprite role, anchor, footprint, z-bias, occlusion intent, and projection data. If no override exists,
+the generated sprite remains active.
 
 The style profiles remain data-driven under `assets/sprite_styles/`. The current built-in profiles
 are:
@@ -26,11 +25,11 @@ are:
 - `cozy_upland_lush`
 - `cozy_upland_sparse`
 
-Each profile has a `style.ron` for palette/rule/projection tuning and a `motifs.ron` for tiny
-pixel-cluster motifs. The Forge app can switch profiles from a dropdown, and the CLI can export with
-an explicit profile path.
+Each profile has a `style.ron` for palette/rule/projection tuning, a `motifs.ron` for tiny
+pixel-cluster motifs, and an `overrides/` folder for optional replacement PNGs. The Forge app can
+switch profiles from a dropdown, and the CLI can export with an explicit profile path.
 
-ArtGen 3.0b generates:
+ArtGen 3.0c exports:
 
 - tileable grass variants
 - tileable dirt variants
@@ -56,6 +55,10 @@ ArtGen 3.0b generates:
 - palette previews
 - seam/noise validation reports
 - art-kit-compatible PNG pieces and `manifest.ron`
+- generated source PNGs in `generated_pieces/`
+- effective PNGs in `pieces/`
+- `generated_contact_sheet.png`, `effective_contact_sheet.png`, `override_contact_sheet.png`, and `override_diff_sheet.png`
+- `override_report.json` with per-sprite `Generated`, `Missing override`, `Overridden`, `Invalid size`, or `Load error` status
 
 Run the sprite workbench:
 
@@ -66,7 +69,13 @@ cargo run -p ground_sprite_app
 Export the sprite bundle:
 
 ```bash
-cargo run -p ground_sprite_cli -- export exports/artgen_03_0b assets/sprite_styles/cozy_upland/style.ron
+cargo run -p ground_sprite_cli -- export exports/artgen_03_0c assets/sprite_styles/cozy_upland/style.ron
+```
+
+Promote the current generated sprites into a profile's override folder as editable starting art:
+
+```bash
+cargo run -p ground_sprite_cli -- promote-overrides assets/sprite_styles/cozy_upland/style.ron
 ```
 
 The full-scene terrain renderer remains in the repository as downstream infrastructure for terrain

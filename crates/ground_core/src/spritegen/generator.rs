@@ -2,6 +2,7 @@ use crate::color::Rgba8;
 use crate::pixel_image::PixelImage;
 use crate::spritegen::{
     GeneratedTerrainSprite, TerrainMotif, TerrainSpriteKind, TerrainSpriteRecipe,
+    TerrainSpriteSource,
 };
 
 pub fn generate_terrain_sprites(recipe: &TerrainSpriteRecipe) -> Vec<GeneratedTerrainSprite> {
@@ -14,6 +15,7 @@ pub fn generate_terrain_sprites(recipe: &TerrainSpriteRecipe) -> Vec<GeneratedTe
             id: format!("grass_tile_{variant:02}"),
             kind: TerrainSpriteKind::GrassTile,
             variant,
+            source: TerrainSpriteSource::Generated,
             metadata: TerrainSpriteKind::GrassTile.default_piece_metadata(),
             image: generate_grass_tile(&recipe, variant),
         });
@@ -23,6 +25,7 @@ pub fn generate_terrain_sprites(recipe: &TerrainSpriteRecipe) -> Vec<GeneratedTe
             id: format!("dirt_tile_{variant:02}"),
             kind: TerrainSpriteKind::DirtTile,
             variant,
+            source: TerrainSpriteSource::Generated,
             metadata: TerrainSpriteKind::DirtTile.default_piece_metadata(),
             image: generate_dirt_tile(&recipe, variant),
         });
@@ -37,6 +40,7 @@ pub fn generate_terrain_sprites(recipe: &TerrainSpriteRecipe) -> Vec<GeneratedTe
             id: format!("{}_01", kind.id()),
             kind,
             variant: 1,
+            source: TerrainSpriteSource::Generated,
             metadata: kind.default_piece_metadata(),
             image: generate_transition_tile(&recipe, kind, 1),
         });
@@ -47,6 +51,7 @@ pub fn generate_terrain_sprites(recipe: &TerrainSpriteRecipe) -> Vec<GeneratedTe
             id: format!("path_mask_{mask:02}"),
             kind,
             variant: 1,
+            source: TerrainSpriteSource::Generated,
             metadata: kind.default_piece_metadata(),
             image: generate_path_mask_tile(&recipe, mask),
         });
@@ -60,6 +65,7 @@ pub fn generate_terrain_sprites(recipe: &TerrainSpriteRecipe) -> Vec<GeneratedTe
                 id: format!("{}_{variant:02}", kind.id()),
                 kind,
                 variant,
+                source: TerrainSpriteSource::Generated,
                 metadata: kind.default_piece_metadata(),
                 image: generate_trench_piece(&recipe, kind, variant),
             });
@@ -79,6 +85,7 @@ pub fn generate_terrain_sprites(recipe: &TerrainSpriteRecipe) -> Vec<GeneratedTe
             id: format!("{}_01", kind.id()),
             kind,
             variant: 1,
+            source: TerrainSpriteSource::Generated,
             metadata: kind.default_piece_metadata(),
             image: generate_trench_piece(&recipe, kind, 1),
         });
@@ -89,6 +96,7 @@ pub fn generate_terrain_sprites(recipe: &TerrainSpriteRecipe) -> Vec<GeneratedTe
                 id: format!("{}_{variant:02}", kind.id()),
                 kind,
                 variant,
+                source: TerrainSpriteSource::Generated,
                 metadata: kind.default_piece_metadata(),
                 image: generate_berm_piece(&recipe, kind, variant),
             });
@@ -109,6 +117,7 @@ pub fn generate_terrain_sprites(recipe: &TerrainSpriteRecipe) -> Vec<GeneratedTe
             id: format!("{}_01", kind.id()),
             kind,
             variant: 1,
+            source: TerrainSpriteSource::Generated,
             metadata: kind.default_piece_metadata(),
             image: generate_berm_piece(&recipe, kind, 1),
         });
@@ -119,6 +128,7 @@ pub fn generate_terrain_sprites(recipe: &TerrainSpriteRecipe) -> Vec<GeneratedTe
             id: format!("trench_mask_{mask:02}"),
             kind,
             variant: 1,
+            source: TerrainSpriteSource::Generated,
             metadata: kind.default_piece_metadata(),
             image: generate_trench_mask_tile(&recipe, mask),
         });

@@ -1,7 +1,7 @@
 use anyhow::{bail, Result};
 use ground_core::{
-    export_terrain_sprite_bundle, TerrainSpriteRecipe, DEFAULT_SPRITEGEN_EXPORT_DIR,
-    DEFAULT_SPRITE_STYLE_PATH,
+    export_terrain_sprite_bundle, promote_terrain_sprite_overrides, TerrainSpriteRecipe,
+    DEFAULT_SPRITEGEN_EXPORT_DIR, DEFAULT_SPRITE_STYLE_PATH,
 };
 
 fn main() -> Result<()> {
@@ -29,6 +29,24 @@ fn main() -> Result<()> {
                 "{} sprites, {} validation issue(s).",
                 summary.sprite_count, summary.validation_issue_count
             );
+            println!(
+                "{} override(s), {} override issue(s).",
+                summary.overridden_count, summary.override_issue_count
+            );
+        }
+        "promote-overrides" => {
+            let profile_path = args
+                .next()
+                .unwrap_or_else(|| DEFAULT_SPRITE_STYLE_PATH.to_string());
+            let summary = promote_terrain_sprite_overrides(&profile_path)?;
+            println!(
+                "Promoted {} generated sprites into overrides at {}.",
+                summary.sprite_count, summary.out_dir
+            );
+            println!(
+                "{} override(s), {} override issue(s).",
+                summary.overridden_count, summary.override_issue_count
+            );
         }
         "help" | "--help" | "-h" => print_help(),
         other => bail!("unknown command: {other}"),
@@ -42,4 +60,5 @@ fn print_help() {
     eprintln!();
     eprintln!("Usage:");
     eprintln!("  cargo run -p ground_sprite_cli -- export [out_dir] [style_profile]");
+    eprintln!("  cargo run -p ground_sprite_cli -- promote-overrides [style_profile]");
 }

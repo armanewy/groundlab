@@ -2,6 +2,7 @@ use crate::color::Rgba8;
 use crate::pixel_image::PixelImage;
 use crate::spritegen::{
     scale_nearest, GeneratedTerrainSprite, TerrainSpriteKind, TerrainSpriteRecipe,
+    TerrainSpriteSource,
 };
 
 pub fn build_sprite_contact_sheet(
@@ -9,34 +10,46 @@ pub fn build_sprite_contact_sheet(
     recipe: &TerrainSpriteRecipe,
 ) -> PixelImage {
     let scale = recipe.style.display_scale.max(1);
-    let preview_size = recipe.tile_size * scale;
+    let preview_w = sprites
+        .iter()
+        .map(|sprite| sprite.image.width)
+        .max()
+        .unwrap_or(recipe.tile_size)
+        * scale;
+    let preview_h = sprites
+        .iter()
+        .map(|sprite| sprite.image.height)
+        .max()
+        .unwrap_or(recipe.tile_size)
+        * scale;
     let columns = 6;
     let rows = (sprites.len() as u32).div_ceil(columns).max(1);
     let padding = 10;
-    let cell = preview_size + padding * 2;
+    let cell_w = preview_w + padding * 2;
+    let cell_h = preview_h + padding * 2;
     let mut sheet = PixelImage::new(
-        cell * columns + padding,
-        cell * rows + padding,
+        cell_w * columns + padding,
+        cell_h * rows + padding,
         Rgba8::opaque(13, 15, 17),
     );
 
     for (i, sprite) in sprites.iter().enumerate() {
         let col = i as u32 % columns;
         let row = i as u32 / columns;
-        let x = padding + col * cell;
-        let y = padding + row * cell;
+        let x = padding + col * cell_w;
+        let y = padding + row * cell_h;
         sheet.fill_rect(
             x,
             y,
-            cell - padding,
-            cell - padding,
+            cell_w - padding,
+            cell_h - padding,
             Rgba8::opaque(28, 31, 28),
         );
         sheet.outline_rect(
             x,
             y,
-            cell - padding,
-            cell - padding,
+            cell_w - padding,
+            cell_h - padding,
             Rgba8::opaque(55, 60, 54),
         );
         let scaled = scale_nearest(&sprite.image, scale);
@@ -44,6 +57,134 @@ pub fn build_sprite_contact_sheet(
     }
 
     sheet
+}
+
+pub fn build_override_contact_sheet(
+    generated: &[GeneratedTerrainSprite],
+    effective: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    build_override_sheet(
+        generated,
+        effective,
+        recipe,
+        OverrideSheetMode::OverridesOnly,
+    )
+}
+
+pub fn build_override_diff_sheet(
+    generated: &[GeneratedTerrainSprite],
+    effective: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    build_override_sheet(generated, effective, recipe, OverrideSheetMode::Diff)
+}
+
+fn build_override_sheet(
+    generated: &[GeneratedTerrainSprite],
+    effective: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+    mode: OverrideSheetMode,
+) -> PixelImage {
+    let scale = recipe.style.display_scale.max(1);
+    let preview_w = generated
+        .iter()
+        .chain(effective.iter())
+        .map(|sprite| sprite.image.width)
+        .max()
+        .unwrap_or(recipe.tile_size)
+        * scale;
+    let preview_h = generated
+        .iter()
+        .chain(effective.iter())
+        .map(|sprite| sprite.image.height)
+        .max()
+        .unwrap_or(recipe.tile_size)
+        * scale;
+    let columns = 6;
+    let rows = (generated.len() as u32).div_ceil(columns).max(1);
+    let padding = 10;
+    let cell_w = preview_w + padding * 2;
+    let cell_h = preview_h + padding * 2;
+    let mut sheet = PixelImage::new(
+        cell_w * columns + padding,
+        cell_h * rows + padding,
+        Rgba8::opaque(13, 15, 17),
+    );
+
+    for (i, generated_sprite) in generated.iter().enumerate() {
+        let col = i as u32 % columns;
+        let row = i as u32 / columns;
+        let x = padding + col * cell_w;
+        let y = padding + row * cell_h;
+        let effective_sprite = effective
+            .iter()
+            .find(|sprite| sprite.id == generated_sprite.id)
+            .unwrap_or(generated_sprite);
+        let is_override = effective_sprite.source == TerrainSpriteSource::Override;
+        let border = if is_override {
+            Rgba8::opaque(119, 152, 82)
+        } else {
+            Rgba8::opaque(55, 60, 54)
+        };
+        sheet.fill_rect(
+            x,
+            y,
+            cell_w - padding,
+            cell_h - padding,
+            Rgba8::opaque(28, 31, 28),
+        );
+        sheet.outline_rect(x, y, cell_w - padding, cell_h - padding, border);
+        match mode {
+            OverrideSheetMode::OverridesOnly if is_override => {
+                let scaled = scale_nearest(&effective_sprite.image, scale);
+                sheet.blit(&scaled, x + padding / 2, y + padding / 2);
+            }
+            OverrideSheetMode::OverridesOnly => {
+                let inset = padding / 2;
+                sheet.fill_rect(
+                    x + inset,
+                    y + inset,
+                    preview_w,
+                    preview_h,
+                    Rgba8::opaque(18, 20, 18),
+                );
+            }
+            OverrideSheetMode::Diff => {
+                let diff = sprite_diff_image(&generated_sprite.image, &effective_sprite.image);
+                let scaled = scale_nearest(&diff, scale);
+                sheet.blit(&scaled, x + padding / 2, y + padding / 2);
+            }
+        }
+    }
+
+    sheet
+}
+
+#[derive(Clone, Copy)]
+enum OverrideSheetMode {
+    OverridesOnly,
+    Diff,
+}
+
+fn sprite_diff_image(generated: &PixelImage, effective: &PixelImage) -> PixelImage {
+    let width = generated.width.min(effective.width);
+    let height = generated.height.min(effective.height);
+    let mut out = PixelImage::transparent(width, height);
+    for y in 0..height {
+        for x in 0..width {
+            let a = generated.get(x, y);
+            let b = effective.get(x, y);
+            let delta = a.rgb_distance(b).max((a.a as f32 - b.a as f32).abs());
+            if delta > 1.0 {
+                let value = delta.clamp(0.0, 255.0) as u8;
+                out.set(x, y, Rgba8::new(value, 80, 40, 255));
+            } else {
+                out.set(x, y, Rgba8::opaque(20, 22, 20));
+            }
+        }
+    }
+    out
 }
 
 pub fn build_repeat_preview(

@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::pixel_image::PixelImage;
 use crate::spritegen::{ObliqueProjectionProfile, TerrainMotifLibrary, TerrainSpriteStyle};
 
-pub const DEFAULT_SPRITEGEN_EXPORT_DIR: &str = "exports/artgen_03_0b";
+pub const DEFAULT_SPRITEGEN_EXPORT_DIR: &str = "exports/artgen_03_0c";
 pub const DEFAULT_SPRITE_STYLE_PATH: &str = "assets/sprite_styles/cozy_upland/style.ron";
 
 pub const BUILTIN_SPRITE_STYLE_PROFILES: [(&str, &str); 3] = [
@@ -29,6 +29,7 @@ pub struct TerrainSpriteRecipe {
     pub tile_size: u32,
     pub seed: u64,
     pub variant_count: u32,
+    pub override_dir: String,
     pub style: TerrainSpriteStyle,
     pub motifs: TerrainMotifLibrary,
 }
@@ -40,6 +41,7 @@ impl Default for TerrainSpriteRecipe {
             tile_size: 16,
             seed: 0x5eed_7101,
             variant_count: 4,
+            override_dir: String::new(),
             style: TerrainSpriteStyle::default(),
             motifs: TerrainMotifLibrary::default(),
         }
@@ -159,6 +161,7 @@ pub struct TerrainSpriteStyleProfile {
     pub tile_size: u32,
     pub seed: u64,
     pub variant_count: u32,
+    pub overrides: String,
     pub style: TerrainSpriteStyle,
     pub motifs: String,
 }
@@ -170,6 +173,7 @@ impl Default for TerrainSpriteStyleProfile {
             tile_size: 16,
             seed: 0x5eed_7101,
             variant_count: 4,
+            overrides: "overrides".to_string(),
             style: TerrainSpriteStyle::default(),
             motifs: "motifs.ron".to_string(),
         }
@@ -181,11 +185,15 @@ impl TerrainSpriteStyleProfile {
         let motif_path = resolve_profile_path(base_dir, &self.motifs);
         let motif_text = fs::read_to_string(motif_path)?;
         let motifs: TerrainMotifLibrary = ron::from_str(&motif_text)?;
+        let override_dir = resolve_profile_path(base_dir, &self.overrides)
+            .to_string_lossy()
+            .to_string();
         let mut recipe = TerrainSpriteRecipe {
             id: self.id,
             tile_size: self.tile_size,
             seed: self.seed,
             variant_count: self.variant_count,
+            override_dir,
             style: self.style,
             motifs,
         };
@@ -304,6 +312,7 @@ pub struct TerrainSpritePieceManifest {
     pub id: String,
     pub kind: TerrainSpriteKind,
     pub role: SpriteRole,
+    pub source: TerrainSpriteSource,
     pub file: String,
     pub width_px: u32,
     pub height_px: u32,
@@ -311,6 +320,21 @@ pub struct TerrainSpritePieceManifest {
     pub footprint_cells: (u32, u32),
     pub z_bias: i32,
     pub occludes: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TerrainSpriteSource {
+    Generated,
+    Override,
+}
+
+impl TerrainSpriteSource {
+    pub fn id(self) -> &'static str {
+        match self {
+            TerrainSpriteSource::Generated => "generated",
+            TerrainSpriteSource::Override => "override",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -888,6 +912,7 @@ pub struct GeneratedTerrainSprite {
     pub id: String,
     pub kind: TerrainSpriteKind,
     pub variant: u32,
+    pub source: TerrainSpriteSource,
     pub metadata: SpritePieceMetadata,
     pub image: PixelImage,
 }
