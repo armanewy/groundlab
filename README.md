@@ -4,7 +4,7 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: GamePivot 5.1 — assault readability and debrief
+## Current status: GamePivot 6 — rolling hazard sandbox
 
 GroundLab has pivoted from art-generation milestones back toward the game workbench. The primary
 product direction is now a 2.5D tactical engineering defense game: the player is a commander /
@@ -15,7 +15,7 @@ SpriteGen remains in the repository as the terrain art forge. It still provides 
 profiles, override PNGs, sprite manifests, validation, and exportable grass/dirt/path/trench/berm/
 stone pieces. It is now supporting infrastructure rather than the main roadmap driver.
 
-GamePivot 5.1 builds on the `ground_game` crate with:
+GamePivot 6 builds on the `ground_game` crate with:
 
 - `MissionSpec`, `MissionMap`, and `MissionCell`
 - earth states such as normal, scraped, trench, deep trench, spoil pile, berm, unstable, and muddy
@@ -33,13 +33,17 @@ GamePivot 5.1 builds on the `ground_game` crate with:
 - basic defender positions that apply range/line-of-sight pressure
 - terrain and obstacle effects for trenches, berms, mud, unstable ground, stakes, wire, and logs
 - typed assault timeline events with cause, magnitude, and human-readable explanation
+- rolling-log hazard states, preparation work orders, deterministic release timing, and predicted hazard paths
+- slope/direction-based rolling path prediction over discrete height cells
+- typed rolling hazard timeline events for release, movement, enemy hits, obstacle destruction, blocking, and spent hazards
+- rolling hazard summaries in the assault debrief
 - assault summary and debrief exports for debugging why the plan worked or failed
 - per-cell influence summaries for crossed cells, delayed cells, damaging cells, defender pressure, breach cells, effective obstacles, and unused defenses
 - prediction-vs-actual route comparison for doctrine preview accuracy
 - assault delay, pressure, and prediction-vs-actual PNG exports
 - a seed mission, `The Road Below`, with a small road/ridge/tree terrain problem
 - CLI export of mission spec, order script, before/after mission state, work log, material ledger, validation, route previews, route delta, ASCII maps, PNG mission previews, and a summary
-- a `Mission Lab` tab in `ground_app` beside the older terrain forge controls, now organized as a tactical prep screen with mission status, order mode toolbar, selected-cell context actions, work-order queue, route overlay controls, assault controls, debrief panel, delay/pressure/actual map modes, enemy intel, objective panel, minimap, notifications, material ledger, and validation feedback
+- a `Mission Lab` tab in `ground_app` beside the older terrain forge controls, now organized as a tactical prep screen with mission status, order mode toolbar, selected-cell context actions, work-order queue, route overlay controls, assault controls, debrief panel, delay/pressure/actual/hazard map modes, enemy intel, objective panel, minimap, notifications, material ledger, and validation feedback
 
 Run the sprite workbench:
 
@@ -77,6 +81,12 @@ Run the deterministic GamePivot 5.1 assault readability export:
 cargo run -p ground_cli -- mission-assault exports/gamepivot_05_1
 ```
 
+Run the deterministic GamePivot 6 rolling hazard sandbox:
+
+```bash
+cargo run -p ground_cli -- mission-hazards exports/gamepivot_06
+```
+
 Run the mission workbench:
 
 ```bash
@@ -86,6 +96,12 @@ cargo run -p ground_app
 The full-scene terrain renderer and ArtGen outputs remain downstream infrastructure for terrain
 data, pathing, LOS, and future art-kit composition, but the active gameplay roadmap now starts with
 mission prep, work orders, local materials, and predictable terrain consequences.
+
+## Previous status: GamePivot 5.1 — assault readability and debrief
+
+GamePivot 5.1 added typed assault event causes and magnitudes, `AssaultDebrief`, influence
+summaries, unused-defense reporting, prediction-vs-actual route accuracy, delay/pressure heatmaps,
+actual path traces, and Mission Lab delay/pressure/actual map modes.
 
 ## Previous status: GamePivot 5 — assault sandbox
 

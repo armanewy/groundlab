@@ -11,7 +11,7 @@ use ground_core::{
 };
 use ground_game::{
     export_road_below_seed, road_below_seed_orders, AssaultEventKind, CellCoord, CoverClass,
-    EarthState, EnemyAgentStatus, EnvironmentObject, EnvironmentObjectKind, GroundKind,
+    EarthState, EnemyAgentStatus, EnvironmentObject, EnvironmentObjectKind, GroundKind, LogState,
     MissionState, TreeState, WorkOrderKind, WorkTarget, DEFAULT_MISSION_EXPORT_DIR,
 };
 
@@ -139,10 +139,11 @@ enum MissionMapMode {
     Delay,
     Pressure,
     Actual,
+    Hazards,
 }
 
 impl MissionMapMode {
-    const ALL: [MissionMapMode; 7] = [
+    const ALL: [MissionMapMode; 8] = [
         MissionMapMode::Terrain,
         MissionMapMode::Height,
         MissionMapMode::Cover,
@@ -150,6 +151,7 @@ impl MissionMapMode {
         MissionMapMode::Delay,
         MissionMapMode::Pressure,
         MissionMapMode::Actual,
+        MissionMapMode::Hazards,
     ];
 
     fn label(self) -> &'static str {
@@ -161,6 +163,7 @@ impl MissionMapMode {
             MissionMapMode::Delay => "delay",
             MissionMapMode::Pressure => "pressure",
             MissionMapMode::Actual => "actual",
+            MissionMapMode::Hazards => "hazards",
         }
     }
 }
@@ -542,6 +545,10 @@ impl GroundLabApp {
                 let summary = self.mission_state.run_assault_to_completion(160);
                 self.notify(summary.outcome_label);
             }
+            if ui.button("Release logs").clicked() {
+                let count = self.mission_state.release_prepared_rolling_hazards();
+                self.notify(format!("Scheduled {count} prepared rolling log(s)."));
+            }
             if ui.button("Reset to prep").clicked() {
                 self.mission_state.reset_assault();
                 self.notify("Assault reset. Prep state remains intact.");
@@ -613,6 +620,12 @@ impl GroundLabApp {
                     "Prediction accuracy: {:.0}% · divergence cells {}",
                     debrief.route_prediction_accuracy.average_accuracy * 100.0,
                     debrief.route_prediction_accuracy.total_divergence_cells
+                ));
+                ui.small(format!(
+                    "Rolling hazards: {} released · {} enemy hit(s) · {} obstacle(s) destroyed",
+                    debrief.rolling_hazards.released_count,
+                    debrief.rolling_hazards.enemies_hit,
+                    debrief.rolling_hazards.obstacles_destroyed
                 ));
                 if let Some(unused) = debrief.influence.unused_defenses.first() {
                     ui.small(format!("Unused defense: {unused}"));
@@ -912,7 +925,7 @@ impl GroundLabApp {
     }
 
     fn show_object_order_buttons(&mut self, ui: &mut egui::Ui, object: &EnvironmentObject) {
-        match object.kind {
+        match &object.kind {
             EnvironmentObjectKind::Tree(TreeState::Standing)
             | EnvironmentObjectKind::Tree(TreeState::PartiallyCut { .. }) => {
                 if matches!(
@@ -950,9 +963,51 @@ impl GroundLabApp {
                         WorkOrderKind::CutIntoLogs,
                         WorkTarget::Object(object.id.clone()),
                     );
+                    if ui.button("Prepare roll").clicked() {
+                        self.queue_mission_order(
+                            WorkOrderKind::PrepareRollingLog,
+                            WorkTarget::Object(object.id.clone()),
+                        );
+                    }
+                    self.show_order_preview_card(
+                        ui,
+                        WorkOrderKind::PrepareRollingLog,
+                        WorkTarget::Object(object.id.clone()),
+                    );
                 } else {
                     ui.label("Switch to Harvest to process this trunk.");
                 }
+            }
+            EnvironmentObjectKind::Log(
+                LogState::Loose { .. }
+                | LogState::DragPrepared { .. }
+                | LogState::Positioned { .. }
+                | LogState::Braced { .. },
+            ) => {
+                if matches!(
+                    self.mission_action_mode,
+                    MissionActionMode::Inspect | MissionActionMode::Deploy
+                ) {
+                    if ui.button("Prepare roll").clicked() {
+                        self.queue_mission_order(
+                            WorkOrderKind::PrepareRollingLog,
+                            WorkTarget::Object(object.id.clone()),
+                        );
+                    }
+                    self.show_order_preview_card(
+                        ui,
+                        WorkOrderKind::PrepareRollingLog,
+                        WorkTarget::Object(object.id.clone()),
+                    );
+                } else {
+                    ui.label("Switch to Deploy to prepare this log as a rolling hazard.");
+                }
+            }
+            EnvironmentObjectKind::Log(LogState::PreparedRoll { predicted_path, .. }) => {
+                ui.label(format!(
+                    "Prepared rolling hazard · predicted path {} cell(s). Use Hazards map mode or Release logs during assault.",
+                    predicted_path.len()
+                ));
             }
             _ => {
                 ui.label("No context work orders for this object yet.");
@@ -1730,7 +1785,7 @@ impl GroundLabApp {
 
         ui.add_space(8.0);
         ui.label(
-            "Blue route = initial plan. Gold/red route = current terrain. Delay/pressure/actual map modes use assault timeline data.",
+            "Blue route = initial plan. Gold/red route = current terrain. Hazards show predicted rolling-log paths; delay/pressure/actual modes use assault timeline data.",
         );
     }
 
@@ -1896,7 +1951,8 @@ impl GroundLabApp {
             MissionMapMode::Terrain
             | MissionMapMode::Height
             | MissionMapMode::Cover
-            | MissionMapMode::Resources => None,
+            | MissionMapMode::Resources
+            | MissionMapMode::Hazards => None,
         }
     }
 
@@ -1966,6 +2022,39 @@ impl GroundLabApp {
                 0.0,
                 egui::Color32::from_rgb(90, 172, 226),
             );
+        }
+        if self.mission_map_mode == MissionMapMode::Hazards {
+            let hazards = self.mission_state.rolling_hazard_plans();
+            for hazard in hazards {
+                for window in hazard.path.windows(2) {
+                    let a = mission_route_point(rect, cell_size, window[0].cell);
+                    let b = mission_route_point(rect, cell_size, window[1].cell);
+                    painter.line_segment(
+                        [a, b],
+                        egui::Stroke::new(
+                            5.0,
+                            egui::Color32::from_rgba_unmultiplied(236, 170, 64, 180),
+                        ),
+                    );
+                }
+                if let Some(first) = hazard.path.first() {
+                    painter.rect_filled(
+                        egui::Rect::from_center_size(
+                            mission_route_point(rect, cell_size, first.cell),
+                            egui::vec2(12.0, 12.0),
+                        ),
+                        0.0,
+                        egui::Color32::from_rgb(118, 72, 38),
+                    );
+                }
+                if let Some(last) = hazard.path.last() {
+                    painter.circle_filled(
+                        mission_route_point(rect, cell_size, last.cell),
+                        7.0,
+                        egui::Color32::from_rgba_unmultiplied(238, 82, 64, 210),
+                    );
+                }
+            }
         }
         let Some(assault) = &self.mission_state.assault else {
             return;
@@ -2049,7 +2138,8 @@ fn mission_cell_color(cell: &ground_game::MissionCell, mode: MissionMapMode) -> 
         MissionMapMode::Terrain
         | MissionMapMode::Delay
         | MissionMapMode::Pressure
-        | MissionMapMode::Actual => match cell.earth_state {
+        | MissionMapMode::Actual
+        | MissionMapMode::Hazards => match cell.earth_state {
             EarthState::Trench | EarthState::DeepTrench => egui::Color32::from_rgb(42, 31, 24),
             EarthState::Berm | EarthState::SpoilPile => egui::Color32::from_rgb(122, 88, 50),
             EarthState::Scraped | EarthState::Ditch => egui::Color32::from_rgb(110, 84, 55),
@@ -2136,6 +2226,11 @@ fn mission_object_state_label(object: &EnvironmentObject) -> &'static str {
         EnvironmentObjectKind::Tree(TreeState::CutLogs) => "cut logs",
         EnvironmentObjectKind::Tree(TreeState::StakesBundle) => "stakes bundle",
         EnvironmentObjectKind::Tree(TreeState::Stump) => "stump",
+        EnvironmentObjectKind::Log(LogState::PreparedRoll { .. }) => "prepared rolling log",
+        EnvironmentObjectKind::Log(LogState::Released { .. } | LogState::Rolling { .. }) => {
+            "released rolling log"
+        }
+        EnvironmentObjectKind::Log(LogState::Spent { .. }) => "spent rolling log",
         EnvironmentObjectKind::Log(_) => "log",
         EnvironmentObjectKind::Rock(_) => "rock",
         EnvironmentObjectKind::Wall(_) => "wall",

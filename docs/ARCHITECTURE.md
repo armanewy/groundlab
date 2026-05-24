@@ -6,7 +6,7 @@ for one future game family: terrain-first prepared-ground defense.
 The active roadmap has pivoted to a mission-first workbench. SpriteGen remains the terrain art
 forge, while `ground_game` owns mission specs, prep-phase work orders, local materials,
 environment-object states, doctrine route preview, deterministic assault sandbox, and assault
-readability/debrief artifacts.
+readability/debrief artifacts, and the first deterministic rolling hazard sandbox.
 `ground_app` now treats Mission Lab as the primary tactical prep surface rather than a generic
 terrain editor panel.
 
@@ -19,6 +19,7 @@ terrain editor panel.
 - Local material stock and side-effect tracking
 - Doctrine-specific enemy route preview
 - Deterministic assault agents, typed timeline, debrief summary, and influence heatmaps
+- Deterministic rolling-log hazard path prediction, release, impact, and debrief reporting
 - Terrain editing brushes
 - Pixel tile recipes
 - Palette ramps and palette file format
@@ -64,6 +65,7 @@ MissionSpec
   -> LOS / cover consequences
   -> assault sandbox timeline
   -> typed event causes + magnitudes
+  -> deterministic rolling hazard events
   -> debrief summary + influence heatmaps
   -> prediction-vs-actual route comparison
 ```
@@ -99,6 +101,7 @@ Custom gameplay systems:
 - assault movement is deterministic route-following over prepared terrain
 - defender pressure is a deterministic range/line-of-sight query
 - assault readability is derived from typed timeline events instead of hidden simulation state
+- rolling logs are custom rule-driven hazards that follow predicted height/direction paths
 - line of sight is sampled over terrain height and sight blockers
 - cover is a simple semantic category on cells
 
@@ -111,9 +114,9 @@ Visual/software-rendered systems:
 - height and slope are shown as overlays
 - 2.5D terrain is previewed by lifting cell tops and drawing generated exposed-face art
 
-Future physics/hazard systems:
+Hazard systems:
 
-- rolling logs should start as a custom height-gradient simulation
+- rolling logs start as custom deterministic height/direction path simulation
 - raw rigid-body physics should only be added where spectacle improves the game
 
 ## 2.5D terrain rendering policy

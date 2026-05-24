@@ -385,9 +385,32 @@ pub enum TreeState {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum LogState {
-    Loose { direction: Direction },
-    DragPrepared { direction: Direction },
-    Rolling { direction: Direction },
+    Loose {
+        direction: Direction,
+    },
+    DragPrepared {
+        direction: Direction,
+    },
+    Positioned {
+        direction: Direction,
+    },
+    Braced {
+        direction: Direction,
+    },
+    PreparedRoll {
+        direction: Direction,
+        release_cell: CellCoord,
+        predicted_path: Vec<CellCoord>,
+    },
+    Released {
+        direction: Direction,
+    },
+    Rolling {
+        direction: Direction,
+    },
+    Spent {
+        direction: Direction,
+    },
     Piled,
 }
 
@@ -454,6 +477,26 @@ impl ToolLoadout {
 
     pub fn has_all(&self, tools: &[ToolKind]) -> bool {
         tools.iter().all(|tool| self.has(*tool))
+    }
+}
+
+impl Direction {
+    pub fn delta(self) -> (i32, i32) {
+        match self {
+            Direction::North => (0, -1),
+            Direction::East => (1, 0),
+            Direction::South => (0, 1),
+            Direction::West => (-1, 0),
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Direction::North => "north",
+            Direction::East => "east",
+            Direction::South => "south",
+            Direction::West => "west",
+        }
     }
 }
 
@@ -588,6 +631,7 @@ pub struct AssaultState {
     pub objective_health: i32,
     pub initial_routes: DoctrineRouteSet,
     pub agents: Vec<EnemyAgent>,
+    pub rolling_hazards: Vec<RollingHazardState>,
     pub timeline: Vec<AssaultTimelineEvent>,
     pub summary: Option<AssaultSummary>,
 }
@@ -633,6 +677,48 @@ pub enum EnemyAgentStatus {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RollingHazardState {
+    pub object_id: String,
+    pub label: String,
+    pub direction: Direction,
+    pub release_tick: u32,
+    pub path: Vec<RollingHazardStep>,
+    pub status: RollingHazardStatus,
+    pub path_index: usize,
+    pub enemies_hit: u32,
+    pub obstacles_destroyed: u32,
+    pub spent_reason: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RollingHazardStep {
+    pub cell: CellCoord,
+    pub height_delta: i8,
+    pub energy: i32,
+    pub blocked_reason: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RollingHazardStatus {
+    Prepared,
+    Released,
+    Spent,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct RollingHazardImpactSummary {
+    pub prepared_count: u32,
+    pub released_count: u32,
+    pub spent_count: u32,
+    pub enemies_hit: u32,
+    pub enemies_eliminated: u32,
+    pub obstacles_destroyed: u32,
+    pub friendly_risk_cells: Vec<CellCoord>,
+    pub best_hazard_cell: Option<CellInfluence>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AssaultTimelineEvent {
     pub tick: u32,
     pub agent_id: Option<u32>,
@@ -650,6 +736,12 @@ pub enum AssaultEventKind {
     Spawned,
     Moved,
     Rerouted,
+    RollingHazardReleased,
+    RollingHazardMoved,
+    RollingHazardHitEnemy,
+    RollingHazardDestroyedObstacle,
+    RollingHazardBlocked,
+    RollingHazardSpent,
     DelayedByTerrain,
     DelayedByObstacle,
     SuppressedByDefender,
@@ -669,6 +761,7 @@ pub enum AssaultEventCause {
     Obstacle,
     Defender,
     Objective,
+    RollingHazard,
 }
 
 impl AssaultEventCause {
@@ -681,6 +774,7 @@ impl AssaultEventCause {
             AssaultEventCause::Obstacle => "obstacle",
             AssaultEventCause::Defender => "defender",
             AssaultEventCause::Objective => "objective",
+            AssaultEventCause::RollingHazard => "rolling hazard",
         }
     }
 }
@@ -704,6 +798,7 @@ pub struct AssaultDebrief {
     pub outcome_label: String,
     pub summary: AssaultSummary,
     pub influence: AssaultInfluenceSummary,
+    pub rolling_hazards: RollingHazardImpactSummary,
     pub route_prediction_accuracy: RoutePredictionAccuracyReport,
     pub notes: Vec<String>,
 }
@@ -1134,6 +1229,7 @@ impl MissionState {
 
     pub fn start_assault(&mut self) {
         let routes = self.route_preview();
+        let rolling_hazards = planned_rolling_hazards_for_map(&self.map, 6);
         let mut agents = Vec::new();
         let mut agent_id = 1;
         for group in &self.spec.enemy_groups {
@@ -1195,6 +1291,7 @@ impl MissionState {
             objective_health: self.spec.objective.objective_health as i32,
             initial_routes: routes,
             agents,
+            rolling_hazards,
             timeline,
             summary: None,
         });
@@ -1241,6 +1338,15 @@ impl MissionState {
                 ));
             }
         }
+
+        process_rolling_hazards(
+            &mut self.map,
+            &self.spec,
+            assault.tick,
+            &mut assault.agents,
+            &mut assault.rolling_hazards,
+            &mut events,
+        );
 
         let active_agents = assault
             .agents
@@ -1333,6 +1439,28 @@ impl MissionState {
     pub fn assault_debrief(&self) -> Option<AssaultDebrief> {
         build_assault_debrief(self)
     }
+
+    pub fn rolling_hazard_plans(&self) -> Vec<RollingHazardState> {
+        planned_rolling_hazards_for_map(&self.map, 6)
+    }
+
+    pub fn release_prepared_rolling_hazards(&mut self) -> usize {
+        if self.assault.is_none() {
+            self.start_assault();
+        }
+        let Some(assault) = &mut self.assault else {
+            return 0;
+        };
+        let release_tick = assault.tick + 1;
+        let mut count = 0;
+        for hazard in &mut assault.rolling_hazards {
+            if hazard.status == RollingHazardStatus::Prepared {
+                hazard.release_tick = release_tick;
+                count += 1;
+            }
+        }
+        count
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1384,6 +1512,7 @@ pub enum WorkOrderKind {
     FellTree,
     CutIntoLogs,
     PlaceStakes,
+    PrepareRollingLog,
 }
 
 impl WorkOrderKind {
@@ -1395,6 +1524,7 @@ impl WorkOrderKind {
             WorkOrderKind::FellTree => "fell tree",
             WorkOrderKind::CutIntoLogs => "cut into logs",
             WorkOrderKind::PlaceStakes => "place stakes",
+            WorkOrderKind::PrepareRollingLog => "prepare rolling log",
         }
     }
 
@@ -1406,6 +1536,7 @@ impl WorkOrderKind {
             WorkOrderKind::FellTree => 2,
             WorkOrderKind::CutIntoLogs => 1,
             WorkOrderKind::PlaceStakes => 1,
+            WorkOrderKind::PrepareRollingLog => 2,
         }
     }
 }
@@ -1518,6 +1649,19 @@ pub fn road_below_spec() -> MissionSpec {
         blocks_sight: false,
         cover: CoverClass::Light,
         movement_cost_delta: 0.3,
+    });
+
+    map.objects.push(EnvironmentObject {
+        id: "ridge_log_01".to_string(),
+        label: "ridge rolling log".to_string(),
+        kind: EnvironmentObjectKind::Log(LogState::Loose {
+            direction: Direction::South,
+        }),
+        cell: CellCoord::new(7, 3),
+        footprint: (2, 1),
+        blocks_sight: false,
+        cover: CoverClass::Light,
+        movement_cost_delta: 0.8,
     });
 
     MissionSpec {
@@ -1637,6 +1781,22 @@ pub fn road_below_basic_prep_script() -> WorkOrderScript {
             .into_iter()
             .map(|(kind, target)| ScriptedWorkOrder { kind, target })
             .collect(),
+    }
+}
+
+pub fn road_below_hazard_prep_script() -> WorkOrderScript {
+    let mut orders = road_below_seed_orders()
+        .into_iter()
+        .map(|(kind, target)| ScriptedWorkOrder { kind, target })
+        .collect::<Vec<_>>();
+    orders.push(ScriptedWorkOrder {
+        kind: WorkOrderKind::PrepareRollingLog,
+        target: WorkTarget::Object("ridge_log_01".to_string()),
+    });
+    WorkOrderScript {
+        id: "road_below_hazard_prep".to_string(),
+        label: "Road Below rolling hazard prep".to_string(),
+        orders,
     }
 }
 
@@ -1884,6 +2044,70 @@ pub fn export_assault_run(
     write_json(out_dir.join("assault_summary.json"), &summary)?;
     if let Some(debrief) = prep.assault_debrief() {
         write_json(out_dir.join("assault_debrief.json"), &debrief)?;
+        write_json(
+            out_dir.join("route_prediction_accuracy.json"),
+            &debrief.route_prediction_accuracy,
+        )?;
+        save_assault_delay_heatmap_png(out_dir.join("assault_delay_heatmap.png"), &prep)?;
+        save_assault_pressure_heatmap_png(out_dir.join("assault_pressure_heatmap.png"), &prep)?;
+        save_assault_prediction_vs_actual_png(
+            out_dir.join("assault_prediction_vs_actual.png"),
+            &prep,
+        )?;
+    }
+    save_mission_assault_preview_png(out_dir.join("assault_preview_end.png"), &prep)?;
+    Ok(summary)
+}
+
+pub fn export_hazard_sandbox_run(
+    out_dir: impl AsRef<Path>,
+    spec: MissionSpec,
+    script: WorkOrderScript,
+) -> Result<AssaultSummary> {
+    let out_dir = out_dir.as_ref();
+    fs::create_dir_all(out_dir)
+        .with_context(|| format!("failed to create {}", out_dir.display()))?;
+
+    let mut prep = run_work_order_script(spec.clone(), &script);
+    let assault_initial_routes = prep.route_preview();
+    let rolling_hazards = prep.rolling_hazard_plans();
+
+    write_json(out_dir.join("mission_spec.json"), &spec)?;
+    write_ron(out_dir.join("mission_spec.ron"), &spec)?;
+    write_json(out_dir.join("order_script.json"), &script)?;
+    write_ron(out_dir.join("order_script.ron"), &script)?;
+    write_json(out_dir.join("mission_prep_final.json"), &prep)?;
+    write_json(out_dir.join("rolling_hazards.json"), &rolling_hazards)?;
+    write_json(
+        out_dir.join("assault_initial_routes.json"),
+        &assault_initial_routes,
+    )?;
+    save_rolling_hazard_preview_png(out_dir.join("rolling_hazard_preview.png"), &prep)?;
+    save_rolling_hazard_preview_png(out_dir.join("rolling_hazard_path_debug.png"), &prep)?;
+    save_mission_route_debug_png(
+        out_dir.join("assault_path_trace.png"),
+        &prep,
+        &assault_initial_routes,
+    )?;
+
+    prep.start_assault();
+    save_mission_assault_preview_png(out_dir.join("assault_preview_start.png"), &prep)?;
+    let summary = prep.run_assault_to_completion(160);
+    if let Some(assault) = &prep.assault {
+        write_json(
+            out_dir.join("rolling_hazards_final.json"),
+            &assault.rolling_hazards,
+        )?;
+        write_json(out_dir.join("assault_state_final.json"), assault)?;
+        write_json(out_dir.join("assault_timeline.json"), &assault.timeline)?;
+    }
+    write_json(out_dir.join("assault_summary.json"), &summary)?;
+    if let Some(debrief) = prep.assault_debrief() {
+        write_json(out_dir.join("assault_debrief.json"), &debrief)?;
+        write_json(
+            out_dir.join("assault_hazard_summary.json"),
+            &debrief.rolling_hazards,
+        )?;
         write_json(
             out_dir.join("route_prediction_accuracy.json"),
             &debrief.route_prediction_accuracy,
@@ -2209,6 +2433,197 @@ fn reconstruct_route(
     }
     out.reverse();
     out
+}
+
+fn process_rolling_hazards(
+    map: &mut MissionMap,
+    spec: &MissionSpec,
+    tick: u32,
+    agents: &mut [EnemyAgent],
+    hazards: &mut [RollingHazardState],
+    events: &mut Vec<AssaultTimelineEvent>,
+) {
+    for hazard in hazards {
+        if hazard.status != RollingHazardStatus::Prepared || tick < hazard.release_tick {
+            continue;
+        }
+        hazard.status = RollingHazardStatus::Released;
+        let Some(first) = hazard.path.first().cloned() else {
+            hazard.status = RollingHazardStatus::Spent;
+            hazard.spent_reason = Some("no predicted path".to_string());
+            continue;
+        };
+        events.push(AssaultTimelineEvent {
+            tick,
+            agent_id: None,
+            group_label: Some(hazard.label.clone()),
+            cell: Some(first.cell),
+            kind: AssaultEventKind::RollingHazardReleased,
+            cause: AssaultEventCause::RollingHazard,
+            magnitude: hazard.path.len() as i32,
+            note: format!(
+                "{} released {} from ({}, {}) toward {}.",
+                hazard.label,
+                hazard.object_id,
+                first.cell.x,
+                first.cell.y,
+                hazard.direction.label()
+            ),
+        });
+
+        let mut spent_cell = first.cell;
+        for (index, step) in hazard.path.iter().enumerate().skip(1) {
+            hazard.path_index = index;
+            spent_cell = step.cell;
+            events.push(AssaultTimelineEvent {
+                tick,
+                agent_id: None,
+                group_label: Some(hazard.label.clone()),
+                cell: Some(step.cell),
+                kind: AssaultEventKind::RollingHazardMoved,
+                cause: AssaultEventCause::RollingHazard,
+                magnitude: step.energy,
+                note: format!(
+                    "{} rolled through ({}, {}) with energy {}.",
+                    hazard.label, step.cell.x, step.cell.y, step.energy
+                ),
+            });
+
+            for agent in agents.iter_mut().filter(|agent| {
+                agent.cell == step.cell
+                    && matches!(
+                        agent.status,
+                        EnemyAgentStatus::Advancing | EnemyAgentStatus::Delayed
+                    )
+            }) {
+                let damage = 3 + (step.energy / 4).max(0);
+                agent.hp -= damage;
+                agent.delay_ticks = agent.delay_ticks.max(1);
+                if agent.hp > 0 {
+                    agent.status = EnemyAgentStatus::Delayed;
+                }
+                hazard.enemies_hit += 1;
+                events.push(assault_event(
+                    tick,
+                    Some(agent),
+                    Some(step.cell),
+                    AssaultEventKind::RollingHazardHitEnemy,
+                    AssaultEventCause::RollingHazard,
+                    damage,
+                    format!(
+                        "{} hit {} for {damage} damage at ({}, {}).",
+                        hazard.label, agent.group_label, step.cell.x, step.cell.y
+                    ),
+                ));
+                if agent.hp <= 0 {
+                    agent.status = EnemyAgentStatus::Eliminated;
+                    events.push(assault_event(
+                        tick,
+                        Some(agent),
+                        Some(step.cell),
+                        AssaultEventKind::Eliminated,
+                        AssaultEventCause::RollingHazard,
+                        1,
+                        format!("{} was stopped by {}.", agent.group_label, hazard.label),
+                    ));
+                }
+            }
+
+            let mut destroyed = Vec::new();
+            for object in map.objects.iter_mut().filter(|object| {
+                object.cell == step.cell
+                    && object.id != hazard.object_id
+                    && matches!(
+                        object.kind,
+                        EnvironmentObjectKind::Stakes(ObstacleState::Placed)
+                            | EnvironmentObjectKind::Wire(ObstacleState::Placed)
+                    )
+            }) {
+                match object.kind {
+                    EnvironmentObjectKind::Stakes(_) => {
+                        object.kind = EnvironmentObjectKind::Stakes(ObstacleState::Cleared)
+                    }
+                    EnvironmentObjectKind::Wire(_) => {
+                        object.kind = EnvironmentObjectKind::Wire(ObstacleState::Cleared)
+                    }
+                    _ => {}
+                }
+                object.movement_cost_delta = 0.0;
+                destroyed.push(object.label.clone());
+            }
+            for label in destroyed {
+                hazard.obstacles_destroyed += 1;
+                events.push(AssaultTimelineEvent {
+                    tick,
+                    agent_id: None,
+                    group_label: Some(hazard.label.clone()),
+                    cell: Some(step.cell),
+                    kind: AssaultEventKind::RollingHazardDestroyedObstacle,
+                    cause: AssaultEventCause::RollingHazard,
+                    magnitude: 1,
+                    note: format!(
+                        "{} destroyed {label} at ({}, {}).",
+                        hazard.label, step.cell.x, step.cell.y
+                    ),
+                });
+            }
+
+            if step.cell == spec.objective.defend_cell {
+                events.push(AssaultTimelineEvent {
+                    tick,
+                    agent_id: None,
+                    group_label: Some(hazard.label.clone()),
+                    cell: Some(step.cell),
+                    kind: AssaultEventKind::RollingHazardBlocked,
+                    cause: AssaultEventCause::RollingHazard,
+                    magnitude: 1,
+                    note: format!("{} crossed the defended objective cell.", hazard.label),
+                });
+            }
+
+            if let Some(reason) = &step.blocked_reason {
+                hazard.spent_reason = Some(reason.clone());
+                events.push(AssaultTimelineEvent {
+                    tick,
+                    agent_id: None,
+                    group_label: Some(hazard.label.clone()),
+                    cell: Some(step.cell),
+                    kind: AssaultEventKind::RollingHazardBlocked,
+                    cause: AssaultEventCause::RollingHazard,
+                    magnitude: step.energy,
+                    note: format!("{} was blocked by {reason}.", hazard.label),
+                });
+                break;
+            }
+        }
+
+        hazard.status = RollingHazardStatus::Spent;
+        let reason = hazard
+            .spent_reason
+            .clone()
+            .unwrap_or_else(|| "ran out of safe path".to_string());
+        events.push(AssaultTimelineEvent {
+            tick,
+            agent_id: None,
+            group_label: Some(hazard.label.clone()),
+            cell: Some(spent_cell),
+            kind: AssaultEventKind::RollingHazardSpent,
+            cause: AssaultEventCause::RollingHazard,
+            magnitude: hazard.enemies_hit as i32,
+            note: format!(
+                "{} spent at ({}, {}) after hitting {} enemy agent(s): {reason}.",
+                hazard.label, spent_cell.x, spent_cell.y, hazard.enemies_hit
+            ),
+        });
+
+        if let Some(object) = map.object_at_mut(&hazard.object_id) {
+            object.kind = EnvironmentObjectKind::Log(LogState::Spent {
+                direction: hazard.direction,
+            });
+            object.cell = spent_cell;
+            object.movement_cost_delta = 0.6;
+        }
+    }
 }
 
 fn step_agent_assault(
@@ -2588,6 +3003,7 @@ fn build_assault_debrief(state: &MissionState) -> Option<AssaultDebrief> {
         .clone()
         .unwrap_or_else(|| summarize_assault(&state.spec, assault));
     let influence = build_assault_influence(state, assault);
+    let rolling_hazards = build_rolling_hazard_summary(state, assault);
     let route_prediction_accuracy = build_route_prediction_accuracy(assault);
     let mut notes = summary.notes.clone();
     if let Some(group) = &influence.most_delayed_group {
@@ -2607,12 +3023,19 @@ fn build_assault_debrief(state: &MissionState) -> Option<AssaultDebrief> {
         route_prediction_accuracy.average_accuracy * 100.0,
         route_prediction_accuracy.groups.len()
     ));
+    if rolling_hazards.enemies_hit > 0 || rolling_hazards.obstacles_destroyed > 0 {
+        notes.push(format!(
+            "Rolling hazards hit {} enemy agent(s) and destroyed {} obstacle(s).",
+            rolling_hazards.enemies_hit, rolling_hazards.obstacles_destroyed
+        ));
+    }
 
     Some(AssaultDebrief {
         mission_id: state.spec.id.clone(),
         outcome_label: summary.outcome_label.clone(),
         summary,
         influence,
+        rolling_hazards,
         route_prediction_accuracy,
         notes,
     })
@@ -2726,10 +3149,18 @@ fn build_assault_influence(
             AssaultEventKind::ReachedObjective => {
                 add_cell_agg(&mut breach, cell, event.magnitude, event.note.clone());
             }
+            AssaultEventKind::RollingHazardHitEnemy => {
+                add_cell_agg(&mut damaging, cell, event.magnitude, event.note.clone());
+            }
             AssaultEventKind::AssaultStarted
             | AssaultEventKind::Spawned
             | AssaultEventKind::Moved
             | AssaultEventKind::Rerouted
+            | AssaultEventKind::RollingHazardReleased
+            | AssaultEventKind::RollingHazardMoved
+            | AssaultEventKind::RollingHazardDestroyedObstacle
+            | AssaultEventKind::RollingHazardBlocked
+            | AssaultEventKind::RollingHazardSpent
             | AssaultEventKind::Eliminated
             | AssaultEventKind::AssaultEnded => {}
         }
@@ -2767,6 +3198,88 @@ fn build_assault_influence(
         most_effective_obstacle,
         most_delayed_group,
         unused_defenses,
+    }
+}
+
+fn build_rolling_hazard_summary(
+    state: &MissionState,
+    assault: &AssaultState,
+) -> RollingHazardImpactSummary {
+    let mut cell_hits = HashMap::new();
+    let mut enemies_eliminated = 0;
+    for event in &assault.timeline {
+        match event.kind {
+            AssaultEventKind::RollingHazardHitEnemy => {
+                if let Some(cell) = event.cell {
+                    add_cell_agg(&mut cell_hits, cell, event.magnitude, event.note.clone());
+                }
+            }
+            AssaultEventKind::Eliminated if event.cause == AssaultEventCause::RollingHazard => {
+                enemies_eliminated += 1;
+            }
+            _ => {}
+        }
+    }
+
+    let mut friendly_risk = HashSet::new();
+    for hazard in &assault.rolling_hazards {
+        for step in &hazard.path {
+            if step.cell == state.spec.objective.defend_cell
+                || state
+                    .spec
+                    .defender_positions
+                    .iter()
+                    .any(|defender| defender.cell == step.cell)
+            {
+                friendly_risk.insert(step.cell);
+            }
+        }
+    }
+    let mut friendly_risk_cells: Vec<_> = friendly_risk.into_iter().collect();
+    friendly_risk_cells.sort_by_key(|cell| (cell.y, cell.x));
+    let best_hazard_cell = top_cell_influences(cell_hits, 1).into_iter().next();
+    let prepared_count = assault.rolling_hazards.len() as u32;
+    let released_count = assault
+        .rolling_hazards
+        .iter()
+        .filter(|hazard| hazard.status != RollingHazardStatus::Prepared)
+        .count() as u32;
+    let spent_count = assault
+        .rolling_hazards
+        .iter()
+        .filter(|hazard| hazard.status == RollingHazardStatus::Spent)
+        .count() as u32;
+    let enemies_hit = assault
+        .rolling_hazards
+        .iter()
+        .map(|hazard| hazard.enemies_hit)
+        .sum();
+    let obstacles_destroyed = assault
+        .rolling_hazards
+        .iter()
+        .map(|hazard| hazard.obstacles_destroyed)
+        .sum();
+    let mut notes = Vec::new();
+    for hazard in &assault.rolling_hazards {
+        notes.push(format!(
+            "{}: {} path cell(s), {} enemy hit(s), {} obstacle(s) destroyed.",
+            hazard.label,
+            hazard.path.len(),
+            hazard.enemies_hit,
+            hazard.obstacles_destroyed
+        ));
+    }
+
+    RollingHazardImpactSummary {
+        prepared_count,
+        released_count,
+        spent_count,
+        enemies_hit,
+        enemies_eliminated,
+        obstacles_destroyed,
+        friendly_risk_cells,
+        best_hazard_cell,
+        notes,
     }
 }
 
@@ -2868,6 +3381,188 @@ fn actual_agent_path(agent: &EnemyAgent) -> Vec<CellCoord> {
     agent.route.iter().take(end + 1).copied().collect()
 }
 
+fn planned_rolling_hazards_for_map(map: &MissionMap, release_tick: u32) -> Vec<RollingHazardState> {
+    map.objects
+        .iter()
+        .filter_map(|object| {
+            let EnvironmentObjectKind::Log(LogState::PreparedRoll {
+                direction,
+                release_cell,
+                ..
+            }) = object.kind
+            else {
+                return None;
+            };
+            let path = predict_rolling_log_path(map, release_cell, direction);
+            (path.len() > 1).then(|| RollingHazardState {
+                object_id: object.id.clone(),
+                label: object.label.clone(),
+                direction,
+                release_tick,
+                path,
+                status: RollingHazardStatus::Prepared,
+                path_index: 0,
+                enemies_hit: 0,
+                obstacles_destroyed: 0,
+                spent_reason: None,
+            })
+        })
+        .collect()
+}
+
+pub fn predict_rolling_log_path(
+    map: &MissionMap,
+    start: CellCoord,
+    direction: Direction,
+) -> Vec<RollingHazardStep> {
+    let Some(start_cell) = map.cell(start) else {
+        return Vec::new();
+    };
+    let mut path = vec![RollingHazardStep {
+        cell: start,
+        height_delta: 0,
+        energy: 4,
+        blocked_reason: blocking_reason_for_rolling_log(map, start, None),
+    }];
+    let mut current = start;
+    let mut current_height = start_cell.height;
+    let mut energy = 4;
+    let mut visited = HashSet::new();
+    visited.insert(start);
+
+    for _ in 0..8 {
+        let Some((next, delta)) = next_rolling_log_cell(map, current, current_height, direction)
+        else {
+            break;
+        };
+        if visited.contains(&next) {
+            break;
+        }
+        let next_height = map
+            .cell(next)
+            .map(|cell| cell.height)
+            .unwrap_or(current_height);
+        energy += delta.max(0) as i32;
+        if delta <= 0 {
+            energy -= 1;
+        }
+        if energy <= 0 {
+            break;
+        }
+        let blocked_reason = blocking_reason_for_rolling_log(map, next, None);
+        path.push(RollingHazardStep {
+            cell: next,
+            height_delta: delta,
+            energy,
+            blocked_reason: blocked_reason.clone(),
+        });
+        visited.insert(next);
+        current = next;
+        current_height = next_height;
+        if blocked_reason.is_some() {
+            break;
+        }
+    }
+
+    path
+}
+
+fn next_rolling_log_cell(
+    map: &MissionMap,
+    current: CellCoord,
+    current_height: i8,
+    direction: Direction,
+) -> Option<(CellCoord, i8)> {
+    if let Some(forward) = offset_cell(map, current, direction) {
+        if let Some(forward_height) = map.cell(forward).map(|cell| cell.height) {
+            let delta = current_height - forward_height;
+            if delta >= 0 {
+                return Some((forward, delta));
+            }
+        }
+    }
+
+    let mut candidates = map
+        .neighbors4(current)
+        .into_iter()
+        .filter_map(|cell| {
+            let next_height = map.cell(cell)?.height;
+            let delta = current_height - next_height;
+            (delta >= 0).then_some((cell, delta))
+        })
+        .collect::<Vec<_>>();
+    if candidates.is_empty() {
+        return None;
+    }
+
+    candidates.sort_by_key(|(cell, delta)| (-(*delta as i16), cell.y, cell.x));
+    candidates.into_iter().next()
+}
+
+fn offset_cell(map: &MissionMap, cell: CellCoord, direction: Direction) -> Option<CellCoord> {
+    let (dx, dy) = direction.delta();
+    let x = cell.x as i32 + dx;
+    let y = cell.y as i32 + dy;
+    (x >= 0 && y >= 0)
+        .then_some(CellCoord::new(x as u32, y as u32))
+        .filter(|coord| map.cell(*coord).is_some())
+}
+
+fn blocking_reason_for_rolling_log(
+    map: &MissionMap,
+    cell: CellCoord,
+    source_object_id: Option<&str>,
+) -> Option<String> {
+    let tile = map.cell(cell)?;
+    if matches!(
+        tile.earth_state,
+        EarthState::Berm | EarthState::DeepTrench | EarthState::Trench
+    ) {
+        return Some(format!("{:?}", tile.earth_state));
+    }
+    for object in map.objects_at_cell(cell) {
+        if Some(object.id.as_str()) == source_object_id {
+            continue;
+        }
+        if matches!(
+            object.kind,
+            EnvironmentObjectKind::Tree(TreeState::Standing)
+                | EnvironmentObjectKind::Tree(TreeState::PartiallyCut { .. })
+                | EnvironmentObjectKind::Rock(_)
+                | EnvironmentObjectKind::Wall(_)
+        ) {
+            return Some(object.label.clone());
+        }
+    }
+    None
+}
+
+fn rolling_log_direction(kind: &EnvironmentObjectKind) -> Option<Direction> {
+    match kind {
+        EnvironmentObjectKind::Tree(TreeState::FallenTrunk { direction })
+        | EnvironmentObjectKind::Log(LogState::Loose { direction })
+        | EnvironmentObjectKind::Log(LogState::DragPrepared { direction })
+        | EnvironmentObjectKind::Log(LogState::Positioned { direction })
+        | EnvironmentObjectKind::Log(LogState::Braced { direction })
+        | EnvironmentObjectKind::Log(LogState::Released { direction })
+        | EnvironmentObjectKind::Log(LogState::Rolling { direction })
+        | EnvironmentObjectKind::Log(LogState::Spent { direction }) => Some(*direction),
+        EnvironmentObjectKind::Log(LogState::PreparedRoll { direction, .. }) => Some(*direction),
+        _ => None,
+    }
+}
+
+fn is_preparable_rolling_log(kind: &EnvironmentObjectKind) -> bool {
+    matches!(
+        kind,
+        EnvironmentObjectKind::Tree(TreeState::FallenTrunk { .. })
+            | EnvironmentObjectKind::Log(LogState::Loose { .. })
+            | EnvironmentObjectKind::Log(LogState::DragPrepared { .. })
+            | EnvironmentObjectKind::Log(LogState::Positioned { .. })
+            | EnvironmentObjectKind::Log(LogState::Braced { .. })
+    )
+}
+
 fn build_work_order(
     id: u32,
     kind: WorkOrderKind,
@@ -2884,7 +3579,7 @@ fn build_work_order(
         _ => target.affected_cells(),
     };
     let affected_count = affected_cells.len().max(1) as u32;
-    let (required_tools, labor_seconds, material_inputs, material_outputs, notes) = match kind {
+    let (required_tools, labor_seconds, material_inputs, material_outputs, mut notes) = match kind {
         WorkOrderKind::DigTrench => {
             let outputs = LocalMaterialStock {
                 earth_spoil: affected_count as i32 * 2,
@@ -2952,11 +3647,34 @@ fn build_work_order(
                 vec!["converts one nearby log into a crude stake obstacle".to_string()],
             )
         }
+        WorkOrderKind::PrepareRollingLog => (
+            vec![ToolKind::Rope],
+            80,
+            LocalMaterialStock::default(),
+            LocalMaterialStock::default(),
+            vec![
+                "positions and braces a physical log as a deterministic rolling hazard".to_string(),
+            ],
+        ),
     };
     let crew_required = kind.default_crew_required();
     let assigned_crews = crew_required.max(1);
     let duration_seconds = labor_seconds.div_ceil(assigned_crews);
     let material_delta = LocalMaterialStock::net(&material_outputs, &material_inputs);
+    if kind == WorkOrderKind::PrepareRollingLog {
+        if let Ok(object) = target_rolling_log_object(map, &target) {
+            let direction = rolling_log_direction(&object.kind).unwrap_or(Direction::South);
+            let path = predict_rolling_log_path(map, object.cell, direction);
+            notes.push(format!(
+                "predicted path: {} cell(s) toward {}",
+                path.len(),
+                direction.label()
+            ));
+            if path.iter().any(|step| step.blocked_reason.is_some()) {
+                notes.push("path includes a blocking terrain/object stop".to_string());
+            }
+        }
+    }
 
     WorkOrder {
         id,
@@ -3088,6 +3806,17 @@ fn validate_order_target(map: &MissionMap, order: &WorkOrder) -> std::result::Re
                 return Err(format!(
                     "stakes already occupy ({}, {})",
                     target.x, target.y
+                ));
+            }
+        }
+        WorkOrderKind::PrepareRollingLog => {
+            let object = target_rolling_log_object(map, &order.target)?;
+            let direction = rolling_log_direction(&object.kind).unwrap_or(Direction::South);
+            let path = predict_rolling_log_path(map, object.cell, direction);
+            if path.len() < 2 {
+                return Err(format!(
+                    "{} has no useful downhill or forward roll path",
+                    object.label
                 ));
             }
         }
@@ -3224,6 +3953,42 @@ fn apply_order_effects(map: &mut MissionMap, order: &mut WorkOrder) -> Result<()
                 .affected_objects
                 .push(format!("stakes_{}_{}", cell_coord.x, cell_coord.y));
         }
+        WorkOrderKind::PrepareRollingLog => {
+            let (object_id, object_cell, direction) = {
+                let object = target_rolling_log_object(map, &order.target)
+                    .map_err(|err| anyhow::anyhow!(err))?;
+                (
+                    object.id.clone(),
+                    object.cell,
+                    rolling_log_direction(&object.kind).unwrap_or(Direction::South),
+                )
+            };
+            let predicted_path = predict_rolling_log_path(map, object_cell, direction)
+                .into_iter()
+                .map(|step| step.cell)
+                .collect::<Vec<_>>();
+            if predicted_path.len() < 2 {
+                bail!("rolling log has no useful predicted path");
+            }
+            let object = map
+                .object_at_mut(&object_id)
+                .ok_or_else(|| anyhow::anyhow!("rolling log object disappeared"))?;
+            object.kind = EnvironmentObjectKind::Log(LogState::PreparedRoll {
+                direction,
+                release_cell: object_cell,
+                predicted_path: predicted_path.clone(),
+            });
+            object.label = format!("prepared {}", object.label);
+            object.blocks_sight = false;
+            object.cover = CoverClass::Light;
+            object.movement_cost_delta = 1.2;
+            order.preview.affected_objects.push(object_id);
+            order.preview.notes.push(format!(
+                "predicted roll path: {} cell(s) toward {}",
+                predicted_path.len(),
+                direction.label()
+            ));
+        }
     }
     Ok(())
 }
@@ -3306,6 +4071,42 @@ fn target_tree_object<'a>(
                 object.cell == rect.origin && matches!(object.kind, EnvironmentObjectKind::Tree(_))
             })
             .ok_or_else(|| format!("no tree object at ({}, {})", rect.origin.x, rect.origin.y)),
+    }
+}
+
+fn target_rolling_log_object<'a>(
+    map: &'a MissionMap,
+    target: &WorkTarget,
+) -> std::result::Result<&'a EnvironmentObject, String> {
+    let object = match target {
+        WorkTarget::Object(id) => map
+            .objects
+            .iter()
+            .find(|object| &object.id == id)
+            .ok_or_else(|| format!("object `{id}` was not found"))?,
+        WorkTarget::Cell(cell) => map
+            .objects
+            .iter()
+            .find(|object| object.cell == *cell && is_preparable_rolling_log(&object.kind))
+            .ok_or_else(|| format!("no preparable log at ({}, {})", cell.x, cell.y))?,
+        WorkTarget::Rect(rect) => map
+            .objects
+            .iter()
+            .find(|object| object.cell == rect.origin && is_preparable_rolling_log(&object.kind))
+            .ok_or_else(|| {
+                format!(
+                    "no preparable log at ({}, {})",
+                    rect.origin.x, rect.origin.y
+                )
+            })?,
+    };
+    if is_preparable_rolling_log(&object.kind) {
+        Ok(object)
+    } else {
+        Err(format!(
+            "{} cannot be prepared as a rolling log",
+            object.label
+        ))
     }
 }
 
@@ -3533,6 +4334,7 @@ pub fn save_assault_pressure_heatmap_png(
                 AssaultEventKind::SuppressedByDefender
                     | AssaultEventKind::DamagedByDefender
                     | AssaultEventKind::DamagedByObstacle
+                    | AssaultEventKind::RollingHazardHitEnemy
             )
         },
         Rgba([218, 72, 82, 185]),
@@ -3614,6 +4416,51 @@ pub fn save_assault_prediction_vs_actual_png(
         draw_defender_positions(&mut image, &state.spec, cell_px);
         draw_assault_agents(&mut image, assault, cell_px);
     }
+    image
+        .save(path)
+        .with_context(|| format!("failed to save {}", path.display()))
+}
+
+pub fn save_rolling_hazard_preview_png(path: impl AsRef<Path>, state: &MissionState) -> Result<()> {
+    let path = path.as_ref();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let cell_px = 24;
+    let mut image = mission_preview_image(state, cell_px);
+    let hazards = state
+        .assault
+        .as_ref()
+        .map(|assault| assault.rolling_hazards.clone())
+        .unwrap_or_else(|| state.rolling_hazard_plans());
+    for hazard in &hazards {
+        let cells = hazard.path.iter().map(|step| step.cell).collect::<Vec<_>>();
+        draw_cell_path(&mut image, &cells, cell_px, Rgba([236, 170, 64, 210]), 4);
+        if let Some(first) = cells.first().copied() {
+            let (cx, cy) = route_cell_center(first, cell_px);
+            fill_preview_rect(
+                &mut image,
+                cx.saturating_sub(5),
+                cy.saturating_sub(5),
+                11,
+                11,
+                Rgba([118, 72, 38, 255]),
+            );
+        }
+        if let Some(last) = cells.last().copied() {
+            let (cx, cy) = route_cell_center(last, cell_px);
+            blend_preview_rect(
+                &mut image,
+                cx.saturating_sub(6),
+                cy.saturating_sub(6),
+                13,
+                13,
+                Rgba([238, 82, 64, 210]),
+            );
+        }
+    }
+    draw_defender_positions(&mut image, &state.spec, cell_px);
     image
         .save(path)
         .with_context(|| format!("failed to save {}", path.display()))
@@ -4054,5 +4901,29 @@ mod tests {
         assert!(!debrief.influence.most_damaging_cells.is_empty());
         assert_eq!(debrief.route_prediction_accuracy.total_divergence_cells, 0);
         assert!(debrief.route_prediction_accuracy.average_accuracy > 0.99);
+    }
+
+    #[test]
+    fn rolling_hazard_prepares_releases_and_reports_impacts() {
+        let spec = road_below_spec();
+        let mut state = run_work_order_script(spec, &road_below_hazard_prep_script());
+        let hazards = state.rolling_hazard_plans();
+        assert_eq!(hazards.len(), 1);
+        assert!(hazards[0].path.len() > 2);
+
+        let summary = state.run_assault_to_completion(160);
+        assert!(summary.ticks_elapsed > 0);
+        let debrief = state.assault_debrief().expect("debrief");
+        assert_eq!(debrief.rolling_hazards.prepared_count, 1);
+        assert_eq!(debrief.rolling_hazards.released_count, 1);
+        assert_eq!(debrief.rolling_hazards.spent_count, 1);
+        assert!(debrief.rolling_hazards.enemies_hit > 0);
+        assert!(state
+            .assault
+            .as_ref()
+            .expect("assault")
+            .timeline
+            .iter()
+            .any(|event| matches!(event.kind, AssaultEventKind::RollingHazardReleased)));
     }
 }

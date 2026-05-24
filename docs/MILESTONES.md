@@ -114,6 +114,26 @@ Implemented in this drop.
 This milestone still avoids rolling hazards, combat animation, morale, projectile simulation, and
 advanced enemy AI. It makes the first assault loop explainable before adding more spectacle.
 
+## GamePivot 6 — Rolling hazard sandbox
+
+Implemented in this drop.
+
+- added explicit rolling-log states for loose, positioned/braced, prepared, released, rolling, spent, and piled logs
+- added `PrepareRollingLog` as a work order with rope/tool validation and predicted-path preview notes
+- added a preplaced Road Below ridge log and a `road_below_hazard_prep_script`
+- added deterministic rolling-log path prediction over discrete height cells using prepared direction, energy, terrain stops, and object blockers
+- assault state now carries rolling hazards that release on a deterministic tick or can be manually scheduled from Mission Lab
+- added typed hazard events: released, moved, hit enemy, destroyed obstacle, blocked, and spent
+- rolling hazards can damage/delay enemies on their path and clear light wire/stake obstacles
+- assault debrief now includes rolling hazard impact summary, best hazard cell, enemies hit, obstacles destroyed, and friendly-risk cells
+- added `cargo run -p ground_cli -- mission-hazards [out_dir] [mission_spec.ron|json] [order_script.ron|json]`
+- `mission-hazards` exports `rolling_hazards.json`, `rolling_hazard_preview.png`, `rolling_hazard_path_debug.png`, `rolling_hazards_final.json`, and `assault_hazard_summary.json`
+- Mission Lab now includes a Hazards map mode, context actions to prepare logs, and a Release logs assault control
+
+This milestone still avoids freeform physics, animation/VFX, demolition, many hazard types, and
+complex collision geometry. The purpose is to prove one deterministic, previewable chain-reaction
+terrain mechanic.
+
 ## Milestone 0 — Project seed
 
 Implemented.

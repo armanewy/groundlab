@@ -5,9 +5,9 @@ use ground_core::{
     DEFAULT_RECIPE_PATH,
 };
 use ground_game::{
-    export_assault_run, export_order_script_run, export_road_below_seed, load_mission_spec,
-    load_work_order_script, road_below_basic_prep_script, road_below_spec,
-    DEFAULT_MISSION_EXPORT_DIR,
+    export_assault_run, export_hazard_sandbox_run, export_order_script_run, export_road_below_seed,
+    load_mission_spec, load_work_order_script, road_below_basic_prep_script,
+    road_below_hazard_prep_script, road_below_spec, DEFAULT_MISSION_EXPORT_DIR,
 };
 
 fn main() -> Result<()> {
@@ -173,6 +173,31 @@ fn main() -> Result<()> {
                 "Assault files: mission_prep_final.json, assault_initial_routes.json, assault_timeline.json, assault_summary.json, assault_debrief.json, route_prediction_accuracy.json, assault_delay_heatmap.png, assault_pressure_heatmap.png, assault_prediction_vs_actual.png, assault_preview_start.png, assault_preview_end.png, assault_path_trace.png"
             );
         }
+        "mission-hazards" => {
+            let out_dir = args
+                .next()
+                .unwrap_or_else(|| "exports/gamepivot_06".to_string());
+            let spec = match args.next() {
+                Some(path) => load_mission_spec(path)?,
+                None => road_below_spec(),
+            };
+            let script = match args.next() {
+                Some(path) => load_work_order_script(path)?,
+                None => road_below_hazard_prep_script(),
+            };
+            let summary = export_hazard_sandbox_run(&out_dir, spec, script)?;
+            println!("Exported GamePivot 6 rolling hazard sandbox run to {out_dir}.");
+            println!(
+                "{} · stopped {} · reached {} · objective health {}",
+                summary.outcome_label,
+                summary.enemies_eliminated,
+                summary.enemies_reached_objective,
+                summary.objective_health_remaining
+            );
+            println!(
+                "Hazard files: rolling_hazards.json, rolling_hazard_preview.png, rolling_hazard_path_debug.png, assault_hazard_summary.json, assault_timeline.json, assault_debrief.json, assault_pressure_heatmap.png"
+            );
+        }
         "help" | "--help" | "-h" => print_help(),
         other => bail!("unknown command: {other}"),
     }
@@ -191,4 +216,5 @@ fn print_help() {
     eprintln!("  cargo run -p ground_cli -- mission-orders [out_dir] [mission_spec.ron|json] [order_script.ron|json]");
     eprintln!("  cargo run -p ground_cli -- mission-routes [out_dir] [mission_spec.ron|json] [order_script.ron|json]");
     eprintln!("  cargo run -p ground_cli -- mission-assault [out_dir] [mission_spec.ron|json] [order_script.ron|json]");
+    eprintln!("  cargo run -p ground_cli -- mission-hazards [out_dir] [mission_spec.ron|json] [order_script.ron|json]");
 }
