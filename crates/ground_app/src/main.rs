@@ -11,13 +11,14 @@ use ground_core::{
 };
 use ground_game::{
     export_road_below_seed, load_generated_mission_browser_index, load_generated_mission_pack,
-    load_mission_spec, load_work_order_script, mission_rating_for_state,
-    road_below_balance_scripts, road_below_seed_orders, run_work_order_script,
-    save_work_order_script, AssaultEventKind, CellCoord, CoverClass, EarthState, EnemyAgentStatus,
-    EnvironmentObject, EnvironmentObjectKind, GeneratedMissionBrowserEntry,
-    GeneratedMissionBrowserIndex, GeneratedMissionPack, GroundKind, LogState, MissionPhase,
-    MissionState, MissionTheme, ScriptedWorkOrder, TreeState, WorkOrderKind, WorkOrderScript,
-    WorkOrderStatus, WorkTarget, DEFAULT_MISSION_EXPORT_DIR,
+    load_generated_mission_set, load_mission_spec, load_work_order_script,
+    mission_rating_for_state, road_below_balance_scripts, road_below_seed_orders,
+    run_work_order_script, save_work_order_script, AssaultEventKind, CellCoord, CoverClass,
+    EarthState, EnemyAgentStatus, EnvironmentObject, EnvironmentObjectKind,
+    GeneratedMissionBrowserEntry, GeneratedMissionBrowserIndex, GeneratedMissionPack, GroundKind,
+    LogState, MissionPhase, MissionSet, MissionSetSlot, MissionState, MissionTheme,
+    ScriptedWorkOrder, TreeState, WorkOrderKind, WorkOrderScript, WorkOrderStatus, WorkTarget,
+    DEFAULT_MISSION_EXPORT_DIR,
 };
 
 const MAX_UI_TEXTURE_SIDE: usize = 2048;
@@ -206,6 +207,9 @@ struct GroundLabApp {
     mission_pack_path_text: String,
     mission_pack: Option<GeneratedMissionPack>,
     mission_pack_selected_index: usize,
+    mission_set_path_text: String,
+    mission_set: Option<MissionSet>,
+    mission_set_selected_index: usize,
     paths: WorkbenchAssetPaths,
     recipe_path_text: String,
     palette_path_text: String,
@@ -269,6 +273,9 @@ impl GroundLabApp {
             mission_pack_path_text: "exports/procgen_07_pack/mission_pack.ron".to_string(),
             mission_pack: None,
             mission_pack_selected_index: 0,
+            mission_set_path_text: "exports/procgen_08_campaign/mission_set.ron".to_string(),
+            mission_set: None,
+            mission_set_selected_index: 0,
             recipe_path_text: paths.recipe_path.to_string_lossy().to_string(),
             palette_path_text: paths.palette_path.to_string_lossy().to_string(),
             file_snapshot: FileSnapshot::capture(&paths),
@@ -307,7 +314,7 @@ impl GroundLabApp {
             dirty_assets: true,
             dirty_preview: true,
             last_preview_size: [1, 1],
-            status: "Ready. ProcGen 7.1 pack quality tools are active.".to_string(),
+            status: "Ready. ProcGen 8 generated mission-set tools are active.".to_string(),
         };
         app.refresh_if_dirty(&cc.egui_ctx);
         app
@@ -441,7 +448,7 @@ impl GroundLabApp {
         self.show_panel_tabs(ui);
         ui.heading("Mission Lab");
         ui.label(
-            "ProcGen 7.1: generated mission packs, quality reports, and playable candidate browser",
+            "ProcGen 8: generated mission sets, quality reports, and playable candidate browser",
         );
         ui.separator();
 
@@ -669,6 +676,8 @@ impl GroundLabApp {
                 ui.checkbox(&mut self.mission_browser_accepted_only, "Accepted only");
             });
 
+            self.show_generated_mission_set_panel(ui);
+            ui.separator();
             self.show_generated_mission_pack_panel(ui);
             ui.separator();
 
@@ -784,6 +793,123 @@ impl GroundLabApp {
         }
         let pack_path = PathBuf::from(self.mission_pack_path_text.trim());
         if let Some(parent) = pack_path.parent() {
+            let joined = parent.join(&raw);
+            if joined.exists() {
+                return joined.to_string_lossy().to_string();
+            }
+        }
+        raw.to_string_lossy().to_string()
+    }
+
+    fn show_generated_mission_set_panel(&mut self, ui: &mut egui::Ui) {
+        ui.collapsing("Mission Set", |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Set");
+                ui.add(
+                    egui::TextEdit::singleline(&mut self.mission_set_path_text)
+                        .desired_width(310.0),
+                );
+                if ui.button("Load set").clicked() {
+                    let path = self.mission_set_path_text.trim();
+                    match load_generated_mission_set(path) {
+                        Ok(set) => {
+                            let mission_count = set.missions.len();
+                            self.mission_set_selected_index = self
+                                .mission_set_selected_index
+                                .min(mission_count.saturating_sub(1));
+                            self.mission_set = Some(set);
+                            self.notify(format!(
+                                "Loaded generated mission set with {mission_count} mission(s)."
+                            ));
+                        }
+                        Err(err) => self.notify(format!("Load mission set failed: {err}")),
+                    }
+                }
+            });
+
+            let Some(set) = self.mission_set.as_ref() else {
+                ui.small("Load a ProcGen mission_set.ron to browse a packaged generated set.");
+                return;
+            };
+            let set_title = set.title.clone();
+            let set_seed = set.seed;
+            let mission_count = set.missions.len();
+            ui.small(format!(
+                "{} · seed {} · {} mission(s)",
+                set_title, set_seed, mission_count
+            ));
+            if mission_count == 0 {
+                ui.small("Mission set has no missions.");
+                return;
+            }
+
+            self.mission_set_selected_index = self
+                .mission_set_selected_index
+                .min(mission_count.saturating_sub(1));
+            let slot = set.missions[self.mission_set_selected_index].clone();
+            ui.horizontal_wrapped(|ui| {
+                if ui.button("Previous").clicked() {
+                    self.mission_set_selected_index =
+                        self.mission_set_selected_index.saturating_sub(1);
+                }
+                ui.label(format!(
+                    "{}/{}",
+                    self.mission_set_selected_index + 1,
+                    mission_count
+                ));
+                if ui.button("Next").clicked() {
+                    self.mission_set_selected_index =
+                        (self.mission_set_selected_index + 1).min(mission_count - 1);
+                }
+                if ui.button("Play mission").clicked() {
+                    self.load_mission_set_slot(&slot);
+                }
+                if ui.button("Retry current").clicked() {
+                    self.load_mission_set_slot(&slot);
+                }
+            });
+            self.show_mission_set_slot_summary(ui, &slot);
+        });
+    }
+
+    fn show_mission_set_slot_summary(&self, ui: &mut egui::Ui, slot: &MissionSetSlot) {
+        ui.small(format!(
+            "{} [{}] · lesson {}",
+            slot.title,
+            slot.theme_slug,
+            slot.lesson.label()
+        ));
+        ui.small(format!(
+            "difficulty {} · complexity {} · best plan {}",
+            slot.difficulty_score, slot.complexity_score, slot.best_plan_label
+        ));
+        if slot.unlocks_after.is_empty() {
+            ui.small("unlocks after: none");
+        } else {
+            ui.small(format!(
+                "unlocks after: {}",
+                slot.unlocks_after
+                    .iter()
+                    .map(|unlock| unlock.label())
+                    .collect::<Vec<_>>()
+                    .join(" · ")
+            ));
+        }
+    }
+
+    fn load_mission_set_slot(&mut self, slot: &MissionSetSlot) {
+        let path = self.resolve_mission_set_slot_path(&slot.mission_path);
+        self.mission_load_path_text = path.clone();
+        self.load_mission_file(&path);
+    }
+
+    fn resolve_mission_set_slot_path(&self, mission_path: &str) -> String {
+        let raw = PathBuf::from(mission_path);
+        if raw.is_absolute() || raw.exists() {
+            return raw.to_string_lossy().to_string();
+        }
+        let set_path = PathBuf::from(self.mission_set_path_text.trim());
+        if let Some(parent) = set_path.parent() {
             let joined = parent.join(&raw);
             if joined.exists() {
                 return joined.to_string_lossy().to_string();

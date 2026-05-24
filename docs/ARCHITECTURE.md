@@ -14,7 +14,9 @@ theme bindings and can be rendered through effective SpriteGen assets as high-ob
 route-overlay, and debug mission previews. Generated mission packs can also be replayed through the
 balance/debrief harness with per-mission visual QA so pack quality is evaluated as a playable set.
 ProcGen 7.1 runs that same pack pipeline across seed matrices and aggregates stability, theme drift,
-curve quality, visual QA, and weak-mission diagnostics.
+curve quality, visual QA, and weak-mission diagnostics. ProcGen 8 packages those selected packs into
+mission sets with ordered lessons, capability unlock metadata, save templates, per-slot mission
+folders, campaign playtest exports, and Mission Lab mission-set navigation.
 `ground_app` now treats Mission Lab as the primary tactical prep surface rather than a generic
 terrain editor panel, and Road Below starts as a playable briefing-to-debrief slice. The same
 mission loop now evaluates generated Road-Below-like candidates so GroundLab can batch-generate,
@@ -47,6 +49,8 @@ score, reject, and export compact terrain-defense problems.
   loading
 - Multi-seed pack quality gates with stability reports, theme acceptance drift, curve diagnostics,
   visual QA summaries, and weak-mission recommendation exports
+- Generated campaign / mission-set manifests with ordered mission slots, lesson roles, capability
+  unlock curves, save-data templates, and Mission Lab slot loading
 - Mission visual theme bindings, high-oblique generated mission beauty previews, visual route/debug
   overlays, generated feature maps, and visual asset reports
 - Terrain editing brushes
@@ -126,6 +130,9 @@ MissionGeneratorSpec + MissionTheme
   -> high-oblique mission visual previews + visual asset reports
   -> pack-level playtest report + per-mission visual QA
   -> multi-seed pack quality gate + weak-mission diagnostics
+  -> generated campaign / mission set packaging
+  -> mission slot lessons + capability unlock curve
+  -> campaign playtest replay + mission-set save template
   -> Mission Lab inspection / playable retry
 ```
 

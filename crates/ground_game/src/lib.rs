@@ -1336,6 +1336,102 @@ pub struct GeneratedMissionWeakMissionReport {
     pub recommendations: Vec<String>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MissionSet {
+    pub id: String,
+    pub title: String,
+    pub curve: MissionPackCurve,
+    pub seed: u64,
+    pub source_pack_path: String,
+    pub missions: Vec<MissionSetSlot>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MissionSetSlot {
+    pub order: u32,
+    pub title: String,
+    pub mission_id: String,
+    pub theme: MissionTheme,
+    pub theme_slug: String,
+    pub mission_path: String,
+    pub visual_path: String,
+    pub lesson: MissionSetLesson,
+    pub unlocks_after: Vec<MissionSetUnlock>,
+    pub tactical_interest_score: i32,
+    pub difficulty_score: i32,
+    pub complexity_score: i32,
+    pub best_plan_label: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum MissionSetLesson {
+    BasicRoutesAndPrep,
+    TreeDilemma,
+    TrenchBermShaping,
+    DeadGroundAndLowRoutes,
+    RollingHazardSlope,
+    SplitApproachPrioritization,
+    HardCoverAndBreach,
+    MixedFinalTest,
+}
+
+impl MissionSetLesson {
+    pub fn label(self) -> &'static str {
+        match self {
+            MissionSetLesson::BasicRoutesAndPrep => "basic routes and prep loop",
+            MissionSetLesson::TreeDilemma => "tree/material dilemma",
+            MissionSetLesson::TrenchBermShaping => "trench and berm shaping",
+            MissionSetLesson::DeadGroundAndLowRoutes => "dead ground and low routes",
+            MissionSetLesson::RollingHazardSlope => "rolling hazard and slope",
+            MissionSetLesson::SplitApproachPrioritization => "split approach prioritization",
+            MissionSetLesson::HardCoverAndBreach => "hard cover and breach decisions",
+            MissionSetLesson::MixedFinalTest => "mixed final test",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum MissionSetUnlock {
+    SawKit,
+    SurveyKit,
+    Winch,
+    BraceKit,
+}
+
+impl MissionSetUnlock {
+    pub fn label(self) -> &'static str {
+        match self {
+            MissionSetUnlock::SawKit => "saw kit",
+            MissionSetUnlock::SurveyKit => "survey kit",
+            MissionSetUnlock::Winch => "winch",
+            MissionSetUnlock::BraceKit => "brace kit",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MissionSetUnlockPoint {
+    pub after_order: u32,
+    pub mission_id: String,
+    pub unlocks: Vec<MissionSetUnlock>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MissionSetSaveData {
+    pub mission_set_id: String,
+    pub completed_missions: Vec<String>,
+    pub ratings: HashMap<String, u8>,
+    pub unlocks: Vec<MissionSetUnlock>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedCampaignSetSummary {
+    pub mission_set: MissionSet,
+    pub source_pack_summary: GeneratedMissionPackSummary,
+    pub unlock_curve: Vec<MissionSetUnlockPoint>,
+    pub notes: Vec<String>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MissionPackCurve {
     Balanced,
@@ -3501,6 +3597,172 @@ pub fn export_generated_mission_pack_quality_gate(
     Ok(report)
 }
 
+pub fn export_generated_campaign_set(
+    out_dir: impl AsRef<Path>,
+    base_generator: MissionGeneratorSpec,
+    requested_missions: u32,
+    candidate_count_per_theme: u32,
+    curve: MissionPackCurve,
+) -> Result<GeneratedCampaignSetSummary> {
+    let out_dir = out_dir.as_ref();
+    fs::create_dir_all(out_dir)
+        .with_context(|| format!("failed to create {}", out_dir.display()))?;
+    let source_pack_dir = out_dir.join("source_pack");
+    let pack_summary = export_generated_mission_pack_with_curve(
+        &source_pack_dir,
+        base_generator.clone(),
+        requested_missions,
+        candidate_count_per_theme,
+        curve,
+    )?;
+
+    let mut slots = Vec::new();
+    let mut unlock_curve = Vec::new();
+    for entry in &pack_summary.pack.missions {
+        let mission_src = resolve_pack_mission_path(&entry.mission_path, Some(&source_pack_dir));
+        let spec = load_mission_spec(&mission_src)?;
+        let mission_dir = out_dir.join("missions").join(format!(
+            "{:03}_{}",
+            entry.order,
+            sanitize_path_component(&entry.theme_slug)
+        ));
+        fs::create_dir_all(&mission_dir)
+            .with_context(|| format!("failed to create {}", mission_dir.display()))?;
+        save_mission_spec(mission_dir.join("mission.ron"), &spec)?;
+        write_json(mission_dir.join("mission.json"), &spec)?;
+        write_json(mission_dir.join("mission_pack_entry.json"), entry)?;
+        export_mission_visuals(&mission_dir, spec)?;
+
+        let unlocks_after = mission_set_unlocks_after(entry.order);
+        if !unlocks_after.is_empty() {
+            unlock_curve.push(MissionSetUnlockPoint {
+                after_order: entry.order,
+                mission_id: entry.mission_id.clone(),
+                unlocks: unlocks_after.clone(),
+            });
+        }
+        slots.push(MissionSetSlot {
+            order: entry.order,
+            title: entry.title.clone(),
+            mission_id: entry.mission_id.clone(),
+            theme: entry.theme,
+            theme_slug: entry.theme_slug.clone(),
+            mission_path: format!(
+                "missions/{:03}_{}/mission.ron",
+                entry.order,
+                sanitize_path_component(&entry.theme_slug)
+            ),
+            visual_path: format!(
+                "missions/{:03}_{}/mission_visual_beauty.png",
+                entry.order,
+                sanitize_path_component(&entry.theme_slug)
+            ),
+            lesson: mission_set_lesson_for_slot(entry.order, entry.theme, curve),
+            unlocks_after,
+            tactical_interest_score: entry.tactical_interest_score,
+            difficulty_score: entry.difficulty_score,
+            complexity_score: entry.complexity_score,
+            best_plan_label: entry.best_plan_label.clone(),
+        });
+    }
+
+    let (set_id_prefix, set_title) = match curve {
+        MissionPackCurve::Balanced => ("generated_field_pack", "Generated Field Problems"),
+        MissionPackCurve::Tutorial => ("generated_tutorial_pack", "Field Engineering Basics"),
+    };
+    let mission_set = MissionSet {
+        id: format!("{set_id_prefix}_{:016x}", base_generator.seed),
+        title: set_title.to_string(),
+        curve,
+        seed: base_generator.seed,
+        source_pack_path: "source_pack/mission_pack.ron".to_string(),
+        missions: slots,
+    };
+    let save_template = MissionSetSaveData {
+        mission_set_id: mission_set.id.clone(),
+        completed_missions: Vec::new(),
+        ratings: HashMap::new(),
+        unlocks: Vec::new(),
+    };
+    let mut notes = Vec::new();
+    if mission_set.missions.len() < requested_missions as usize {
+        notes.push(format!(
+            "Mission set has {} mission(s), below requested {}.",
+            mission_set.missions.len(),
+            requested_missions
+        ));
+    }
+    if mission_set
+        .missions
+        .iter()
+        .any(|slot| slot.unlocks_after.is_empty())
+    {
+        notes.push(
+            "Some mission slots do not unlock a new kit; this is expected for later/final slots."
+                .to_string(),
+        );
+    }
+    if notes.is_empty() {
+        notes.push("Generated mission set packaged successfully.".to_string());
+    }
+
+    let summary = GeneratedCampaignSetSummary {
+        mission_set,
+        source_pack_summary: pack_summary,
+        unlock_curve,
+        notes,
+    };
+    write_ron(out_dir.join("mission_set.ron"), &summary.mission_set)?;
+    write_json(out_dir.join("mission_set_summary.json"), &summary)?;
+    write_json(out_dir.join("unlock_curve.json"), &summary.unlock_curve)?;
+    write_json(
+        out_dir.join("mission_set_save_template.json"),
+        &save_template,
+    )?;
+    write_json(
+        out_dir.join("difficulty_curve.json"),
+        &summary.source_pack_summary.difficulty_curve,
+    )?;
+    write_json(
+        out_dir.join("complexity_curve.json"),
+        &summary.source_pack_summary.complexity_curve,
+    )?;
+    copy_file_if_exists(
+        source_pack_dir.join("mission_pack_visual_sheet.png"),
+        out_dir.join("mission_set_contact_sheet.png"),
+    )?;
+    copy_file_if_exists(
+        source_pack_dir.join("mission_pack_contact_sheet.png"),
+        out_dir.join("mission_set_debug_contact_sheet.png"),
+    )?;
+    Ok(summary)
+}
+
+pub fn export_generated_campaign_set_playtest_from_file(
+    out_dir: impl AsRef<Path>,
+    mission_set_path: impl AsRef<Path>,
+) -> Result<GeneratedMissionPackPlaytestReport> {
+    let out_dir = out_dir.as_ref();
+    let mission_set_path = mission_set_path.as_ref();
+    let mission_set = load_generated_mission_set(mission_set_path)?;
+    let pack = mission_set_as_pack(&mission_set);
+    let report = export_generated_mission_pack_playtest(out_dir, &pack, mission_set_path.parent())?;
+    write_json(out_dir.join("mission_set_playtest_summary.json"), &report)?;
+    Ok(report)
+}
+
+pub fn load_generated_mission_set(path: impl AsRef<Path>) -> Result<MissionSet> {
+    let path = path.as_ref();
+    let text = fs::read_to_string(path)
+        .with_context(|| format!("failed to read generated mission set {}", path.display()))?;
+    match path.extension().and_then(|ext| ext.to_str()) {
+        Some("json") => serde_json::from_str(&text)
+            .with_context(|| format!("failed to parse JSON mission set {}", path.display())),
+        _ => ron::from_str(&text)
+            .with_context(|| format!("failed to parse RON mission set {}", path.display())),
+    }
+}
+
 pub fn export_theme_calibration_report(
     out_dir: impl AsRef<Path>,
     base_generator: MissionGeneratorSpec,
@@ -4507,6 +4769,67 @@ fn copy_file_if_exists(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<(
     fs::copy(src, dst)
         .with_context(|| format!("failed to copy {} to {}", src.display(), dst.display()))?;
     Ok(())
+}
+
+fn mission_set_lesson_for_slot(
+    order: u32,
+    theme: MissionTheme,
+    curve: MissionPackCurve,
+) -> MissionSetLesson {
+    if matches!(curve, MissionPackCurve::Tutorial) {
+        match order {
+            1 => return MissionSetLesson::BasicRoutesAndPrep,
+            2 => return MissionSetLesson::TreeDilemma,
+            3 => return MissionSetLesson::TrenchBermShaping,
+            4 => return MissionSetLesson::RollingHazardSlope,
+            5 => return MissionSetLesson::SplitApproachPrioritization,
+            _ => return MissionSetLesson::MixedFinalTest,
+        }
+    }
+
+    match theme {
+        MissionTheme::DryRoadBelow => MissionSetLesson::BasicRoutesAndPrep,
+        MissionTheme::OrchardApproach => MissionSetLesson::TreeDilemma,
+        MissionTheme::DryWash => MissionSetLesson::DeadGroundAndLowRoutes,
+        MissionTheme::RidgeTrap => MissionSetLesson::RollingHazardSlope,
+        MissionTheme::OldWall => MissionSetLesson::HardCoverAndBreach,
+        MissionTheme::SplitApproach => MissionSetLesson::SplitApproachPrioritization,
+    }
+}
+
+fn mission_set_unlocks_after(order: u32) -> Vec<MissionSetUnlock> {
+    match order {
+        1 => vec![MissionSetUnlock::SawKit],
+        2 => vec![MissionSetUnlock::SurveyKit],
+        3 => vec![MissionSetUnlock::Winch],
+        4 => vec![MissionSetUnlock::BraceKit],
+        _ => Vec::new(),
+    }
+}
+
+fn mission_set_as_pack(mission_set: &MissionSet) -> GeneratedMissionPack {
+    GeneratedMissionPack {
+        id: mission_set.id.clone(),
+        label: mission_set.title.clone(),
+        seed: mission_set.seed,
+        missions: mission_set
+            .missions
+            .iter()
+            .map(|slot| GeneratedMissionPackEntry {
+                order: slot.order,
+                title: slot.title.clone(),
+                mission_id: slot.mission_id.clone(),
+                theme: slot.theme,
+                theme_slug: slot.theme_slug.clone(),
+                seed: mission_set.seed.wrapping_add(slot.order as u64),
+                tactical_interest_score: slot.tactical_interest_score,
+                difficulty_score: slot.difficulty_score,
+                complexity_score: slot.complexity_score,
+                mission_path: slot.mission_path.clone(),
+                best_plan_label: slot.best_plan_label.clone(),
+            })
+            .collect(),
+    }
 }
 
 fn build_theme_calibration_report(

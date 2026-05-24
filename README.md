@@ -4,7 +4,7 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: ProcGen 7.1 — full pack quality gate
+## Current status: ProcGen 8 — generated campaign / mission set packaging
 
 GroundLab has pivoted again from manually tuning one mission toward generating compact tactical
 terrain problems in batches. The primary product direction is still a 2.5D tactical engineering
@@ -17,7 +17,7 @@ SpriteGen remains in the repository as the terrain art forge. It still provides 
 profiles, override PNGs, sprite manifests, validation, and exportable grass/dirt/path/trench/berm/
 stone pieces. It is now supporting infrastructure rather than the main roadmap driver.
 
-GamePivot 8 and ProcGen 1-7.1 build on the `ground_game` crate with:
+GamePivot 8 and ProcGen 1-8 build on the `ground_game` crate with:
 
 - `MissionSpec`, `MissionMap`, and `MissionCell`
 - earth states such as normal, scraped, trench, deep trench, spoil pile, berm, unstable, and muddy
@@ -72,6 +72,12 @@ GamePivot 8 and ProcGen 1-7.1 build on the `ground_game` crate with:
 - visual QA metrics for terrain-feature coverage, fallback sprite count, placeholder object count, route overlay legibility, objective/spawn visibility, and feature visibility
 - a Mission Lab mission-pack panel for loading `mission_pack.ron`, stepping previous/next through pack slots, and loading any pack mission into the playable loop
 - a multi-seed mission-pack quality gate that generates packs across seed matrices and aggregates pack stability, theme acceptance drift, difficulty/complexity curve quality, visual QA, and weak mission diagnostics
+- generated campaign / mission-set manifests that package selected missions into ordered slots with lessons, relative mission paths, visual paths, difficulty, complexity, and best-plan metadata
+- mission-set lesson roles for basic route/prep, tree-material dilemmas, trench/berm shaping, dead ground, rolling hazards, split approaches, hard-cover decisions, and mixed final tests
+- capability-based unlock curves for saw kit, survey kit, winch, and brace kit milestones
+- minimal mission-set save templates for completed missions, ratings, and unlocked kits
+- a campaign-set playtest command that replays packaged mission sets through the existing pack playtest harness
+- a Mission Lab mission-set panel for loading `mission_set.ron`, stepping previous/next through slots, and playing/retrying packaged missions
 - a Mission Lab file loader for opening generated `mission.ron` candidates directly from disk
 - assault summary and debrief exports for debugging why the plan worked or failed
 - per-cell influence summaries for crossed cells, delayed cells, damaging cells, defender pressure, breach cells, effective obstacles, and unused defenses
@@ -238,6 +244,51 @@ exports/procgen_07_1/
       per_mission_playtest/
 ```
 
+Generate a ProcGen 8 campaign / mission set from the pack builder:
+
+```bash
+cargo run -p ground_cli -- generate-campaign-set exports/procgen_08_campaign --seed 99418113 --missions 6 --candidates-per-theme 20 --curve tutorial --render-visuals
+```
+
+Campaign-set output includes:
+
+```txt
+exports/procgen_08_campaign/
+  mission_set.ron
+  mission_set_summary.json
+  mission_set_contact_sheet.png
+  mission_set_debug_contact_sheet.png
+  mission_set_save_template.json
+  unlock_curve.json
+  difficulty_curve.json
+  complexity_curve.json
+  missions/
+    001_*/
+      mission.ron
+      mission.json
+      mission_visual_beauty.png
+      mission_pack_entry.json
+  source_pack/
+    mission_pack.ron
+    pack_playtest_summary.json
+    per_mission_playtest/
+```
+
+Replay a generated campaign / mission set through the playtest harness:
+
+```bash
+cargo run -p ground_cli -- playtest-campaign-set exports/procgen_08_playtest exports/procgen_08_campaign/mission_set.ron
+```
+
+Campaign playtest output includes:
+
+```txt
+exports/procgen_08_playtest/
+  mission_set_playtest_summary.json
+  pack_playtest_summary.json
+  per_mission_playtest/
+```
+
 Render one mission directly as a high-oblique visual preview:
 
 ```bash
@@ -290,10 +341,17 @@ The full-scene terrain renderer and ArtGen outputs remain downstream infrastruct
 data, pathing, LOS, and art-kit composition. ProcGen 6 reconnects that asset pipeline to generated
 missions through deterministic visual previews, ProcGen 6.1 separates beauty/routes/debug outputs
 while improving generated mission composition, ProcGen 7 replays generated mission packs through the
-balance/debrief harness with visual QA, and ProcGen 7.1 runs that harness across multiple seeds to
-report pack stability. The active gameplay roadmap still emphasizes seeded mission generation,
-automatic evaluation, ranking, playable candidate export, pack-level playtest reporting, and
-multi-seed quality gates.
+balance/debrief harness with visual QA, ProcGen 7.1 runs that harness across multiple seeds to
+report pack stability, and ProcGen 8 packages selected packs into playable mission sets with lessons,
+unlock curves, save templates, and Mission Lab slot navigation. The active gameplay roadmap still
+emphasizes seeded mission generation, automatic evaluation, ranking, playable candidate export,
+pack-level playtest reporting, quality gates, and mission-set packaging.
+
+## Previous status: ProcGen 7.1 — full pack quality gate
+
+ProcGen 7.1 added multi-seed pack quality gates, stability/theme drift reports,
+difficulty/complexity curve diagnostics, visual QA aggregation, weak-mission reports, and generated
+pack contact-sheet preservation.
 
 ## Previous status: ProcGen 7 — generated mission pack playtest pass
 

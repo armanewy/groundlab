@@ -5,7 +5,8 @@ use ground_core::{
     DEFAULT_RECIPE_PATH,
 };
 use ground_game::{
-    export_assault_run, export_generated_mission_batch,
+    export_assault_run, export_generated_campaign_set,
+    export_generated_campaign_set_playtest_from_file, export_generated_mission_batch,
     export_generated_mission_pack_playtest_from_file, export_generated_mission_pack_quality_gate,
     export_generated_mission_pack_with_curve, export_generated_mission_theme_batch,
     export_hazard_sandbox_run, export_mission_balance_run, export_mission_visuals,
@@ -472,6 +473,102 @@ fn main() -> Result<()> {
                 "Quality files: seed_matrix_summary.json, pack_quality_report.json, theme_stability_report.json, difficulty_curve_report.json, complexity_curve_report.json, visual_qa_summary.json, weak_mission_reports/*, generated_pack_contact_sheets/*"
             );
         }
+        "generate-campaign-set" => {
+            let out_dir = args
+                .next()
+                .unwrap_or_else(|| "exports/procgen_08_campaign".to_string());
+            let mut seed = 99_418_113;
+            let mut missions = 6;
+            let mut candidates_per_theme = 20;
+            let mut curve = MissionPackCurve::Tutorial;
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--render-visuals" => {}
+                    "--seed" => {
+                        let Some(value) = args.next() else {
+                            bail!("--seed requires a value");
+                        };
+                        seed = value.parse()?;
+                    }
+                    "--missions" => {
+                        let Some(value) = args.next() else {
+                            bail!("--missions requires a value");
+                        };
+                        missions = value.parse()?;
+                    }
+                    "--candidates-per-theme" => {
+                        let Some(value) = args.next() else {
+                            bail!("--candidates-per-theme requires a value");
+                        };
+                        candidates_per_theme = value.parse()?;
+                    }
+                    "--curve" => {
+                        let Some(value) = args.next() else {
+                            bail!("--curve requires a value");
+                        };
+                        curve = value.parse().map_err(|err: String| anyhow::anyhow!(err))?;
+                    }
+                    other => bail!("unknown generate-campaign-set option: {other}"),
+                }
+            }
+            let generator = MissionGeneratorSpec::road_below(seed);
+            let summary = export_generated_campaign_set(
+                &out_dir,
+                generator,
+                missions,
+                candidates_per_theme,
+                curve,
+            )?;
+            println!("Exported ProcGen 8 generated campaign set to {out_dir}.");
+            println!(
+                "{} · {} mission(s) · curve {}.",
+                summary.mission_set.title,
+                summary.mission_set.missions.len(),
+                summary.mission_set.curve.label()
+            );
+            for slot in &summary.mission_set.missions {
+                println!(
+                    "{}. {} [{}] · lesson {} · unlocks {}",
+                    slot.order,
+                    slot.title,
+                    slot.theme_slug,
+                    slot.lesson.label(),
+                    if slot.unlocks_after.is_empty() {
+                        "none".to_string()
+                    } else {
+                        slot.unlocks_after
+                            .iter()
+                            .map(|unlock| unlock.label())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    }
+                );
+            }
+            println!(
+                "Campaign files: mission_set.ron, mission_set_summary.json, mission_set_contact_sheet.png, unlock_curve.json, difficulty_curve.json, complexity_curve.json, missions/*/mission.ron, source_pack/*"
+            );
+        }
+        "playtest-campaign-set" => {
+            let out_dir = args
+                .next()
+                .unwrap_or_else(|| "exports/procgen_08_playtest".to_string());
+            let mission_set_path = args
+                .next()
+                .unwrap_or_else(|| "exports/procgen_08_campaign/mission_set.ron".to_string());
+            let report =
+                export_generated_campaign_set_playtest_from_file(&out_dir, &mission_set_path)?;
+            println!("Exported ProcGen 8 campaign set playtest to {out_dir}.");
+            println!(
+                "{} mission(s) · avg no-prep {:.1} · avg best {:.1} · avg spread {:.1}.",
+                report.mission_count,
+                report.average_no_prep_score,
+                report.average_best_score,
+                report.average_plan_spread
+            );
+            println!(
+                "Campaign playtest files: mission_set_playtest_summary.json, pack_playtest_summary.json, per_mission_playtest/*"
+            );
+        }
         "render-mission" => {
             let out_dir = args
                 .next()
@@ -568,6 +665,10 @@ fn print_help() {
         "  cargo run -p ground_cli -- playtest-mission-pack [out_dir] [mission_pack.ron|json]"
     );
     eprintln!("  cargo run -p ground_cli -- quality-gate-mission-packs [out_dir] [--seed 99418113] [--seed-count 3] [--missions 6] [--candidates-per-theme 20] [--curve balanced|tutorial] [--render-visuals]");
+    eprintln!("  cargo run -p ground_cli -- generate-campaign-set [out_dir] [--seed 99418113] [--missions 6] [--candidates-per-theme 20] [--curve balanced|tutorial] [--render-visuals]");
+    eprintln!(
+        "  cargo run -p ground_cli -- playtest-campaign-set [out_dir] [mission_set.ron|json]"
+    );
     eprintln!("  cargo run -p ground_cli -- render-mission [out_dir] [mission_spec.ron|json]");
     eprintln!(
         "  cargo run -p ground_cli -- calibrate-themes [out_dir] [--count 200] [--seed 99418113]"

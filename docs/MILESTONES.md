@@ -408,6 +408,35 @@ This milestone does not add new gameplay, new themes, campaign progression, or r
 turns ProcGen packs into a repeatable quality gate so generator reliability can be judged across
 many seeds before adding campaign/set packaging.
 
+## ProcGen 8 — Generated campaign / mission set packaging
+
+Implemented in this drop.
+
+- added `MissionSet`, `MissionSetSlot`, lesson roles, unlock records, save-data templates, and a
+  generated campaign-set summary
+- added `cargo run -p ground_cli -- generate-campaign-set [out_dir] [--seed N] [--missions N]
+  [--candidates-per-theme N] [--curve balanced|tutorial] [--render-visuals]`
+- campaign-set generation builds a normal generated mission pack under `source_pack/`, then copies
+  selected missions into ordered `missions/###_{theme}/` folders with `mission.ron`, `mission.json`,
+  `mission_visual_beauty.png`, and `mission_pack_entry.json`
+- exports `mission_set.ron`, `mission_set_summary.json`, `mission_set_contact_sheet.png`,
+  `mission_set_debug_contact_sheet.png`, `mission_set_save_template.json`, `unlock_curve.json`,
+  `difficulty_curve.json`, and `complexity_curve.json`
+- tutorial sets assign mission-slot lessons for route/prep basics, tree/material dilemmas,
+  trench/berm shaping, rolling hazards, split approaches, and mixed final tests
+- generated unlock curves grant capability-style kits such as saw kit, survey kit, winch, and brace
+  kit after early mission slots instead of stat upgrades
+- added `cargo run -p ground_cli -- playtest-campaign-set [out_dir] [mission_set.ron|json]` to
+  replay packaged mission sets through the existing pack playtest harness
+- Mission Lab's generated-content panel now includes a mission-set loader that opens
+  `mission_set.ron`, steps previous/next through mission slots, shows each slot's lesson/unlocks/
+  difficulty/complexity, and loads the selected mission into the playable briefing/prep/assault loop
+
+This milestone does not add new mechanics, enemy types, themes, campaign economy, or renderer work.
+It packages the generated-content pipeline into playable mission sets with lesson sequencing,
+capability unlock metadata, retry/play navigation, deterministic playtest exports, and save-state
+templates.
+
 ## Milestone 0 — Project seed
 
 Implemented.
