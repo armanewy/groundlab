@@ -6,15 +6,20 @@ use ron::ser::PrettyConfig;
 
 use crate::recipe::{GroundMaterial, TransitionEdge};
 use crate::spritegen::{
-    build_berm_contact_sheet, build_berm_mask_debug_preview, build_berm_oblique_caps_preview,
+    build_berm_autotile_sheet, build_berm_contact_sheet, build_berm_face_continuity_heatmap,
+    build_berm_lip_continuity_heatmap, build_berm_mask_debug_preview,
+    build_berm_neighbor_seam_heatmap, build_berm_oblique_caps_preview,
     build_berm_oblique_corner_preview, build_berm_oblique_shadow_preview,
-    build_berm_oblique_straight_preview, build_motif_heatmap, build_oblique_material_preview,
-    build_override_contact_sheet, build_override_diff_sheet, build_palette_preview,
-    build_path_autotile_sheet, build_path_mask_debug_preview, build_path_neighbor_seam_heatmap,
-    build_path_preview_dense, build_path_preview_junctions, build_path_preview_loop,
-    build_path_preview_random, build_path_preview_sparse, build_repeat_preview, build_seam_heatmap,
-    build_single_repeat_preview, build_sprite_contact_sheet, build_transition_edges_preview,
-    build_transition_repeat_preview, build_trench_autotile_sheet, build_trench_contact_sheet,
+    build_berm_oblique_straight_preview, build_berm_preview_corners, build_berm_preview_dead_ends,
+    build_berm_preview_dense, build_berm_preview_junctions, build_berm_preview_loop,
+    build_berm_preview_sparse, build_berm_shadow_continuity_heatmap, build_motif_heatmap,
+    build_oblique_material_preview, build_override_contact_sheet, build_override_diff_sheet,
+    build_palette_preview, build_path_autotile_sheet, build_path_mask_debug_preview,
+    build_path_neighbor_seam_heatmap, build_path_preview_dense, build_path_preview_junctions,
+    build_path_preview_loop, build_path_preview_random, build_path_preview_sparse,
+    build_repeat_preview, build_seam_heatmap, build_single_repeat_preview,
+    build_sprite_contact_sheet, build_transition_edges_preview, build_transition_repeat_preview,
+    build_trench_autotile_sheet, build_trench_contact_sheet,
     build_trench_floor_continuity_edge_heatmap, build_trench_floor_continuity_heatmap,
     build_trench_lip_continuity_edge_heatmap, build_trench_lip_continuity_heatmap,
     build_trench_mask_debug_preview, build_trench_neighbor_seam_edge_heatmap,
@@ -170,6 +175,26 @@ pub fn export_terrain_sprite_bundle(
     build_berm_oblique_shadow_preview(&sprites, &recipe)
         .save_png(out_dir.join("berm_preview_oblique_shadow.png"))?;
     build_berm_mask_debug_preview(&recipe).save_png(out_dir.join("berm_mask_debug.png"))?;
+    build_berm_autotile_sheet(&sprites, &recipe)
+        .save_png(out_dir.join("berm_autotile_sheet.png"))?;
+    build_berm_preview_sparse(&sprites, &recipe)
+        .save_png(out_dir.join("berm_preview_sparse.png"))?;
+    build_berm_preview_dense(&sprites, &recipe).save_png(out_dir.join("berm_preview_dense.png"))?;
+    build_berm_preview_dead_ends(&sprites, &recipe)
+        .save_png(out_dir.join("berm_preview_dead_ends.png"))?;
+    build_berm_preview_corners(&sprites, &recipe)
+        .save_png(out_dir.join("berm_preview_corners.png"))?;
+    build_berm_preview_loop(&sprites, &recipe).save_png(out_dir.join("berm_preview_loop.png"))?;
+    build_berm_preview_junctions(&sprites, &recipe)
+        .save_png(out_dir.join("berm_preview_junctions.png"))?;
+    build_berm_neighbor_seam_heatmap(&sprites, &recipe)
+        .save_png(out_dir.join("berm_neighbor_seam_heatmap.png"))?;
+    build_berm_lip_continuity_heatmap(&sprites, &recipe)
+        .save_png(out_dir.join("berm_lip_continuity_heatmap.png"))?;
+    build_berm_face_continuity_heatmap(&sprites, &recipe)
+        .save_png(out_dir.join("berm_face_continuity_heatmap.png"))?;
+    build_berm_shadow_continuity_heatmap(&sprites, &recipe)
+        .save_png(out_dir.join("berm_shadow_continuity_heatmap.png"))?;
     build_trench_mask_debug_preview(&recipe).save_png(out_dir.join("trench_mask_debug.png"))?;
     build_trench_autotile_sheet(&sprites, &recipe)
         .save_png(out_dir.join("trench_autotile_sheet.png"))?;
@@ -220,6 +245,10 @@ pub fn export_terrain_sprite_bundle(
     fs::write(
         out_dir.join("trench_neighbor_pairs.json"),
         serde_json::to_string_pretty(&validation.trench.worst_trench_neighbor_pairs)?,
+    )?;
+    fs::write(
+        out_dir.join("berm_neighbor_pairs.json"),
+        serde_json::to_string_pretty(&validation.berm.worst_berm_neighbor_pairs)?,
     )?;
     fs::write(
         out_dir.join("validation.json"),
@@ -421,6 +450,27 @@ fn art_piece_for_sprite(sprite: &GeneratedTerrainSprite) -> TerrainArtPiece {
             Some(GroundMaterial::Grass),
             TerrainArtRepeatMode::StretchMiddle,
             vec!["spritegen", "cozy", "berm", "grass-fringe"],
+        ),
+        TerrainSpriteKind::BermMask00
+        | TerrainSpriteKind::BermMask01
+        | TerrainSpriteKind::BermMask02
+        | TerrainSpriteKind::BermMask03
+        | TerrainSpriteKind::BermMask04
+        | TerrainSpriteKind::BermMask05
+        | TerrainSpriteKind::BermMask06
+        | TerrainSpriteKind::BermMask07
+        | TerrainSpriteKind::BermMask08
+        | TerrainSpriteKind::BermMask09
+        | TerrainSpriteKind::BermMask10
+        | TerrainSpriteKind::BermMask11
+        | TerrainSpriteKind::BermMask12
+        | TerrainSpriteKind::BermMask13
+        | TerrainSpriteKind::BermMask14
+        | TerrainSpriteKind::BermMask15 => (
+            TerrainArtPieceKind::BermTop,
+            Some(GroundMaterial::BermTop),
+            TerrainArtRepeatMode::Stamp,
+            vec!["spritegen", "cozy", "berm", "berm-mask"],
         ),
     };
     TerrainArtPiece {

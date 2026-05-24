@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::pixel_image::PixelImage;
 use crate::spritegen::{ObliqueProjectionProfile, TerrainMotifLibrary, TerrainSpriteStyle};
 
-pub const DEFAULT_SPRITEGEN_EXPORT_DIR: &str = "exports/artgen_03_0c";
+pub const DEFAULT_SPRITEGEN_EXPORT_DIR: &str = "exports/artgen_03_1";
 pub const DEFAULT_SPRITE_STYLE_PATH: &str = "assets/sprite_styles/cozy_upland/style.ron";
 
 pub const BUILTIN_SPRITE_STYLE_PROFILES: [(&str, &str); 3] = [
@@ -466,10 +466,26 @@ pub enum TerrainSpriteKind {
     TrenchMask13,
     TrenchMask14,
     TrenchMask15,
+    BermMask00,
+    BermMask01,
+    BermMask02,
+    BermMask03,
+    BermMask04,
+    BermMask05,
+    BermMask06,
+    BermMask07,
+    BermMask08,
+    BermMask09,
+    BermMask10,
+    BermMask11,
+    BermMask12,
+    BermMask13,
+    BermMask14,
+    BermMask15,
 }
 
 impl TerrainSpriteKind {
-    pub const ALL: [TerrainSpriteKind; 59] = [
+    pub const ALL: [TerrainSpriteKind; 75] = [
         TerrainSpriteKind::GrassTile,
         TerrainSpriteKind::DirtTile,
         TerrainSpriteKind::GrassToDirtEdgeNorth,
@@ -529,6 +545,22 @@ impl TerrainSpriteKind {
         TerrainSpriteKind::TrenchMask13,
         TerrainSpriteKind::TrenchMask14,
         TerrainSpriteKind::TrenchMask15,
+        TerrainSpriteKind::BermMask00,
+        TerrainSpriteKind::BermMask01,
+        TerrainSpriteKind::BermMask02,
+        TerrainSpriteKind::BermMask03,
+        TerrainSpriteKind::BermMask04,
+        TerrainSpriteKind::BermMask05,
+        TerrainSpriteKind::BermMask06,
+        TerrainSpriteKind::BermMask07,
+        TerrainSpriteKind::BermMask08,
+        TerrainSpriteKind::BermMask09,
+        TerrainSpriteKind::BermMask10,
+        TerrainSpriteKind::BermMask11,
+        TerrainSpriteKind::BermMask12,
+        TerrainSpriteKind::BermMask13,
+        TerrainSpriteKind::BermMask14,
+        TerrainSpriteKind::BermMask15,
     ];
 
     pub fn id(self) -> &'static str {
@@ -592,6 +624,22 @@ impl TerrainSpriteKind {
             TerrainSpriteKind::TrenchMask13 => "trench_mask_13",
             TerrainSpriteKind::TrenchMask14 => "trench_mask_14",
             TerrainSpriteKind::TrenchMask15 => "trench_mask_15",
+            TerrainSpriteKind::BermMask00 => "berm_mask_00",
+            TerrainSpriteKind::BermMask01 => "berm_mask_01",
+            TerrainSpriteKind::BermMask02 => "berm_mask_02",
+            TerrainSpriteKind::BermMask03 => "berm_mask_03",
+            TerrainSpriteKind::BermMask04 => "berm_mask_04",
+            TerrainSpriteKind::BermMask05 => "berm_mask_05",
+            TerrainSpriteKind::BermMask06 => "berm_mask_06",
+            TerrainSpriteKind::BermMask07 => "berm_mask_07",
+            TerrainSpriteKind::BermMask08 => "berm_mask_08",
+            TerrainSpriteKind::BermMask09 => "berm_mask_09",
+            TerrainSpriteKind::BermMask10 => "berm_mask_10",
+            TerrainSpriteKind::BermMask11 => "berm_mask_11",
+            TerrainSpriteKind::BermMask12 => "berm_mask_12",
+            TerrainSpriteKind::BermMask13 => "berm_mask_13",
+            TerrainSpriteKind::BermMask14 => "berm_mask_14",
+            TerrainSpriteKind::BermMask15 => "berm_mask_15",
         }
     }
 
@@ -656,6 +704,22 @@ impl TerrainSpriteKind {
             TerrainSpriteKind::TrenchMask13 => "Trench mask 13",
             TerrainSpriteKind::TrenchMask14 => "Trench mask 14",
             TerrainSpriteKind::TrenchMask15 => "Trench mask 15",
+            TerrainSpriteKind::BermMask00 => "Berm mask 00",
+            TerrainSpriteKind::BermMask01 => "Berm mask 01",
+            TerrainSpriteKind::BermMask02 => "Berm mask 02",
+            TerrainSpriteKind::BermMask03 => "Berm mask 03",
+            TerrainSpriteKind::BermMask04 => "Berm mask 04",
+            TerrainSpriteKind::BermMask05 => "Berm mask 05",
+            TerrainSpriteKind::BermMask06 => "Berm mask 06",
+            TerrainSpriteKind::BermMask07 => "Berm mask 07",
+            TerrainSpriteKind::BermMask08 => "Berm mask 08",
+            TerrainSpriteKind::BermMask09 => "Berm mask 09",
+            TerrainSpriteKind::BermMask10 => "Berm mask 10",
+            TerrainSpriteKind::BermMask11 => "Berm mask 11",
+            TerrainSpriteKind::BermMask12 => "Berm mask 12",
+            TerrainSpriteKind::BermMask13 => "Berm mask 13",
+            TerrainSpriteKind::BermMask14 => "Berm mask 14",
+            TerrainSpriteKind::BermMask15 => "Berm mask 15",
         }
     }
 
@@ -763,6 +827,54 @@ impl TerrainSpriteKind {
 
     pub fn is_trench_mask(self) -> bool {
         self.trench_mask().is_some()
+    }
+
+    pub fn berm_mask(self) -> Option<u8> {
+        match self {
+            TerrainSpriteKind::BermMask00 => Some(0),
+            TerrainSpriteKind::BermMask01 => Some(1),
+            TerrainSpriteKind::BermMask02 => Some(2),
+            TerrainSpriteKind::BermMask03 => Some(3),
+            TerrainSpriteKind::BermMask04 => Some(4),
+            TerrainSpriteKind::BermMask05 => Some(5),
+            TerrainSpriteKind::BermMask06 => Some(6),
+            TerrainSpriteKind::BermMask07 => Some(7),
+            TerrainSpriteKind::BermMask08 => Some(8),
+            TerrainSpriteKind::BermMask09 => Some(9),
+            TerrainSpriteKind::BermMask10 => Some(10),
+            TerrainSpriteKind::BermMask11 => Some(11),
+            TerrainSpriteKind::BermMask12 => Some(12),
+            TerrainSpriteKind::BermMask13 => Some(13),
+            TerrainSpriteKind::BermMask14 => Some(14),
+            TerrainSpriteKind::BermMask15 => Some(15),
+            _ => None,
+        }
+    }
+
+    pub fn from_berm_mask(mask: u8) -> Option<Self> {
+        match mask {
+            0 => Some(TerrainSpriteKind::BermMask00),
+            1 => Some(TerrainSpriteKind::BermMask01),
+            2 => Some(TerrainSpriteKind::BermMask02),
+            3 => Some(TerrainSpriteKind::BermMask03),
+            4 => Some(TerrainSpriteKind::BermMask04),
+            5 => Some(TerrainSpriteKind::BermMask05),
+            6 => Some(TerrainSpriteKind::BermMask06),
+            7 => Some(TerrainSpriteKind::BermMask07),
+            8 => Some(TerrainSpriteKind::BermMask08),
+            9 => Some(TerrainSpriteKind::BermMask09),
+            10 => Some(TerrainSpriteKind::BermMask10),
+            11 => Some(TerrainSpriteKind::BermMask11),
+            12 => Some(TerrainSpriteKind::BermMask12),
+            13 => Some(TerrainSpriteKind::BermMask13),
+            14 => Some(TerrainSpriteKind::BermMask14),
+            15 => Some(TerrainSpriteKind::BermMask15),
+            _ => None,
+        }
+    }
+
+    pub fn is_berm_mask(self) -> bool {
+        self.berm_mask().is_some()
     }
 
     pub fn is_trench(self) -> bool {
@@ -899,7 +1011,23 @@ impl TerrainSpriteKind {
             | TerrainSpriteKind::TrenchMask12
             | TerrainSpriteKind::TrenchMask13
             | TerrainSpriteKind::TrenchMask14
-            | TerrainSpriteKind::TrenchMask15 => SpritePieceMetadata::new(SpriteRole::TopSurface)
+            | TerrainSpriteKind::TrenchMask15
+            | TerrainSpriteKind::BermMask00
+            | TerrainSpriteKind::BermMask01
+            | TerrainSpriteKind::BermMask02
+            | TerrainSpriteKind::BermMask03
+            | TerrainSpriteKind::BermMask04
+            | TerrainSpriteKind::BermMask05
+            | TerrainSpriteKind::BermMask06
+            | TerrainSpriteKind::BermMask07
+            | TerrainSpriteKind::BermMask08
+            | TerrainSpriteKind::BermMask09
+            | TerrainSpriteKind::BermMask10
+            | TerrainSpriteKind::BermMask11
+            | TerrainSpriteKind::BermMask12
+            | TerrainSpriteKind::BermMask13
+            | TerrainSpriteKind::BermMask14
+            | TerrainSpriteKind::BermMask15 => SpritePieceMetadata::new(SpriteRole::TopSurface)
                 .footprint((1, 1))
                 .z_bias(20)
                 .occludes(true),

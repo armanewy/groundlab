@@ -352,6 +352,26 @@ This is a workflow milestone, not a new terrain feature. It makes generated art 
 breaking the metadata contract that later berm topology, stone, props, and editable-scene integration
 will consume.
 
+## ArtGen 3.1 — Berm autotile / mound topology
+
+Implemented in this drop.
+
+- generated `berm_mask_00` through `berm_mask_15` using the same 4-bit cardinal mask contract as paths and trenches
+- connected berm openings suppress shared internal lips, faces, and caps so adjacent mound cells read as one feature
+- dead-end caps draw only on true endpoints
+- corners, T-junctions, and crosses receive mound-aware center/top composition instead of overlapping straight pieces
+- `berm_autotile_sheet.png` exports the full mask set
+- sparse, dense, loop, junction, dead-end, and corner berm topology previews added
+- neighbor-seam, lip-continuity, face-continuity, and shadow-continuity heatmaps added
+- `berm_neighbor_pairs.json` lists the worst connected mask pairs for follow-up polish
+- berm validation now reports mask coverage, missing masks, neighbor seam score, face/lip/shadow continuity, cap coverage, corner coverage, and junction coverage
+- generated/effective/override/diff contact sheets and override reports remain part of the export bundle
+- sprite CLI/app default export target is `exports/artgen_03_1`
+
+This is the raised-terrain topology counterpart to the trench 2.1b pass. It keeps rough generated art
+replaceable through the 3.0c override workflow while proving that berms can connect into straights,
+corners, dead ends, loops, T-junctions, and crosses without baking internal faces into shared edges.
+
 ## Milestone 5 — Custom renderer/runtime
 
 - introduce `ground_render`

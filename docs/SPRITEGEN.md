@@ -3,9 +3,9 @@
 GroundLab's active visual milestone is now a dedicated terrain sprite generator, not the large
 editable scene renderer. The generator first produces cozy top-surface terrain primitives: grass,
 dirt, grass-to-dirt transitions, and connected dirt path masks. ArtGen 2.1b extends that foundation
-with polished connected oblique trench masks; ArtGen 3.0b improves the first raised-terrain
-counterpart; and ArtGen 3.0c formalizes the art override workflow so rough generated sprites can be
-replaced by better authored PNGs without changing metadata or renderer contracts.
+with polished connected oblique trench masks; ArtGen 3.0c formalizes the art override workflow so
+rough generated sprites can be replaced by better authored PNGs without changing metadata or
+renderer contracts; and ArtGen 3.1 adds connected berm/mound topology.
 
 The generator does not require reference images. It uses:
 
@@ -25,12 +25,12 @@ The generator does not require reference images. It uses:
 - generated/effective/override/diff contact sheets
 - override compatibility validation
 
-ArtGen 3.0c keeps the ArtGen 1.2b path topology, ArtGen 1.3 style profiles, ArtGen 1.4
+ArtGen 3.1 keeps the ArtGen 1.2b path topology, ArtGen 1.3 style profiles, ArtGen 1.4
 projection-aware sprite contract, ArtGen 2.0b trench polish, and ArtGen 2.1b connected trench
 topology. Grass/dirt/path pieces are still top-surface material primitives, trench pieces include
-both the base role pieces and `trench_mask_00` through `trench_mask_15`, and berm pieces now test
-the raised-earth side of the same 2.5D contract with top, front face, lips, caps, corners, contact
-shadow, spoil, and grass fringe. The 3.0c pass adds a replacement layer after procedural generation:
+both the base role pieces and `trench_mask_00` through `trench_mask_15`, and berm pieces now include
+both the base raised-earth role pieces and `berm_mask_00` through `berm_mask_15`. The 3.0c override
+workflow remains active after procedural generation:
 Forge always generates the source sprites, then swaps in `overrides/{sprite_id}.png` when it is
 compatible. The effective sprites are what get previewed, validated, and packed into the art-kit
 manifest:
@@ -81,7 +81,7 @@ cargo run -p ground_sprite_app
 Export the deterministic bundle:
 
 ```bash
-cargo run -p ground_sprite_cli -- export exports/artgen_03_0c assets/sprite_styles/cozy_upland/style.ron
+cargo run -p ground_sprite_cli -- export exports/artgen_03_1 assets/sprite_styles/cozy_upland/style.ron
 ```
 
 Copy the current generated sprites into a profile's override folder so they can be edited or
@@ -94,7 +94,7 @@ cargo run -p ground_sprite_cli -- promote-overrides assets/sprite_styles/cozy_up
 Export output:
 
 ```txt
-exports/artgen_03_0c/
+exports/artgen_03_1/
   manifest.ron
   sprite_manifest.ron
   sprite_manifest.json
@@ -111,7 +111,19 @@ exports/artgen_03_0c/
   berm_preview_oblique_caps.png
   berm_preview_oblique_corner.png
   berm_preview_oblique_shadow.png
+  berm_autotile_sheet.png
+  berm_preview_sparse.png
+  berm_preview_dense.png
+  berm_preview_loop.png
+  berm_preview_junctions.png
+  berm_preview_dead_ends.png
+  berm_preview_corners.png
   berm_mask_debug.png
+  berm_neighbor_seam_heatmap.png
+  berm_lip_continuity_heatmap.png
+  berm_face_continuity_heatmap.png
+  berm_shadow_continuity_heatmap.png
+  berm_neighbor_pairs.json
   trench_contact_sheet.png
   trench_preview_oblique_straight.png
   trench_preview_oblique_caps.png
@@ -199,6 +211,9 @@ exports/artgen_03_0c/
     berm_contact_shadow_01.png
     berm_spoil_pile_01.png
     berm_grass_fringe_01.png
+    berm_mask_00.png
+    ...
+    berm_mask_15.png
 ```
 
 The full-scene GroundLab renderer remains in the repository as downstream infrastructure for terrain

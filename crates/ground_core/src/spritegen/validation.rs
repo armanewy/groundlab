@@ -63,6 +63,16 @@ pub struct BermSpriteValidationSummary {
     pub berm_shadow_continuity: f32,
     pub berm_cap_presence: bool,
     pub berm_oblique_anchor_validity: f32,
+    pub berm_mask_coverage: usize,
+    pub missing_berm_masks: Vec<u8>,
+    pub berm_neighbor_seam_score: f32,
+    pub berm_face_continuity_score: f32,
+    pub berm_lip_continuity_score: f32,
+    pub berm_shadow_continuity_score: f32,
+    pub berm_cap_coverage: usize,
+    pub berm_corner_coverage: usize,
+    pub berm_junction_coverage: usize,
+    pub worst_berm_neighbor_pairs: Vec<TrenchNeighborPairScore>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -107,7 +117,11 @@ pub fn validate_terrain_sprites(
 
     for sprite in sprites {
         let summary = summarize(sprite);
-        if !sprite.kind.is_trench() && !sprite.kind.is_trench_mask() && !sprite.kind.is_berm() {
+        if !sprite.kind.is_trench()
+            && !sprite.kind.is_trench_mask()
+            && !sprite.kind.is_berm()
+            && !sprite.kind.is_berm_mask()
+        {
             seam_total += summary.seam_score;
             noise_total += summary.single_pixel_noise_count as f32;
             motif_total += summary.motif_repetition_score;
@@ -132,6 +146,7 @@ pub fn validate_terrain_sprites(
         if !sprite.kind.is_trench()
             && !sprite.kind.is_trench_mask()
             && !sprite.kind.is_berm()
+            && !sprite.kind.is_berm_mask()
             && summary.single_pixel_noise_count > 6
         {
             issues.push(TerrainSpriteValidationIssue {
@@ -143,6 +158,7 @@ pub fn validate_terrain_sprites(
         if !sprite.kind.is_trench()
             && !sprite.kind.is_trench_mask()
             && !sprite.kind.is_berm()
+            && !sprite.kind.is_berm_mask()
             && summary.unique_colors > 10
         {
             issues.push(TerrainSpriteValidationIssue {
@@ -219,6 +235,20 @@ pub fn validate_terrain_sprites(
             ),
         });
     }
+    let missing_berm_masks = (0..16)
+        .filter(|mask| {
+            !sprites
+                .iter()
+                .any(|sprite| sprite.kind.berm_mask() == Some(*mask))
+        })
+        .collect::<Vec<_>>();
+    if !missing_berm_masks.is_empty() {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Error,
+            sprite_id: None,
+            message: format!("missing berm mask coverage for {:?}", missing_berm_masks),
+        });
+    }
 
     let count = f32::max(aggregate_count, 1.0);
     let variant_similarity_score = variant_similarity_score(sprites);
@@ -236,6 +266,14 @@ pub fn validate_terrain_sprites(
             severity: TerrainSpriteValidationSeverity::Warning,
             sprite_id: None,
             message: "trench masks have visible neighbor seam discontinuity".to_string(),
+        });
+    }
+    let berm_neighbor_score = berm_neighbor_seam_score(sprites);
+    if berm_neighbor_score > 0.24 {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Warning,
+            sprite_id: None,
+            message: "berm masks have visible neighbor seam discontinuity".to_string(),
         });
     }
     if variant_similarity_score > 0.985 {
@@ -643,6 +681,47 @@ fn validate_berm_sprites(
     } else {
         valid_anchors / berm_sprites.len() as f32
     };
+    let berm_mask_sprites = sprites
+        .iter()
+        .filter(|sprite| sprite.kind.is_berm_mask())
+        .collect::<Vec<_>>();
+    let missing_berm_masks = (0..16)
+        .filter(|mask| {
+            !berm_mask_sprites
+                .iter()
+                .any(|sprite| sprite.kind.berm_mask() == Some(*mask))
+        })
+        .collect::<Vec<_>>();
+    let berm_mask_coverage = 16 - missing_berm_masks.len();
+    let berm_neighbor_seam_score = berm_neighbor_seam_score(sprites);
+    let berm_face_continuity_score = berm_mask_band_continuity_score(sprites, 0.55);
+    let berm_lip_continuity_score = berm_mask_band_continuity_score(sprites, 0.12);
+    let berm_shadow_continuity_score = berm_mask_band_continuity_score(sprites, 0.92);
+    let worst_berm_neighbor_pairs = worst_berm_neighbor_pairs(sprites);
+    let berm_cap_coverage = [0_u8, 1, 2, 4, 8]
+        .into_iter()
+        .filter(|mask| {
+            berm_mask_sprites
+                .iter()
+                .any(|sprite| sprite.kind.berm_mask() == Some(*mask))
+        })
+        .count();
+    let berm_corner_coverage = [3_u8, 6, 9, 12]
+        .into_iter()
+        .filter(|mask| {
+            berm_mask_sprites
+                .iter()
+                .any(|sprite| sprite.kind.berm_mask() == Some(*mask))
+        })
+        .count();
+    let berm_junction_coverage = [7_u8, 11, 13, 14, 15]
+        .into_iter()
+        .filter(|mask| {
+            berm_mask_sprites
+                .iter()
+                .any(|sprite| sprite.kind.berm_mask() == Some(*mask))
+        })
+        .count();
 
     if berm_face_top_contrast < 0.05 {
         issues.push(TerrainSpriteValidationIssue {
@@ -705,6 +784,48 @@ fn validate_berm_sprites(
             message: "berm end/corner cap coverage is incomplete".to_string(),
         });
     }
+    if berm_mask_coverage < 16 {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Error,
+            sprite_id: None,
+            message: format!("missing berm topology masks {:?}", missing_berm_masks),
+        });
+    }
+    if berm_cap_coverage < 5 {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Error,
+            sprite_id: None,
+            message: "berm cap mask coverage is incomplete".to_string(),
+        });
+    }
+    if berm_corner_coverage < 4 {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Error,
+            sprite_id: None,
+            message: "berm corner mask coverage is incomplete".to_string(),
+        });
+    }
+    if berm_junction_coverage < 5 {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Error,
+            sprite_id: None,
+            message: "berm junction mask coverage is incomplete".to_string(),
+        });
+    }
+    if berm_face_continuity_score > 0.16 {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Warning,
+            sprite_id: None,
+            message: "berm face continuity score is high".to_string(),
+        });
+    }
+    if berm_lip_continuity_score > 0.16 {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Warning,
+            sprite_id: None,
+            message: "berm lip continuity score is high".to_string(),
+        });
+    }
 
     BermSpriteValidationSummary {
         berm_piece_coverage,
@@ -718,6 +839,16 @@ fn validate_berm_sprites(
         berm_shadow_continuity,
         berm_cap_presence,
         berm_oblique_anchor_validity,
+        berm_mask_coverage,
+        missing_berm_masks,
+        berm_neighbor_seam_score,
+        berm_face_continuity_score,
+        berm_lip_continuity_score,
+        berm_shadow_continuity_score,
+        berm_cap_coverage,
+        berm_corner_coverage,
+        berm_junction_coverage,
+        worst_berm_neighbor_pairs,
     }
 }
 
@@ -1209,6 +1340,100 @@ fn worst_trench_neighbor_pairs(sprites: &[GeneratedTerrainSprite]) -> Vec<Trench
     pairs
 }
 
+fn berm_neighbor_seam_score(sprites: &[GeneratedTerrainSprite]) -> f32 {
+    let mut total = 0.0;
+    let mut count = 0.0;
+    for sprite in sprites.iter().filter(|sprite| sprite.kind.is_berm_mask()) {
+        let Some(mask) = sprite.kind.berm_mask() else {
+            continue;
+        };
+        for (direction, opposite) in [(1, 4), (2, 8), (4, 1), (8, 2)] {
+            if mask & direction == 0 {
+                continue;
+            }
+            let Some(neighbor) = sprites
+                .iter()
+                .find(|candidate| candidate.kind.berm_mask() == Some(opposite))
+            else {
+                continue;
+            };
+            total += berm_edge_difference(sprite, neighbor, direction, 0.0);
+            count += 1.0;
+        }
+    }
+    if count == 0.0 {
+        0.0
+    } else {
+        total / count
+    }
+}
+
+fn berm_mask_band_continuity_score(sprites: &[GeneratedTerrainSprite], band: f32) -> f32 {
+    let mut total = 0.0;
+    let mut count = 0.0;
+    for sprite in sprites.iter().filter(|sprite| sprite.kind.is_berm_mask()) {
+        let Some(mask) = sprite.kind.berm_mask() else {
+            continue;
+        };
+        for (direction, opposite) in [(1, 4), (2, 8), (4, 1), (8, 2)] {
+            if mask & direction == 0 {
+                continue;
+            }
+            let Some(neighbor) = sprites
+                .iter()
+                .find(|candidate| candidate.kind.berm_mask() == Some(opposite))
+            else {
+                continue;
+            };
+            total += berm_edge_difference(sprite, neighbor, direction, band);
+            count += 1.0;
+        }
+    }
+    if count == 0.0 {
+        0.0
+    } else {
+        total / count
+    }
+}
+
+fn worst_berm_neighbor_pairs(sprites: &[GeneratedTerrainSprite]) -> Vec<TrenchNeighborPairScore> {
+    let mut pairs = Vec::new();
+    for sprite in sprites.iter().filter(|sprite| sprite.kind.is_berm_mask()) {
+        let Some(mask) = sprite.kind.berm_mask() else {
+            continue;
+        };
+        for (direction, opposite, edge) in [
+            (1_u8, 4_u8, "north"),
+            (2_u8, 8_u8, "east"),
+            (4_u8, 1_u8, "south"),
+            (8_u8, 2_u8, "west"),
+        ] {
+            if mask & direction == 0 {
+                continue;
+            }
+            let Some(neighbor) = sprites
+                .iter()
+                .find(|candidate| candidate.kind.berm_mask() == Some(opposite))
+            else {
+                continue;
+            };
+            pairs.push(TrenchNeighborPairScore {
+                mask_a: mask,
+                edge: edge.to_string(),
+                mask_b: opposite,
+                score: berm_edge_difference(sprite, neighbor, direction, 0.0),
+            });
+        }
+    }
+    pairs.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    pairs.truncate(8);
+    pairs
+}
+
 fn path_edge_difference(
     sprite: &GeneratedTerrainSprite,
     neighbor: &GeneratedTerrainSprite,
@@ -1282,6 +1507,79 @@ fn trench_edge_difference(
         2 | 8 => {
             let center = surface_h / 2;
             let open = (surface_h as f32 * 0.34).round() as u32;
+            let start = center.saturating_sub(open / 2);
+            let end = (center + open / 2).min(surface_h - 1);
+            let x_a = if direction == 8 { 0 } else { width - 1 };
+            let x_b = if direction == 8 { width - 1 } else { 0 };
+            let offset = (width as f32 * band * 0.5).round() as u32;
+            let xa = if direction == 8 {
+                (x_a + offset).min(width - 1)
+            } else {
+                x_a.saturating_sub(offset)
+            };
+            let xb = if direction == 8 {
+                x_b.saturating_sub(offset)
+            } else {
+                (x_b + offset).min(width - 1)
+            };
+            for y in start..=end {
+                total += sprite
+                    .image
+                    .get(xa, y)
+                    .rgb_distance(neighbor.image.get(xb, y));
+                count += 1.0;
+            }
+        }
+        _ => {}
+    }
+    if count == 0.0 {
+        0.0
+    } else {
+        (total / count).min(140.0) / 140.0
+    }
+}
+
+fn berm_edge_difference(
+    sprite: &GeneratedTerrainSprite,
+    neighbor: &GeneratedTerrainSprite,
+    direction: u8,
+    band: f32,
+) -> f32 {
+    let width = sprite.image.width.min(neighbor.image.width).max(1);
+    let height = sprite.image.height.min(neighbor.image.height).max(1);
+    let surface_h = ((height as f32 * 0.68).round() as u32).clamp(1, height);
+    let mut total = 0.0;
+    let mut count = 0.0;
+    match direction {
+        1 | 4 => {
+            let center = width / 2;
+            let open = (width as f32 * 0.40).round() as u32;
+            let start = center.saturating_sub(open / 2);
+            let end = (center + open / 2).min(width - 1);
+            let y_a = if direction == 1 { 0 } else { surface_h - 1 };
+            let y_b = if direction == 1 { surface_h - 1 } else { 0 };
+            let offset = (surface_h as f32 * band).round() as u32;
+            let ya = if direction == 1 {
+                (y_a + offset).min(surface_h - 1)
+            } else {
+                y_a.saturating_sub(offset)
+            };
+            let yb = if direction == 1 {
+                y_b.saturating_sub(offset)
+            } else {
+                (y_b + offset).min(surface_h - 1)
+            };
+            for x in start..=end {
+                total += sprite
+                    .image
+                    .get(x, ya)
+                    .rgb_distance(neighbor.image.get(x, yb));
+                count += 1.0;
+            }
+        }
+        2 | 8 => {
+            let center = surface_h / 2;
+            let open = (surface_h as f32 * 0.40).round() as u32;
             let start = center.saturating_sub(open / 2);
             let end = (center + open / 2).min(surface_h - 1);
             let x_a = if direction == 8 { 0 } else { width - 1 };

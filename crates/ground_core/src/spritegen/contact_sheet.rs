@@ -808,6 +808,135 @@ pub fn build_berm_mask_debug_preview(recipe: &TerrainSpriteRecipe) -> PixelImage
     scale_nearest(&preview, scale)
 }
 
+pub fn build_berm_autotile_sheet(
+    sprites: &[GeneratedTerrainSprite],
+    _recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    let berm_masks = (0..16)
+        .filter_map(|mask| berm_mask_sprite(sprites, mask))
+        .collect::<Vec<_>>();
+    let cell_w = berm_masks
+        .iter()
+        .map(|sprite| sprite.image.width)
+        .max()
+        .unwrap_or(96)
+        + 12;
+    let cell_h = berm_masks
+        .iter()
+        .map(|sprite| sprite.image.height)
+        .max()
+        .unwrap_or(96)
+        + 12;
+    let mut sheet = PixelImage::new(cell_w * 4 + 8, cell_h * 4 + 8, Rgba8::opaque(13, 15, 17));
+    for mask in 0..16 {
+        let x = 8 + mask as u32 % 4 * cell_w;
+        let y = 8 + mask as u32 / 4 * cell_h;
+        sheet.fill_rect(x, y, cell_w - 6, cell_h - 6, Rgba8::opaque(28, 31, 28));
+        sheet.outline_rect(x, y, cell_w - 6, cell_h - 6, Rgba8::opaque(55, 60, 54));
+        if let Some(sprite) = berm_mask_sprite(sprites, mask) {
+            sheet.blit(&sprite.image, x + 3, y + 3);
+        }
+    }
+    sheet
+}
+
+pub fn build_berm_preview_sparse(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    build_berm_preview_for_pattern(sprites, recipe, PathPreviewPattern::Sparse)
+}
+
+pub fn build_berm_preview_dense(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    build_berm_preview_for_pattern(sprites, recipe, PathPreviewPattern::Dense)
+}
+
+pub fn build_berm_preview_loop(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    build_berm_preview_for_pattern(sprites, recipe, PathPreviewPattern::Loop)
+}
+
+pub fn build_berm_preview_junctions(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    build_berm_preview_for_pattern(sprites, recipe, PathPreviewPattern::Junctions)
+}
+
+pub fn build_berm_preview_dead_ends(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    let width = 8;
+    let height = 5;
+    let mut map = vec![false; (width * height) as usize];
+    for x in 1..4 {
+        set_path(&mut map, width, x, 1);
+    }
+    for y in 1..4 {
+        set_path(&mut map, width, 5, y);
+    }
+    for x in 1..7 {
+        set_path(&mut map, width, x, 3);
+    }
+    build_berm_preview_from_map(sprites, recipe, width, height, &map)
+}
+
+pub fn build_berm_preview_corners(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    let width = 8;
+    let height = 5;
+    let mut map = vec![false; (width * height) as usize];
+    for x in 1..4 {
+        set_path(&mut map, width, x, 1);
+    }
+    for y in 1..4 {
+        set_path(&mut map, width, 3, y);
+    }
+    for x in 4..7 {
+        set_path(&mut map, width, x, 3);
+    }
+    for y in 1..=3 {
+        set_path(&mut map, width, 6, y);
+    }
+    build_berm_preview_from_map(sprites, recipe, width, height, &map)
+}
+
+pub fn build_berm_neighbor_seam_heatmap(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    build_berm_continuity_heatmap(sprites, recipe, BermContinuityMode::Neighbor)
+}
+
+pub fn build_berm_lip_continuity_heatmap(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    build_berm_continuity_heatmap(sprites, recipe, BermContinuityMode::Lip)
+}
+
+pub fn build_berm_face_continuity_heatmap(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    build_berm_continuity_heatmap(sprites, recipe, BermContinuityMode::Face)
+}
+
+pub fn build_berm_shadow_continuity_heatmap(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    build_berm_continuity_heatmap(sprites, recipe, BermContinuityMode::Shadow)
+}
+
 pub fn build_trench_mask_debug_preview(recipe: &TerrainSpriteRecipe) -> PixelImage {
     let scale = recipe.style.display_scale.max(1);
     let tile = (recipe.tile_size * 2).max(28);
@@ -1105,11 +1234,78 @@ fn build_trench_preview_from_map(
     preview
 }
 
+fn build_berm_preview_for_pattern(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+    pattern: PathPreviewPattern,
+) -> PixelImage {
+    let width = 10;
+    let height = 6;
+    let map = sample_path_map(width, height, pattern);
+    build_berm_preview_from_map(sprites, recipe, width, height, &map)
+}
+
+fn build_berm_preview_from_map(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+    width: u32,
+    height: u32,
+    map: &[bool],
+) -> PixelImage {
+    let projection = &recipe.style.projection;
+    let cell_w = projection.cell_width_px;
+    let cell_h = projection.cell_height_px;
+    let mask_h = (projection.cell_height_px + projection.face_height_px + 12).max(cell_h);
+    let mut preview = PixelImage::new(
+        width * cell_w,
+        height * cell_h + mask_h.saturating_sub(cell_h),
+        Rgba8::opaque(40, 48, 34),
+    );
+    let grass = sprites
+        .iter()
+        .filter(|sprite| sprite.kind == TerrainSpriteKind::GrassTile)
+        .collect::<Vec<_>>();
+    for y in 0..height {
+        for x in 0..width {
+            if let Some(sprite) = grass.get(variant_index(x, y, grass.len().max(1))) {
+                blit_scaled_i32(
+                    &mut preview,
+                    &sprite.image,
+                    (x * cell_w) as i32,
+                    (y * cell_h) as i32,
+                    cell_w,
+                    cell_h,
+                );
+            }
+        }
+    }
+    for y in 0..height {
+        for x in 0..width {
+            if !map[(y * width + x) as usize] {
+                continue;
+            }
+            let mask = path_neighbor_mask(map, width, height, x, y);
+            if let Some(sprite) = berm_mask_sprite(sprites, mask) {
+                preview.blit(&sprite.image, x * cell_w, y * cell_h);
+            }
+        }
+    }
+    preview
+}
+
 #[derive(Clone, Copy)]
 enum TrenchContinuityMode {
     Neighbor,
     Lip,
     Floor,
+}
+
+#[derive(Clone, Copy)]
+enum BermContinuityMode {
+    Neighbor,
+    Lip,
+    Face,
+    Shadow,
 }
 
 fn build_trench_continuity_heatmap(
@@ -1149,6 +1345,52 @@ fn build_trench_continuity_heatmap(
             paint_heat_block(&mut image, ox, oy + y, 4, 1, v);
             let v = if mask & 2 != 0 {
                 trench_connected_edge_score(sprite, sprites, mask, 2, y, mode, recipe)
+            } else {
+                0.0
+            };
+            paint_heat_block(&mut image, ox + cell_w.saturating_sub(4), oy + y, 4, 1, v);
+        }
+    }
+    scale_nearest(&image, recipe.style.display_scale.max(1))
+}
+
+fn build_berm_continuity_heatmap(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+    mode: BermContinuityMode,
+) -> PixelImage {
+    let cell_w = recipe.style.projection.cell_width_px;
+    let cell_h = recipe.style.projection.cell_height_px;
+    let mut image = PixelImage::new(cell_w * 4, cell_h * 4, Rgba8::opaque(15, 18, 16));
+    for mask in 0..16 {
+        let ox = mask as u32 % 4 * cell_w;
+        let oy = mask as u32 / 4 * cell_h;
+        let Some(sprite) = berm_mask_sprite(sprites, mask) else {
+            continue;
+        };
+        for x in 0..cell_w.min(sprite.image.width) {
+            let v = if mask & 1 != 0 {
+                berm_connected_edge_score(sprite, sprites, mask, 1, x, mode, recipe)
+            } else {
+                0.0
+            };
+            paint_heat_block(&mut image, ox + x, oy, 1, 4, v);
+            let v = if mask & 4 != 0 {
+                berm_connected_edge_score(sprite, sprites, mask, 4, x, mode, recipe)
+            } else {
+                0.0
+            };
+            paint_heat_block(&mut image, ox + x, oy + cell_h.saturating_sub(4), 1, 4, v);
+        }
+        for y in 0..cell_h.min(sprite.image.height) {
+            let v = if mask & 8 != 0 {
+                berm_connected_edge_score(sprite, sprites, mask, 8, y, mode, recipe)
+            } else {
+                0.0
+            };
+            paint_heat_block(&mut image, ox, oy + y, 4, 1, v);
+            let v = if mask & 2 != 0 {
+                berm_connected_edge_score(sprite, sprites, mask, 2, y, mode, recipe)
             } else {
                 0.0
             };
@@ -1464,6 +1706,15 @@ fn trench_mask_sprite(
     sprites
         .iter()
         .find(|sprite| sprite.kind.trench_mask() == Some(mask))
+}
+
+fn berm_mask_sprite(
+    sprites: &[GeneratedTerrainSprite],
+    mask: u8,
+) -> Option<&GeneratedTerrainSprite> {
+    sprites
+        .iter()
+        .find(|sprite| sprite.kind.berm_mask() == Some(mask))
 }
 
 #[derive(Clone, Copy)]
@@ -1844,6 +2095,109 @@ fn trench_connected_edge_score(
                 TrenchContinuityMode::Neighbor => 0,
                 TrenchContinuityMode::Lip => 2.min(width - 1),
                 TrenchContinuityMode::Floor => (width / 2).min(width - 1),
+            };
+            (
+                sprite.image.get(width - 1 - band.min(width - 1), y),
+                neighbor.image.get(band, y),
+            )
+        }
+        _ => return 0.0,
+    };
+    a.rgb_distance(b).min(140.0) / 140.0
+}
+
+fn berm_connected_edge_score(
+    sprite: &GeneratedTerrainSprite,
+    sprites: &[GeneratedTerrainSprite],
+    _mask: u8,
+    direction: u8,
+    offset: u32,
+    mode: BermContinuityMode,
+    recipe: &TerrainSpriteRecipe,
+) -> f32 {
+    let opposite = match direction {
+        1 => 4,
+        2 => 8,
+        4 => 1,
+        8 => 2,
+        _ => return 0.0,
+    };
+    let Some(neighbor) = berm_mask_sprite(sprites, opposite) else {
+        return 1.0;
+    };
+    let surface_h = recipe
+        .style
+        .projection
+        .cell_height_px
+        .min(sprite.image.height)
+        .min(neighbor.image.height)
+        .max(1);
+    let width = sprite.image.width.min(neighbor.image.width).max(1);
+    let center_x = width / 2;
+    let center_y = surface_h / 2;
+    let open_w = (width as f32 * 0.40).round() as u32;
+    let open_h = (surface_h as f32 * 0.40).round() as u32;
+    let (a, b) = match direction {
+        1 => {
+            let x = offset.min(width - 1);
+            if x < center_x.saturating_sub(open_w / 2) || x > center_x + open_w / 2 {
+                return 0.0;
+            }
+            let band = match mode {
+                BermContinuityMode::Neighbor => 0,
+                BermContinuityMode::Lip => 3.min(surface_h - 1),
+                BermContinuityMode::Face => (surface_h / 2).min(surface_h - 1),
+                BermContinuityMode::Shadow => surface_h.saturating_sub(2),
+            };
+            (
+                sprite.image.get(x, band),
+                neighbor
+                    .image
+                    .get(x, surface_h - 1 - band.min(surface_h - 1)),
+            )
+        }
+        4 => {
+            let x = offset.min(width - 1);
+            if x < center_x.saturating_sub(open_w / 2) || x > center_x + open_w / 2 {
+                return 0.0;
+            }
+            let band = match mode {
+                BermContinuityMode::Neighbor => 0,
+                BermContinuityMode::Lip => 3.min(surface_h - 1),
+                BermContinuityMode::Face => (surface_h / 2).min(surface_h - 1),
+                BermContinuityMode::Shadow => surface_h.saturating_sub(2),
+            };
+            (
+                sprite.image.get(x, surface_h - 1 - band.min(surface_h - 1)),
+                neighbor.image.get(x, band),
+            )
+        }
+        8 => {
+            let y = offset.min(surface_h - 1);
+            if y < center_y.saturating_sub(open_h / 2) || y > center_y + open_h / 2 {
+                return 0.0;
+            }
+            let band = match mode {
+                BermContinuityMode::Neighbor => 0,
+                BermContinuityMode::Lip => 3.min(width - 1),
+                BermContinuityMode::Face => (width / 2).min(width - 1),
+                BermContinuityMode::Shadow => width.saturating_sub(2),
+            };
+            (
+                sprite.image.get(band, y),
+                neighbor.image.get(width - 1 - band.min(width - 1), y),
+            )
+        }
+        2 => {
+            let y = offset.min(surface_h - 1);
+            if y < center_y.saturating_sub(open_h / 2) || y > center_y + open_h / 2 {
+                return 0.0;
+            }
+            let band = match mode {
+                BermContinuityMode::Neighbor => 0,
+                BermContinuityMode::Lip => 3.min(width - 1),
+                BermContinuityMode::Face => (width / 2).min(width - 1),
+                BermContinuityMode::Shadow => width.saturating_sub(2),
             };
             (
                 sprite.image.get(width - 1 - band.min(width - 1), y),

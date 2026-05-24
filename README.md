@@ -4,19 +4,20 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: ArtGen 3.0c — art override / replacement workflow
+## Current status: ArtGen 3.1 — berm autotile / mound topology
 
 GroundLab's active visual work has pivoted away from the large editable scene renderer. The current
 focus is a dedicated, fast terrain sprite generator that produces simple, cozy, top-down pixel
 terrain primitives from swappable style profiles, palettes, motif libraries, and art rules. It does
 not require reference images.
 
-ArtGen 3.0c keeps the grass/dirt/path, trench, and berm generators intact, but adds the production
-workflow that lets rough generated sprites be replaced one piece at a time. Each style profile can
-now point at an `overrides/` folder. If `overrides/{sprite_id}.png` exists and matches the generated
-sprite size, Forge uses that PNG as the effective sprite while preserving the generated metadata:
-sprite role, anchor, footprint, z-bias, occlusion intent, and projection data. If no override exists,
-the generated sprite remains active.
+ArtGen 3.1 keeps the override workflow from 3.0c and turns the berm kit into connected mound
+topology. The sprite generator now exports `berm_mask_00` through `berm_mask_15`, sparse/dense/loop
+berm previews, dead-end and corner previews, continuity heatmaps, and worst-neighbor diagnostics.
+Each style profile can still point at an `overrides/` folder. If `overrides/{sprite_id}.png` exists
+and matches the generated sprite size, Forge uses that PNG as the effective sprite while preserving
+the generated metadata: sprite role, anchor, footprint, z-bias, occlusion intent, and projection
+data. If no override exists, the generated sprite remains active.
 
 The style profiles remain data-driven under `assets/sprite_styles/`. The current built-in profiles
 are:
@@ -29,7 +30,7 @@ Each profile has a `style.ron` for palette/rule/projection tuning, a `motifs.ron
 pixel-cluster motifs, and an `overrides/` folder for optional replacement PNGs. The Forge app can
 switch profiles from a dropdown, and the CLI can export with an explicit profile path.
 
-ArtGen 3.0c exports:
+ArtGen 3.1 exports:
 
 - tileable grass variants
 - tileable dirt variants
@@ -47,7 +48,12 @@ ArtGen 3.0c exports:
 - worst-offending trench neighbor pairs in `trench_neighbor_pairs.json`
 - oblique berm top, front-face, lip, end-cap, corner, contact-shadow, spoil, and grass-fringe sprites
 - berm straight, caps, corner, shadow, and mask-debug previews
-- berm validation metrics for piece coverage, role coverage, face/top contrast, face rectangularity, silhouette variance, base shadow strength, cap taper, corner continuity, shadow continuity, cap presence, and anchor validity
+- `berm_mask_00` through `berm_mask_15`
+- berm autotile sheet
+- sparse, dense, loop, junction, corner, and dead-end berm topology previews
+- berm neighbor-seam, lip-continuity, face-continuity, and shadow-continuity heatmaps
+- worst-offending berm neighbor pairs in `berm_neighbor_pairs.json`
+- berm validation metrics for piece coverage, role coverage, face/top contrast, face rectangularity, silhouette variance, base shadow strength, cap taper, corner continuity, shadow continuity, cap presence, anchor validity, mask coverage, cap/corner/junction coverage, and continuity scores
 - `sprite_manifest.ron` / `sprite_manifest.json` with role, anchor, footprint, z-bias, occlusion, and projection metadata
 - neighbor seam heatmap
 - contact sheets
@@ -69,7 +75,7 @@ cargo run -p ground_sprite_app
 Export the sprite bundle:
 
 ```bash
-cargo run -p ground_sprite_cli -- export exports/artgen_03_0c assets/sprite_styles/cozy_upland/style.ron
+cargo run -p ground_sprite_cli -- export exports/artgen_03_1 assets/sprite_styles/cozy_upland/style.ron
 ```
 
 Promote the current generated sprites into a profile's override folder as editable starting art:
