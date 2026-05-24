@@ -4,18 +4,18 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: ArtGen 3.3 — shared topology continuity polish
+## Current status: ArtGen 4.0 — stone platform / raised terrain kit
 
 GroundLab's active visual work has pivoted away from the large editable scene renderer. The current
 focus is a dedicated, fast terrain sprite generator that produces simple, cozy, top-down pixel
 terrain primitives from swappable style profiles, palettes, motif libraries, and art rules. It does
 not require reference images.
 
-ArtGen 3.3 keeps the primitive style tuning studio from 3.2 and improves the shared topology layer
-used by trench and berm masks. The generator now has a common 4-bit mask resolver for connected,
-exposed, dead-end, corner, T-junction, and cross cases. Trench and berm continuity diagnostics now
-compare all compatible neighboring masks instead of only the opposite dead-end case, and exports add
-worst-neighbor visual sheets plus a side-by-side terrain-engineering topology preview.
+ArtGen 4.0 keeps the primitive style tuning studio and shared topology diagnostics from 3.3, then
+adds the first hard raised-terrain family: stone platform sprites. The generator now produces
+stone top surfaces, front/side faces, bevels, steps, caps, corners, contact shadow, crack decals,
+and moss/grass edge pieces with the same role, anchor, footprint, z-bias, occlusion, override, and
+validation metadata used by grass, dirt, paths, trenches, and berms.
 
 The style profiles remain data-driven under `assets/sprite_styles/`. The current built-in profiles
 are:
@@ -28,7 +28,7 @@ Each profile has a `style.ron` for palette/rule/projection tuning, a `motifs.ron
 pixel-cluster motifs, and an `overrides/` folder for optional replacement PNGs. The Forge app can
 switch profiles from a dropdown, and the CLI can export with an explicit profile path.
 
-ArtGen 3.3 exports:
+ArtGen 4.0 exports:
 
 - tileable grass variants
 - tileable dirt variants
@@ -55,6 +55,9 @@ ArtGen 3.3 exports:
 - worst-offending berm neighbor pair preview in `berm_worst_neighbor_pairs.png`
 - side-by-side path/trench/berm topology preview in `terrain_engineering_topology_preview.png`
 - berm validation metrics for piece coverage, role coverage, face/top contrast, face rectangularity, silhouette variance, base shadow strength, cap taper, corner continuity, shadow continuity, cap presence, anchor validity, mask coverage, cap/corner/junction coverage, and continuity scores
+- oblique stone floor, front-face, side-face, bevel, step, end-cap, corner, contact-shadow, crack-decal, and moss-edge sprites
+- stone platform, steps, caps, corner, and mask-debug previews
+- stone validation metrics for piece coverage, role coverage, top/face contrast, bevel contrast, step presence, shadow continuity, cap presence, and anchor validity
 - `sprite_manifest.ron` / `sprite_manifest.json` with role, anchor, footprint, z-bias, occlusion, and projection metadata
 - neighbor seam heatmap
 - contact sheets
@@ -76,7 +79,7 @@ cargo run -p ground_sprite_app
 Export the sprite bundle:
 
 ```bash
-cargo run -p ground_sprite_cli -- export exports/artgen_03_3 assets/sprite_styles/cozy_upland/style.ron
+cargo run -p ground_sprite_cli -- export exports/artgen_04_0 assets/sprite_styles/cozy_upland/style.ron
 ```
 
 Promote the current generated sprites into a profile's override folder as editable starting art:

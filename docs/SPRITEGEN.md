@@ -6,7 +6,8 @@ dirt, grass-to-dirt transitions, and connected dirt path masks. ArtGen 2.1b exte
 with polished connected oblique trench masks; ArtGen 3.0c formalizes the art override workflow so
 rough generated sprites can be replaced by better authored PNGs without changing metadata or
 renderer contracts; ArtGen 3.1 adds connected berm/mound topology; ArtGen 3.2 turns Forge into a
-native primitive style tuning studio; and ArtGen 3.3 adds shared topology continuity diagnostics.
+native primitive style tuning studio; ArtGen 3.3 adds shared topology continuity diagnostics; and
+ArtGen 4.0 adds the first hard raised-terrain stone platform kit.
 
 The generator does not require reference images. It uses:
 
@@ -15,7 +16,7 @@ The generator does not require reference images. It uses:
 - swappable `TerrainSpriteStyleProfile` files in `assets/sprite_styles/`
 - external `motifs.ron` pixel-cluster motif libraries
 - cozy palette ramps
-- grass, dirt, transition, path, trench, berm, and pixel-cluster rules
+- grass, dirt, transition, path, trench, berm, stone, and pixel-cluster rules
 - a high-oblique 2.5D projection profile
 - per-piece sprite role, anchor, footprint, z-bias, and occlusion metadata
 - deterministic seeds
@@ -26,12 +27,13 @@ The generator does not require reference images. It uses:
 - generated/effective/override/diff contact sheets
 - override compatibility validation
 
-ArtGen 3.3 keeps the ArtGen 1.2b path topology, ArtGen 1.3 style profiles, ArtGen 1.4
+ArtGen 4.0 keeps the ArtGen 1.2b path topology, ArtGen 1.3 style profiles, ArtGen 1.4
 projection-aware sprite contract, ArtGen 2.0b trench polish, and ArtGen 2.1b connected trench
 topology. Grass/dirt/path pieces are still top-surface material primitives, trench pieces include
 both the base role pieces and `trench_mask_00` through `trench_mask_15`, and berm pieces now include
-both the base raised-earth role pieces and `berm_mask_00` through `berm_mask_15`. The 3.0c override
-workflow remains active after procedural generation:
+both the base raised-earth role pieces and `berm_mask_00` through `berm_mask_15`. Stone pieces are
+base raised hard-terrain role pieces only in 4.0; topology is intentionally deferred. The 3.0c
+override workflow remains active after procedural generation:
 Forge always generates the source sprites, then swaps in `overrides/{sprite_id}.png` when it is
 compatible. The effective sprites are what get previewed, validated, and packed into the art-kit
 manifest:
@@ -51,8 +53,8 @@ projection:
   shadow_offset_px
 ```
 
-The generator still loads palette ramps, grass/dirt/transition/path/trench/berm rules, projection
-settings, and motif libraries from profile folders:
+The generator still loads palette ramps, grass/dirt/transition/path/trench/berm/stone rules,
+projection settings, and motif libraries from profile folders:
 
 ```txt
 assets/sprite_styles/
@@ -80,12 +82,15 @@ ArtGen 3.2 makes those profile fields editable in Forge through primitive-specif
 - Path / transition: path width, core width, corner rounding, edge jitter, softness, intrusion, speckles
 - Trench: floor darkness, wall/inner/contact shadows, wall/floor detail, wood, lip, spoil, grass intrusion
 - Berm: mound height, face/contact shadow, top grass blend, lip highlight, edge irregularity, spoil, grass intrusion
+- Stone: stone ramp, top/face/bevel/step/contact-shadow lighting, slab jitter, cracks/chips, moss
 - Projection / global: seed, tile size, variants, display scale, cluster discipline, oblique cell/face/shadow sizing
 
 The app can save the active `style.ron`/`motifs.ron`, reload the selected profile, save to a new path
 as a clone, ignore overrides for generated-only tuning, or promote generated sprites into overrides.
 ArtGen 3.3 adds a common topology resolver for trench and berm masks and exports worst-neighbor
 visual sheets so continuity diagnostics are actionable instead of only numeric.
+ArtGen 4.0 adds stone role pieces and previews for a raised hard platform without adding stone
+topology yet.
 
 Run the fast workbench:
 
@@ -96,7 +101,7 @@ cargo run -p ground_sprite_app
 Export the deterministic bundle:
 
 ```bash
-cargo run -p ground_sprite_cli -- export exports/artgen_03_3 assets/sprite_styles/cozy_upland/style.ron
+cargo run -p ground_sprite_cli -- export exports/artgen_04_0 assets/sprite_styles/cozy_upland/style.ron
 ```
 
 Copy the current generated sprites into a profile's override folder so they can be edited or
@@ -109,7 +114,7 @@ cargo run -p ground_sprite_cli -- promote-overrides assets/sprite_styles/cozy_up
 Export output:
 
 ```txt
-exports/artgen_03_3/
+exports/artgen_04_0/
   manifest.ron
   sprite_manifest.ron
   sprite_manifest.json
@@ -141,6 +146,12 @@ exports/artgen_03_3/
   berm_shadow_continuity_heatmap.png
   berm_neighbor_pairs.json
   berm_worst_neighbor_pairs.png
+  stone_contact_sheet.png
+  stone_preview_oblique_platform.png
+  stone_preview_oblique_steps.png
+  stone_preview_oblique_caps.png
+  stone_preview_oblique_corner.png
+  stone_mask_debug.png
   trench_contact_sheet.png
   trench_preview_oblique_straight.png
   trench_preview_oblique_caps.png
@@ -232,6 +243,20 @@ exports/artgen_03_3/
     berm_mask_00.png
     ...
     berm_mask_15.png
+    stone_floor_top_01.png
+    stone_floor_top_02.png
+    stone_front_face_01.png
+    stone_front_face_02.png
+    stone_side_face_01.png
+    stone_bevel_01.png
+    stone_step_front_01.png
+    stone_end_cap_left_01.png
+    stone_end_cap_right_01.png
+    stone_corner_inner_01.png
+    stone_corner_outer_01.png
+    stone_contact_shadow_01.png
+    stone_crack_decal_01.png
+    stone_moss_grass_edge_01.png
 ```
 
 The full-scene GroundLab renderer remains in the repository as downstream infrastructure for terrain

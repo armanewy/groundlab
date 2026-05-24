@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 use crate::pixel_image::PixelImage;
 use crate::spritegen::{ObliqueProjectionProfile, TerrainMotifLibrary, TerrainSpriteStyle};
 
-pub const DEFAULT_SPRITEGEN_EXPORT_DIR: &str = "exports/artgen_03_3";
+pub const DEFAULT_SPRITEGEN_EXPORT_DIR: &str = "exports/artgen_04_0";
 pub const DEFAULT_SPRITE_STYLE_PATH: &str = "assets/sprite_styles/cozy_upland/style.ron";
 
 pub const BUILTIN_SPRITE_STYLE_PROFILES: [(&str, &str); 3] = [
@@ -140,6 +140,18 @@ impl TerrainSpriteRecipe {
             self.style.berm.grass_intrusion_density.clamp(0.0, 1.0);
         self.style.berm.contact_shadow_strength =
             self.style.berm.contact_shadow_strength.clamp(0.0, 1.0);
+        self.style.stone.top_contrast = self.style.stone.top_contrast.clamp(0.0, 1.0);
+        self.style.stone.face_shadow_strength =
+            self.style.stone.face_shadow_strength.clamp(0.0, 1.0);
+        self.style.stone.bevel_highlight_strength =
+            self.style.stone.bevel_highlight_strength.clamp(0.0, 1.0);
+        self.style.stone.block_crack_density = self.style.stone.block_crack_density.clamp(0.0, 1.0);
+        self.style.stone.slab_jitter_px = self.style.stone.slab_jitter_px.clamp(0, 12);
+        self.style.stone.moss_density = self.style.stone.moss_density.clamp(0.0, 1.0);
+        self.style.stone.step_shadow_strength =
+            self.style.stone.step_shadow_strength.clamp(0.0, 1.0);
+        self.style.stone.contact_shadow_strength =
+            self.style.stone.contact_shadow_strength.clamp(0.0, 1.0);
         self.motifs.sanitize();
     }
 
@@ -252,6 +264,9 @@ impl TerrainMotifLibrary {
         self.berm_edge_highlight
             .retain(|motif| !motif.pixels.is_empty());
         self.berm_spoil.retain(|motif| !motif.pixels.is_empty());
+        self.stone_cracks.retain(|motif| !motif.pixels.is_empty());
+        self.stone_chips.retain(|motif| !motif.pixels.is_empty());
+        self.stone_moss.retain(|motif| !motif.pixels.is_empty());
         let fallback = TerrainMotifLibrary::default();
         self.grass_dark = with_fallback(std::mem::take(&mut self.grass_dark), fallback.grass_dark);
         self.grass_light =
@@ -303,6 +318,13 @@ impl TerrainMotifLibrary {
             fallback.berm_edge_highlight,
         );
         self.berm_spoil = with_fallback(std::mem::take(&mut self.berm_spoil), fallback.berm_spoil);
+        self.stone_cracks = with_fallback(
+            std::mem::take(&mut self.stone_cracks),
+            fallback.stone_cracks,
+        );
+        self.stone_chips =
+            with_fallback(std::mem::take(&mut self.stone_chips), fallback.stone_chips);
+        self.stone_moss = with_fallback(std::mem::take(&mut self.stone_moss), fallback.stone_moss);
     }
 }
 
@@ -535,6 +557,18 @@ pub enum TerrainSpriteKind {
     BermContactShadow,
     BermSpoilPile,
     BermGrassFringe,
+    StoneFloorTop,
+    StoneFrontFace,
+    StoneSideFace,
+    StoneBevel,
+    StoneStepFront,
+    StoneEndCapLeft,
+    StoneEndCapRight,
+    StoneCornerInner,
+    StoneCornerOuter,
+    StoneContactShadow,
+    StoneCrackDecal,
+    StoneMossGrassEdge,
     TrenchMask00,
     TrenchMask01,
     TrenchMask02,
@@ -570,7 +604,7 @@ pub enum TerrainSpriteKind {
 }
 
 impl TerrainSpriteKind {
-    pub const ALL: [TerrainSpriteKind; 75] = [
+    pub const ALL: [TerrainSpriteKind; 87] = [
         TerrainSpriteKind::GrassTile,
         TerrainSpriteKind::DirtTile,
         TerrainSpriteKind::GrassToDirtEdgeNorth,
@@ -614,6 +648,18 @@ impl TerrainSpriteKind {
         TerrainSpriteKind::BermContactShadow,
         TerrainSpriteKind::BermSpoilPile,
         TerrainSpriteKind::BermGrassFringe,
+        TerrainSpriteKind::StoneFloorTop,
+        TerrainSpriteKind::StoneFrontFace,
+        TerrainSpriteKind::StoneSideFace,
+        TerrainSpriteKind::StoneBevel,
+        TerrainSpriteKind::StoneStepFront,
+        TerrainSpriteKind::StoneEndCapLeft,
+        TerrainSpriteKind::StoneEndCapRight,
+        TerrainSpriteKind::StoneCornerInner,
+        TerrainSpriteKind::StoneCornerOuter,
+        TerrainSpriteKind::StoneContactShadow,
+        TerrainSpriteKind::StoneCrackDecal,
+        TerrainSpriteKind::StoneMossGrassEdge,
         TerrainSpriteKind::TrenchMask00,
         TerrainSpriteKind::TrenchMask01,
         TerrainSpriteKind::TrenchMask02,
@@ -693,6 +739,18 @@ impl TerrainSpriteKind {
             TerrainSpriteKind::BermContactShadow => "berm_contact_shadow",
             TerrainSpriteKind::BermSpoilPile => "berm_spoil_pile",
             TerrainSpriteKind::BermGrassFringe => "berm_grass_fringe",
+            TerrainSpriteKind::StoneFloorTop => "stone_floor_top",
+            TerrainSpriteKind::StoneFrontFace => "stone_front_face",
+            TerrainSpriteKind::StoneSideFace => "stone_side_face",
+            TerrainSpriteKind::StoneBevel => "stone_bevel",
+            TerrainSpriteKind::StoneStepFront => "stone_step_front",
+            TerrainSpriteKind::StoneEndCapLeft => "stone_end_cap_left",
+            TerrainSpriteKind::StoneEndCapRight => "stone_end_cap_right",
+            TerrainSpriteKind::StoneCornerInner => "stone_corner_inner",
+            TerrainSpriteKind::StoneCornerOuter => "stone_corner_outer",
+            TerrainSpriteKind::StoneContactShadow => "stone_contact_shadow",
+            TerrainSpriteKind::StoneCrackDecal => "stone_crack_decal",
+            TerrainSpriteKind::StoneMossGrassEdge => "stone_moss_grass_edge",
             TerrainSpriteKind::TrenchMask00 => "trench_mask_00",
             TerrainSpriteKind::TrenchMask01 => "trench_mask_01",
             TerrainSpriteKind::TrenchMask02 => "trench_mask_02",
@@ -773,6 +831,18 @@ impl TerrainSpriteKind {
             TerrainSpriteKind::BermContactShadow => "Berm contact shadow",
             TerrainSpriteKind::BermSpoilPile => "Berm spoil pile",
             TerrainSpriteKind::BermGrassFringe => "Berm grass fringe",
+            TerrainSpriteKind::StoneFloorTop => "Stone floor top",
+            TerrainSpriteKind::StoneFrontFace => "Stone front face",
+            TerrainSpriteKind::StoneSideFace => "Stone side face",
+            TerrainSpriteKind::StoneBevel => "Stone bevel",
+            TerrainSpriteKind::StoneStepFront => "Stone step front",
+            TerrainSpriteKind::StoneEndCapLeft => "Stone end cap left",
+            TerrainSpriteKind::StoneEndCapRight => "Stone end cap right",
+            TerrainSpriteKind::StoneCornerInner => "Stone inner corner",
+            TerrainSpriteKind::StoneCornerOuter => "Stone outer corner",
+            TerrainSpriteKind::StoneContactShadow => "Stone contact shadow",
+            TerrainSpriteKind::StoneCrackDecal => "Stone crack decal",
+            TerrainSpriteKind::StoneMossGrassEdge => "Stone moss grass edge",
             TerrainSpriteKind::TrenchMask00 => "Trench mask 00",
             TerrainSpriteKind::TrenchMask01 => "Trench mask 01",
             TerrainSpriteKind::TrenchMask02 => "Trench mask 02",
@@ -995,6 +1065,24 @@ impl TerrainSpriteKind {
         )
     }
 
+    pub fn is_stone(self) -> bool {
+        matches!(
+            self,
+            TerrainSpriteKind::StoneFloorTop
+                | TerrainSpriteKind::StoneFrontFace
+                | TerrainSpriteKind::StoneSideFace
+                | TerrainSpriteKind::StoneBevel
+                | TerrainSpriteKind::StoneStepFront
+                | TerrainSpriteKind::StoneEndCapLeft
+                | TerrainSpriteKind::StoneEndCapRight
+                | TerrainSpriteKind::StoneCornerInner
+                | TerrainSpriteKind::StoneCornerOuter
+                | TerrainSpriteKind::StoneContactShadow
+                | TerrainSpriteKind::StoneCrackDecal
+                | TerrainSpriteKind::StoneMossGrassEdge
+        )
+    }
+
     pub fn default_piece_metadata(self) -> SpritePieceMetadata {
         match self {
             TerrainSpriteKind::GrassTile
@@ -1080,6 +1168,43 @@ impl TerrainSpriteKind {
                 SpritePieceMetadata::new(SpriteRole::Decal)
                     .footprint((1, 1))
                     .z_bias(22)
+            }
+            TerrainSpriteKind::StoneFloorTop => SpritePieceMetadata::new(SpriteRole::TopSurface)
+                .footprint((2, 1))
+                .z_bias(24),
+            TerrainSpriteKind::StoneFrontFace | TerrainSpriteKind::StoneSideFace => {
+                SpritePieceMetadata::new(SpriteRole::FrontFace)
+                    .anchor((0, -10))
+                    .footprint((2, 1))
+                    .z_bias(42)
+                    .occludes(true)
+            }
+            TerrainSpriteKind::StoneBevel => SpritePieceMetadata::new(SpriteRole::Lip)
+                .footprint((2, 1))
+                .z_bias(46),
+            TerrainSpriteKind::StoneStepFront => SpritePieceMetadata::new(SpriteRole::FrontFace)
+                .anchor((0, -6))
+                .footprint((1, 1))
+                .z_bias(44)
+                .occludes(true),
+            TerrainSpriteKind::StoneEndCapLeft
+            | TerrainSpriteKind::StoneEndCapRight
+            | TerrainSpriteKind::StoneCornerInner
+            | TerrainSpriteKind::StoneCornerOuter => {
+                SpritePieceMetadata::new(SpriteRole::CornerCap)
+                    .footprint((1, 1))
+                    .z_bias(48)
+                    .occludes(true)
+            }
+            TerrainSpriteKind::StoneContactShadow => {
+                SpritePieceMetadata::new(SpriteRole::ContactShadow)
+                    .footprint((2, 1))
+                    .z_bias(-1)
+            }
+            TerrainSpriteKind::StoneCrackDecal | TerrainSpriteKind::StoneMossGrassEdge => {
+                SpritePieceMetadata::new(SpriteRole::Decal)
+                    .footprint((1, 1))
+                    .z_bias(50)
             }
             TerrainSpriteKind::TrenchMask00
             | TerrainSpriteKind::TrenchMask01

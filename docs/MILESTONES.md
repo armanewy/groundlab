@@ -407,6 +407,24 @@ This is a continuity/diagnostics milestone, not a new material milestone. It kee
 visible, but makes them based on the connected-mask space the generated sprites actually need to
 support.
 
+## ArtGen 4.0 — Stone platform / raised terrain kit
+
+Implemented in this drop.
+
+- added stone palette entries, stone style rules, and stone motif groups for cracks, chips, and moss
+- generated the first hard raised-terrain piece family: stone floor tops, front faces, side face, bevel, step front, caps, corners, contact shadow, crack decal, and moss/grass edge
+- stone pieces export with projection-aware sprite roles, anchors, footprints, z-bias, and occlusion metadata
+- `stone_contact_sheet.png` shows the generated stone pieces alongside the existing effective sprite workflow
+- oblique stone previews now export platform, steps, caps, corner, and mask-debug views
+- Pixel Terrain Forge adds a Stone primitive tuning panel for ramp colors, top/face contrast, bevel/step/shadow strength, crack/chip density, slab jitter, and moss density
+- Forge adds preview panels for the stone contact sheet and stone oblique previews
+- validation now reports stone piece coverage, role coverage, top/face contrast, bevel contrast, step presence, shadow continuity, cap presence, and anchor validity
+- sprite CLI/app default export target is `exports/artgen_04_0`
+
+This is the hard raised-terrain equivalent of the trench and berm visual-piece milestones. It proves
+stone/platform sprites can participate in the same 2.5D role metadata and override/export workflow,
+but intentionally does not add stone topology yet.
+
 ## Milestone 5 — Custom renderer/runtime
 
 - introduce `ground_render`

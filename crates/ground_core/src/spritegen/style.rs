@@ -16,6 +16,7 @@ pub struct TerrainSpriteStyle {
     pub path: PathRules,
     pub trench: TrenchRules,
     pub berm: BermRules,
+    pub stone: StoneRules,
 }
 
 impl Default for TerrainSpriteStyle {
@@ -32,6 +33,7 @@ impl Default for TerrainSpriteStyle {
             path: PathRules::default(),
             trench: TrenchRules::default(),
             berm: BermRules::default(),
+            stone: StoneRules::default(),
         }
     }
 }
@@ -86,6 +88,11 @@ pub struct CozyTerrainPalette {
     pub dirt_mid: Rgba8,
     pub dirt_light: Rgba8,
     pub pebble: Rgba8,
+    pub stone_shadow: Rgba8,
+    pub stone_dark: Rgba8,
+    pub stone_mid: Rgba8,
+    pub stone_light: Rgba8,
+    pub stone_moss: Rgba8,
 }
 
 impl Default for CozyTerrainPalette {
@@ -101,6 +108,11 @@ impl Default for CozyTerrainPalette {
             dirt_mid: Rgba8::from_rgb_hex(0xa16a40),
             dirt_light: Rgba8::from_rgb_hex(0xbc8352),
             pebble: Rgba8::from_rgb_hex(0x8f8b72),
+            stone_shadow: Rgba8::from_rgb_hex(0x4d5049),
+            stone_dark: Rgba8::from_rgb_hex(0x6d7168),
+            stone_mid: Rgba8::from_rgb_hex(0x8f9387),
+            stone_light: Rgba8::from_rgb_hex(0xb3ae98),
+            stone_moss: Rgba8::from_rgb_hex(0x687d45),
         }
     }
 }
@@ -124,6 +136,15 @@ impl CozyTerrainPalette {
         ]
     }
 
+    pub fn stone_ramp(&self) -> [Rgba8; 4] {
+        [
+            self.stone_shadow,
+            self.stone_dark,
+            self.stone_mid,
+            self.stone_light,
+        ]
+    }
+
     pub fn all_colors(&self) -> Vec<Rgba8> {
         vec![
             self.grass_shadow,
@@ -136,6 +157,11 @@ impl CozyTerrainPalette {
             self.dirt_mid,
             self.dirt_light,
             self.pebble,
+            self.stone_shadow,
+            self.stone_dark,
+            self.stone_mid,
+            self.stone_light,
+            self.stone_moss,
         ]
     }
 }
@@ -310,6 +336,34 @@ impl Default for BermRules {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
+pub struct StoneRules {
+    pub top_contrast: f32,
+    pub face_shadow_strength: f32,
+    pub bevel_highlight_strength: f32,
+    pub block_crack_density: f32,
+    pub slab_jitter_px: u32,
+    pub moss_density: f32,
+    pub step_shadow_strength: f32,
+    pub contact_shadow_strength: f32,
+}
+
+impl Default for StoneRules {
+    fn default() -> Self {
+        Self {
+            top_contrast: 0.24,
+            face_shadow_strength: 0.38,
+            bevel_highlight_strength: 0.22,
+            block_crack_density: 0.18,
+            slab_jitter_px: 2,
+            moss_density: 0.10,
+            step_shadow_strength: 0.34,
+            contact_shadow_strength: 0.38,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TerrainMotifLibrary {
     pub id: String,
     pub grass_dark: Vec<TerrainMotif>,
@@ -330,6 +384,9 @@ pub struct TerrainMotifLibrary {
     pub berm_face_shadow: Vec<TerrainMotif>,
     pub berm_edge_highlight: Vec<TerrainMotif>,
     pub berm_spoil: Vec<TerrainMotif>,
+    pub stone_cracks: Vec<TerrainMotif>,
+    pub stone_chips: Vec<TerrainMotif>,
+    pub stone_moss: Vec<TerrainMotif>,
 }
 
 impl Default for TerrainMotifLibrary {
@@ -439,6 +496,20 @@ impl Default for TerrainMotifLibrary {
             berm_spoil: vec![
                 TerrainMotif::new("berm_spoil_a", &[(0, 0, 0), (1, 0, -1), (0, 1, 1)]),
                 TerrainMotif::new("berm_spoil_b", &[(0, 0, 1), (1, 0, 0), (2, 1, -1)]),
+            ],
+            stone_cracks: vec![
+                TerrainMotif::new("stone_crack_short", &[(0, 0, -2), (1, 0, -1), (2, 0, -2)]),
+                TerrainMotif::new("stone_crack_step", &[(0, 0, -1), (1, 0, -2), (1, 1, -1)]),
+                TerrainMotif::new("stone_hairline", &[(0, 0, -1), (1, 1, -1)]),
+            ],
+            stone_chips: vec![
+                TerrainMotif::new("stone_chip_a", &[(0, 0, 1), (1, 0, 0), (0, 1, -1)]),
+                TerrainMotif::new("stone_chip_b", &[(0, 0, -1), (1, 0, 1)]),
+                TerrainMotif::new("stone_corner_wear", &[(0, 0, 1), (1, 0, 1), (1, 1, 0)]),
+            ],
+            stone_moss: vec![
+                TerrainMotif::new("stone_moss_a", &[(0, 0, 1), (1, 0, 0), (1, 1, -1)]),
+                TerrainMotif::new("stone_moss_b", &[(0, 0, 0), (0, 1, 1), (1, 1, 0)]),
             ],
         }
     }

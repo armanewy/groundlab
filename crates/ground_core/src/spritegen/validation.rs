@@ -19,6 +19,7 @@ pub struct TerrainSpriteValidationReport {
     pub edge_mask_continuity_score: f32,
     pub trench: TrenchSpriteValidationSummary,
     pub berm: BermSpriteValidationSummary,
+    pub stone: StoneSpriteValidationSummary,
     pub issues: Vec<TerrainSpriteValidationIssue>,
     pub sprites: Vec<TerrainSpriteValidationSummary>,
 }
@@ -82,6 +83,18 @@ pub struct BermSpriteValidationSummary {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct StoneSpriteValidationSummary {
+    pub stone_piece_coverage: usize,
+    pub stone_role_coverage: usize,
+    pub stone_top_face_contrast: f32,
+    pub stone_bevel_contrast: f32,
+    pub stone_step_presence: bool,
+    pub stone_shadow_continuity: f32,
+    pub stone_cap_presence: bool,
+    pub stone_oblique_anchor_validity: f32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TerrainSpriteValidationIssue {
     pub severity: TerrainSpriteValidationSeverity,
     pub sprite_id: Option<String>,
@@ -127,6 +140,7 @@ pub fn validate_terrain_sprites(
             && !sprite.kind.is_trench_mask()
             && !sprite.kind.is_berm()
             && !sprite.kind.is_berm_mask()
+            && !sprite.kind.is_stone()
         {
             seam_total += summary.seam_score;
             noise_total += summary.single_pixel_noise_count as f32;
@@ -153,6 +167,7 @@ pub fn validate_terrain_sprites(
             && !sprite.kind.is_trench_mask()
             && !sprite.kind.is_berm()
             && !sprite.kind.is_berm_mask()
+            && !sprite.kind.is_stone()
             && summary.single_pixel_noise_count > 6
         {
             issues.push(TerrainSpriteValidationIssue {
@@ -165,6 +180,7 @@ pub fn validate_terrain_sprites(
             && !sprite.kind.is_trench_mask()
             && !sprite.kind.is_berm()
             && !sprite.kind.is_berm_mask()
+            && !sprite.kind.is_stone()
             && summary.unique_colors > 10
         {
             issues.push(TerrainSpriteValidationIssue {
@@ -291,6 +307,7 @@ pub fn validate_terrain_sprites(
     }
     let trench = validate_trench_sprites(sprites, &mut issues);
     let berm = validate_berm_sprites(sprites, &mut issues);
+    let stone = validate_stone_sprites(sprites, &mut issues);
     TerrainSpriteValidationReport {
         sprite_count: sprites.len(),
         path_mask_coverage: 16 - missing_path_masks.len(),
@@ -308,6 +325,7 @@ pub fn validate_terrain_sprites(
         },
         trench,
         berm,
+        stone,
         issues,
         sprites: summaries,
     }
@@ -858,6 +876,170 @@ fn validate_berm_sprites(
     }
 }
 
+fn validate_stone_sprites(
+    sprites: &[GeneratedTerrainSprite],
+    issues: &mut Vec<TerrainSpriteValidationIssue>,
+) -> StoneSpriteValidationSummary {
+    let required = [
+        TerrainSpriteKind::StoneFloorTop,
+        TerrainSpriteKind::StoneFrontFace,
+        TerrainSpriteKind::StoneSideFace,
+        TerrainSpriteKind::StoneBevel,
+        TerrainSpriteKind::StoneStepFront,
+        TerrainSpriteKind::StoneEndCapLeft,
+        TerrainSpriteKind::StoneEndCapRight,
+        TerrainSpriteKind::StoneCornerInner,
+        TerrainSpriteKind::StoneCornerOuter,
+        TerrainSpriteKind::StoneContactShadow,
+        TerrainSpriteKind::StoneCrackDecal,
+        TerrainSpriteKind::StoneMossGrassEdge,
+    ];
+    let required_roles = [
+        SpriteRole::TopSurface,
+        SpriteRole::FrontFace,
+        SpriteRole::Lip,
+        SpriteRole::CornerCap,
+        SpriteRole::ContactShadow,
+        SpriteRole::Decal,
+    ];
+    let stone_sprites = sprites
+        .iter()
+        .filter(|sprite| sprite.kind.is_stone())
+        .collect::<Vec<_>>();
+    let stone_piece_coverage = required
+        .iter()
+        .filter(|kind| stone_sprites.iter().any(|sprite| sprite.kind == **kind))
+        .count();
+    let stone_role_coverage = required_roles
+        .iter()
+        .filter(|role| {
+            stone_sprites
+                .iter()
+                .any(|sprite| sprite.metadata.role == **role)
+        })
+        .count();
+
+    for kind in required {
+        if !stone_sprites.iter().any(|sprite| sprite.kind == kind) {
+            issues.push(TerrainSpriteValidationIssue {
+                severity: TerrainSpriteValidationSeverity::Error,
+                sprite_id: None,
+                message: format!("missing required stone sprite kind {}", kind.id()),
+            });
+        }
+    }
+
+    for sprite in &stone_sprites {
+        let expected = expected_stone_role(sprite.kind);
+        if sprite.metadata.role != expected {
+            issues.push(TerrainSpriteValidationIssue {
+                severity: TerrainSpriteValidationSeverity::Warning,
+                sprite_id: Some(sprite.id.clone()),
+                message: format!(
+                    "stone sprite role {:?} does not match expected {:?}",
+                    sprite.metadata.role, expected
+                ),
+            });
+        }
+    }
+
+    let top = first_kind(sprites, TerrainSpriteKind::StoneFloorTop);
+    let face = first_kind(sprites, TerrainSpriteKind::StoneFrontFace);
+    let bevel = first_kind(sprites, TerrainSpriteKind::StoneBevel);
+    let shadow = first_kind(sprites, TerrainSpriteKind::StoneContactShadow);
+    let stone_top_face_contrast = match (top, face) {
+        (Some(top), Some(face)) => {
+            ((average_luma(top) - average_luma(face)).abs() / 255.0).min(1.0)
+        }
+        _ => 0.0,
+    };
+    let stone_bevel_contrast = match (top, bevel) {
+        (Some(top), Some(bevel)) => {
+            ((average_luma(top) - average_luma(bevel)).abs() / 255.0).min(1.0)
+        }
+        _ => 0.0,
+    };
+    let stone_step_presence = first_kind(sprites, TerrainSpriteKind::StoneStepFront).is_some();
+    let stone_shadow_continuity = shadow.map(alpha_coverage).unwrap_or(0.0);
+    let stone_cap_presence = first_kind(sprites, TerrainSpriteKind::StoneEndCapLeft).is_some()
+        && first_kind(sprites, TerrainSpriteKind::StoneEndCapRight).is_some()
+        && first_kind(sprites, TerrainSpriteKind::StoneCornerInner).is_some()
+        && first_kind(sprites, TerrainSpriteKind::StoneCornerOuter).is_some();
+    let valid_anchors = stone_sprites
+        .iter()
+        .filter(|sprite| {
+            sprite.metadata.anchor_px.0.abs() <= sprite.image.width as i32
+                && sprite.metadata.anchor_px.1.abs() <= sprite.image.height as i32
+        })
+        .count() as f32;
+    let stone_oblique_anchor_validity = if stone_sprites.is_empty() {
+        0.0
+    } else {
+        valid_anchors / stone_sprites.len() as f32
+    };
+
+    if stone_piece_coverage < required.len() {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Error,
+            sprite_id: None,
+            message: "stone piece coverage is incomplete".to_string(),
+        });
+    }
+    if stone_role_coverage < required_roles.len() {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Error,
+            sprite_id: None,
+            message: "stone role coverage is incomplete".to_string(),
+        });
+    }
+    if stone_top_face_contrast < 0.04 {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Warning,
+            sprite_id: face.map(|sprite| sprite.id.clone()),
+            message: "stone top/face contrast is low".to_string(),
+        });
+    }
+    if stone_bevel_contrast < 0.025 {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Warning,
+            sprite_id: bevel.map(|sprite| sprite.id.clone()),
+            message: "stone bevel contrast is low".to_string(),
+        });
+    }
+    if !stone_step_presence {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Error,
+            sprite_id: None,
+            message: "stone step piece is missing".to_string(),
+        });
+    }
+    if stone_shadow_continuity < 0.08 {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Warning,
+            sprite_id: shadow.map(|sprite| sprite.id.clone()),
+            message: "stone contact shadow coverage is low".to_string(),
+        });
+    }
+    if !stone_cap_presence {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Error,
+            sprite_id: None,
+            message: "stone cap/corner pieces are incomplete".to_string(),
+        });
+    }
+
+    StoneSpriteValidationSummary {
+        stone_piece_coverage,
+        stone_role_coverage,
+        stone_top_face_contrast,
+        stone_bevel_contrast,
+        stone_step_presence,
+        stone_shadow_continuity,
+        stone_cap_presence,
+        stone_oblique_anchor_validity,
+    }
+}
+
 fn expected_trench_role(kind: TerrainSpriteKind) -> SpriteRole {
     match kind {
         TerrainSpriteKind::TrenchFloorTop => SpriteRole::TopSurface,
@@ -884,6 +1066,25 @@ fn expected_berm_role(kind: TerrainSpriteKind) -> SpriteRole {
         | TerrainSpriteKind::BermCornerOuter => SpriteRole::CornerCap,
         TerrainSpriteKind::BermContactShadow => SpriteRole::ContactShadow,
         TerrainSpriteKind::BermSpoilPile | TerrainSpriteKind::BermGrassFringe => SpriteRole::Decal,
+        _ => SpriteRole::TopSurface,
+    }
+}
+
+fn expected_stone_role(kind: TerrainSpriteKind) -> SpriteRole {
+    match kind {
+        TerrainSpriteKind::StoneFloorTop => SpriteRole::TopSurface,
+        TerrainSpriteKind::StoneFrontFace
+        | TerrainSpriteKind::StoneSideFace
+        | TerrainSpriteKind::StoneStepFront => SpriteRole::FrontFace,
+        TerrainSpriteKind::StoneBevel => SpriteRole::Lip,
+        TerrainSpriteKind::StoneEndCapLeft
+        | TerrainSpriteKind::StoneEndCapRight
+        | TerrainSpriteKind::StoneCornerInner
+        | TerrainSpriteKind::StoneCornerOuter => SpriteRole::CornerCap,
+        TerrainSpriteKind::StoneContactShadow => SpriteRole::ContactShadow,
+        TerrainSpriteKind::StoneCrackDecal | TerrainSpriteKind::StoneMossGrassEdge => {
+            SpriteRole::Decal
+        }
         _ => SpriteRole::TopSurface,
     }
 }

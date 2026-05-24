@@ -122,6 +122,42 @@ pub fn generate_terrain_sprites(recipe: &TerrainSpriteRecipe) -> Vec<GeneratedTe
             image: generate_berm_piece(&recipe, kind, 1),
         });
     }
+    for variant in 1..=2 {
+        for kind in [
+            TerrainSpriteKind::StoneFloorTop,
+            TerrainSpriteKind::StoneFrontFace,
+        ] {
+            sprites.push(GeneratedTerrainSprite {
+                id: format!("{}_{variant:02}", kind.id()),
+                kind,
+                variant,
+                source: TerrainSpriteSource::Generated,
+                metadata: kind.default_piece_metadata(),
+                image: generate_stone_piece(&recipe, kind, variant),
+            });
+        }
+    }
+    for kind in [
+        TerrainSpriteKind::StoneSideFace,
+        TerrainSpriteKind::StoneBevel,
+        TerrainSpriteKind::StoneStepFront,
+        TerrainSpriteKind::StoneEndCapLeft,
+        TerrainSpriteKind::StoneEndCapRight,
+        TerrainSpriteKind::StoneCornerInner,
+        TerrainSpriteKind::StoneCornerOuter,
+        TerrainSpriteKind::StoneContactShadow,
+        TerrainSpriteKind::StoneCrackDecal,
+        TerrainSpriteKind::StoneMossGrassEdge,
+    ] {
+        sprites.push(GeneratedTerrainSprite {
+            id: format!("{}_01", kind.id()),
+            kind,
+            variant: 1,
+            source: TerrainSpriteSource::Generated,
+            metadata: kind.default_piece_metadata(),
+            image: generate_stone_piece(&recipe, kind, 1),
+        });
+    }
     for mask in 0..16 {
         let kind = TerrainSpriteKind::from_trench_mask(mask).expect("valid trench mask");
         sprites.push(GeneratedTerrainSprite {
@@ -429,6 +465,29 @@ pub fn generate_berm_piece(
         TerrainSpriteKind::BermContactShadow => generate_berm_contact_shadow(recipe, variant),
         TerrainSpriteKind::BermSpoilPile => generate_berm_spoil_pile(recipe, variant),
         TerrainSpriteKind::BermGrassFringe => generate_berm_grass_fringe(recipe, variant),
+        _ => PixelImage::transparent(1, 1),
+    }
+}
+
+pub fn generate_stone_piece(
+    recipe: &TerrainSpriteRecipe,
+    kind: TerrainSpriteKind,
+    variant: u32,
+) -> PixelImage {
+    debug_assert!(kind.is_stone());
+    match kind {
+        TerrainSpriteKind::StoneFloorTop => generate_stone_floor_top(recipe, variant),
+        TerrainSpriteKind::StoneFrontFace => generate_stone_front_face(recipe, variant),
+        TerrainSpriteKind::StoneSideFace => generate_stone_side_face(recipe, variant),
+        TerrainSpriteKind::StoneBevel => generate_stone_bevel(recipe, variant),
+        TerrainSpriteKind::StoneStepFront => generate_stone_step_front(recipe, variant),
+        TerrainSpriteKind::StoneEndCapLeft => generate_stone_end_cap(recipe, variant, true),
+        TerrainSpriteKind::StoneEndCapRight => generate_stone_end_cap(recipe, variant, false),
+        TerrainSpriteKind::StoneCornerInner => generate_stone_corner(recipe, variant, true),
+        TerrainSpriteKind::StoneCornerOuter => generate_stone_corner(recipe, variant, false),
+        TerrainSpriteKind::StoneContactShadow => generate_stone_contact_shadow(recipe, variant),
+        TerrainSpriteKind::StoneCrackDecal => generate_stone_crack_decal(recipe, variant),
+        TerrainSpriteKind::StoneMossGrassEdge => generate_stone_moss_grass_edge(recipe, variant),
         _ => PixelImage::transparent(1, 1),
     }
 }
@@ -2492,6 +2551,442 @@ fn generate_berm_grass_fringe(recipe: &TerrainSpriteRecipe, variant: u32) -> Pix
     image
 }
 
+fn generate_stone_floor_top(recipe: &TerrainSpriteRecipe, variant: u32) -> PixelImage {
+    let projection = &recipe.style.projection;
+    let rules = &recipe.style.stone;
+    let palette = &recipe.style.palette;
+    let width = projection.cell_width_px * 2;
+    let height = (projection.cell_height_px * 3 / 4).max(56);
+    let seed = sprite_seed(recipe.seed, variant, 0x5101);
+    let mut image = PixelImage::transparent(width, height);
+
+    for y in 0..height {
+        for x in 0..width {
+            let edge_jitter =
+                trench_noise(seed ^ 0x5102, x / 8, y / 7) * rules.slab_jitter_px.max(1) as f32;
+            let edge = 3.0 + edge_jitter.abs();
+            if x as f32 <= edge
+                || x as f32 >= width as f32 - edge
+                || y as f32 <= edge
+                || y as f32 >= height as f32 - edge
+            {
+                continue;
+            }
+            let n = trench_noise(seed ^ 0x5103, x / 5, y / 5);
+            let mut color = palette.stone_mid;
+            if n > 0.35 {
+                color = color.blend(palette.stone_light, rules.top_contrast * 0.40);
+            } else if n < -0.42 {
+                color = color.blend(palette.stone_dark, rules.top_contrast * 0.55);
+            }
+            image.set(x, y, color.with_alpha(248));
+        }
+    }
+
+    draw_stone_slab_grid(&mut image, recipe, seed ^ 0x5104);
+    let crack_count = ((width * height) as f32 * rules.block_crack_density / 210.0)
+        .round()
+        .max(4.0) as u32;
+    for i in 0..crack_count {
+        let x = 8 + (hash(seed ^ 0x5105 ^ i as u64) % (width - 16).max(1) as u64) as u32;
+        let y = 8 + (hash(seed ^ 0x5106 ^ (i as u64 * 11)) % (height - 16).max(1) as u64) as u32;
+        draw_motif_from_set(
+            &mut image,
+            x,
+            y,
+            &recipe.motifs.stone_cracks,
+            seed ^ 0x5107 ^ i as u64,
+            &stone_color_picker(recipe),
+        );
+    }
+    let moss_count = ((width * height) as f32 * rules.moss_density / 260.0).round() as u32;
+    for i in 0..moss_count {
+        let x = (hash(seed ^ 0x5108 ^ i as u64) % width as u64) as u32;
+        let y = (hash(seed ^ 0x5109 ^ (i as u64 * 17)) % height as u64) as u32;
+        draw_motif_from_set(
+            &mut image,
+            x,
+            y,
+            &recipe.motifs.stone_moss,
+            seed ^ 0x510a ^ i as u64,
+            &stone_moss_color_picker(recipe),
+        );
+    }
+    image
+}
+
+fn generate_stone_front_face(recipe: &TerrainSpriteRecipe, variant: u32) -> PixelImage {
+    let projection = &recipe.style.projection;
+    let rules = &recipe.style.stone;
+    let palette = &recipe.style.palette;
+    let width = projection.cell_width_px * 2;
+    let height = (projection.face_height_px + 30).max(48);
+    let seed = sprite_seed(recipe.seed, variant, 0x5121);
+    let mut image = PixelImage::transparent(width, height);
+
+    for y in 0..height {
+        let yf = y as f32 / height.max(1) as f32;
+        for x in 0..width {
+            let top_edge =
+                2.0 + trench_noise(seed ^ 0x5122, x / 9, 0).abs() * rules.slab_jitter_px as f32;
+            let bottom_edge = height as f32 - 3.0
+                + trench_noise(seed ^ 0x5123, x / 11, 0) * rules.slab_jitter_px as f32;
+            let y_real = y as f32 + 0.5;
+            if y_real < top_edge || y_real > bottom_edge {
+                continue;
+            }
+            let n = trench_noise(seed ^ 0x5124, x / 5, y / 5);
+            let mut color = if yf < 0.18 {
+                palette.stone_mid.blend(palette.stone_light, 0.20)
+            } else if yf > 0.72 {
+                palette
+                    .stone_shadow
+                    .darken(rules.face_shadow_strength * 0.24)
+            } else {
+                palette.stone_dark.blend(palette.stone_mid, 0.34)
+            };
+            if n > 0.45 {
+                color = color.lighten(0.06);
+            } else if n < -0.40 {
+                color = color.darken(0.07 + rules.face_shadow_strength * 0.06);
+            }
+            image.set(x, y, color.with_alpha(244));
+        }
+    }
+
+    draw_stone_block_courses(&mut image, recipe, seed ^ 0x5125);
+    image
+}
+
+fn generate_stone_side_face(recipe: &TerrainSpriteRecipe, variant: u32) -> PixelImage {
+    let projection = &recipe.style.projection;
+    let width = (projection.cell_width_px / 2).max(44);
+    let height = (projection.cell_height_px / 2 + projection.face_height_px).max(54);
+    let seed = sprite_seed(recipe.seed, variant, 0x5131);
+    let mut image = PixelImage::transparent(width, height);
+    let palette = &recipe.style.palette;
+
+    for y in 0..height {
+        let yf = y as f32 / height.max(1) as f32;
+        for x in 0..width {
+            let xf = x as f32 / width.max(1) as f32;
+            let taper = 0.15 + xf * 0.72;
+            let top = 3.0 + trench_noise(seed ^ 0x5132, y / 4, x / 4) * 2.0;
+            let bottom = height as f32 - 3.0 - (1.0 - taper) * 7.0;
+            if y as f32 <= top || y as f32 >= bottom {
+                continue;
+            }
+            let mut color = palette.stone_dark.blend(palette.stone_shadow, yf * 0.36);
+            if trench_noise(seed ^ 0x5133, x / 4, y / 6) > 0.34 {
+                color = color.blend(palette.stone_mid, 0.18);
+            }
+            image.set(x, y, color.with_alpha((180.0 + taper * 62.0) as u8));
+        }
+    }
+    draw_stone_block_courses(&mut image, recipe, seed ^ 0x5134);
+    image
+}
+
+fn generate_stone_bevel(recipe: &TerrainSpriteRecipe, variant: u32) -> PixelImage {
+    let projection = &recipe.style.projection;
+    let width = projection.cell_width_px * 2;
+    let height = (projection.face_height_px / 2).max(16);
+    let seed = sprite_seed(recipe.seed, variant, 0x5141);
+    let mut image = PixelImage::transparent(width, height);
+    let palette = &recipe.style.palette;
+    let rules = &recipe.style.stone;
+    let hi = palette
+        .stone_light
+        .lighten(rules.bevel_highlight_strength * 0.10);
+    let shadow = palette.stone_dark.darken(0.10);
+
+    let band_y = height / 3;
+    for x in 0..width {
+        let jitter = (trench_noise(seed ^ 0x5142, x / 5, 0) * 2.0) as i32;
+        let y0 = (band_y as i32 + jitter).clamp(0, height as i32 - 4) as u32;
+        for y in y0..(y0 + 5).min(height) {
+            let color = if y <= y0 + 1 { hi } else { shadow };
+            image.set(x, y, color.with_alpha(230));
+        }
+    }
+    image
+}
+
+fn generate_stone_step_front(recipe: &TerrainSpriteRecipe, variant: u32) -> PixelImage {
+    let projection = &recipe.style.projection;
+    let width = projection.cell_width_px.max(64);
+    let height = (projection.face_height_px + 26).max(44);
+    let seed = sprite_seed(recipe.seed, variant, 0x5151);
+    let mut image = PixelImage::transparent(width, height);
+    let palette = &recipe.style.palette;
+    let rules = &recipe.style.stone;
+    let step_h = (height / 3).max(8);
+
+    for step in 0..3 {
+        let y0 = step * step_h;
+        let inset = step * 8;
+        for y in y0..(y0 + step_h + 2).min(height) {
+            for x in inset..width.saturating_sub(inset) {
+                let t = (y - y0) as f32 / step_h.max(1) as f32;
+                let mut color = if t < 0.24 {
+                    palette.stone_light
+                } else {
+                    palette
+                        .stone_dark
+                        .darken(rules.step_shadow_strength * t * 0.35)
+                };
+                if trench_noise(seed ^ 0x5152, x / 4, y / 4) < -0.42 {
+                    color = color.darken(0.08);
+                }
+                image.set(x, y, color.with_alpha(238));
+            }
+        }
+        if y0 + step_h < height {
+            for x in inset..width.saturating_sub(inset) {
+                image.blend_pixel(
+                    x,
+                    y0 + step_h,
+                    Rgba8::BLACK,
+                    rules.step_shadow_strength * 0.34,
+                );
+            }
+        }
+    }
+    image
+}
+
+fn generate_stone_end_cap(recipe: &TerrainSpriteRecipe, variant: u32, left: bool) -> PixelImage {
+    let projection = &recipe.style.projection;
+    let width = (projection.cell_width_px / 2).max(42);
+    let height = (projection.cell_height_px / 2 + projection.face_height_px / 2).max(48);
+    let seed = sprite_seed(recipe.seed, variant, if left { 0x5161 } else { 0x5162 });
+    let mut image = PixelImage::transparent(width, height);
+    let palette = &recipe.style.palette;
+
+    for y in 0..height {
+        let yf = y as f32 / height.max(1) as f32;
+        for x in 0..width {
+            let xf = if left {
+                x as f32 / width.max(1) as f32
+            } else {
+                1.0 - x as f32 / width.max(1) as f32
+            };
+            let taper = xf.powf(0.72);
+            if yf < 0.14 || yf > 0.86 - (1.0 - taper) * 0.16 || taper < 0.08 {
+                continue;
+            }
+            let color = if yf < 0.34 {
+                palette.stone_light
+            } else if yf > 0.68 {
+                palette.stone_shadow
+            } else {
+                palette.stone_mid
+            };
+            image.set(
+                x,
+                y,
+                color.with_alpha((taper * 240.0).clamp(55.0, 240.0) as u8),
+            );
+        }
+    }
+    draw_stone_block_courses(&mut image, recipe, seed ^ 0x5163);
+    image
+}
+
+fn generate_stone_corner(recipe: &TerrainSpriteRecipe, variant: u32, inner: bool) -> PixelImage {
+    let projection = &recipe.style.projection;
+    let size = (projection.cell_width_px / 2).max(48);
+    let seed = sprite_seed(recipe.seed, variant, if inner { 0x5171 } else { 0x5172 });
+    let mut image = PixelImage::transparent(size, size);
+    let palette = &recipe.style.palette;
+    let arm = (size / 3).max(14);
+    let center = size / 2;
+
+    for y in 0..size {
+        for x in 0..size {
+            let n = trench_noise(seed ^ 0x5173, x / 4, y / 4);
+            let horizontal =
+                y >= center.saturating_sub(arm / 2) && y <= center + arm / 2 && x <= center + arm;
+            let vertical =
+                x >= center.saturating_sub(arm / 2) && x <= center + arm / 2 && y <= center + arm;
+            let l_shape = if inner {
+                horizontal || vertical
+            } else {
+                (horizontal || vertical) && !(x > center && y > center)
+            };
+            if !l_shape {
+                continue;
+            }
+            let color = if x < center.saturating_sub(arm / 2) + 4
+                || y < center.saturating_sub(arm / 2) + 4
+            {
+                palette.stone_light
+            } else if x > center + arm / 3 || y > center + arm / 3 {
+                palette.stone_shadow
+            } else {
+                palette.stone_mid.blend(palette.stone_dark, 0.20)
+            };
+            image.set(
+                x,
+                y,
+                color.with_alpha(((0.80 + n * 0.08).clamp(0.56, 1.0) * 255.0) as u8),
+            );
+        }
+    }
+    image
+}
+
+fn generate_stone_contact_shadow(recipe: &TerrainSpriteRecipe, variant: u32) -> PixelImage {
+    let projection = &recipe.style.projection;
+    let width = projection.cell_width_px * 2;
+    let height = (projection.face_height_px + 20).max(40);
+    let seed = sprite_seed(recipe.seed, variant, 0x5181);
+    let mut image = PixelImage::transparent(width, height);
+    let strength = recipe.style.stone.contact_shadow_strength;
+    for y in 0..height {
+        let yf = y as f32 / height.max(1) as f32;
+        for x in 0..width {
+            let xf = (x as f32 / width.max(1) as f32 - 0.5).abs();
+            let organic = trench_noise(seed ^ 0x5182, x / 5, y / 4) * 0.04;
+            let alpha =
+                ((1.0 - xf * 1.18).max(0.0) * (1.0 - yf * 0.70).powf(1.12) + organic) * strength;
+            if alpha > 0.012 {
+                image.set(
+                    x,
+                    y,
+                    Rgba8::BLACK.with_alpha((alpha.clamp(0.0, 0.44) * 255.0) as u8),
+                );
+            }
+        }
+    }
+    image
+}
+
+fn generate_stone_crack_decal(recipe: &TerrainSpriteRecipe, variant: u32) -> PixelImage {
+    let projection = &recipe.style.projection;
+    let width = projection.cell_width_px;
+    let height = projection.cell_height_px.max(48);
+    let seed = sprite_seed(recipe.seed, variant, 0x5191);
+    let mut image = PixelImage::transparent(width, height);
+    let count = (recipe.style.stone.block_crack_density * 18.0)
+        .round()
+        .max(3.0) as u32;
+    for i in 0..count {
+        let x = (hash(seed ^ 0x5192 ^ i as u64) % width as u64) as u32;
+        let y = (hash(seed ^ 0x5193 ^ (i as u64 * 7)) % height as u64) as u32;
+        draw_motif_from_set(
+            &mut image,
+            x,
+            y,
+            &recipe.motifs.stone_cracks,
+            seed ^ 0x5194 ^ i as u64,
+            &stone_color_picker(recipe),
+        );
+    }
+    image
+}
+
+fn generate_stone_moss_grass_edge(recipe: &TerrainSpriteRecipe, variant: u32) -> PixelImage {
+    let projection = &recipe.style.projection;
+    let width = projection.cell_width_px * 2;
+    let height = (projection.face_height_px / 2).max(18);
+    let seed = sprite_seed(recipe.seed, variant, 0x51a1);
+    let mut image = PixelImage::transparent(width, height);
+    let count = ((width * height) as f32 * recipe.style.stone.moss_density / 16.0)
+        .round()
+        .max(5.0) as u32;
+    for i in 0..count {
+        let x = (hash(seed ^ 0x51a2 ^ i as u64) % width as u64) as u32;
+        let y = (hash(seed ^ 0x51a3 ^ (i as u64 * 9)) % height as u64) as u32;
+        draw_motif_from_set(
+            &mut image,
+            x,
+            y,
+            &recipe.motifs.stone_moss,
+            seed ^ 0x51a4 ^ i as u64,
+            &stone_moss_color_picker(recipe),
+        );
+    }
+    image
+}
+
+fn draw_stone_slab_grid(image: &mut PixelImage, recipe: &TerrainSpriteRecipe, seed: u64) {
+    let palette = &recipe.style.palette;
+    let width = image.width;
+    let height = image.height;
+    let cols = 4;
+    let rows = 3;
+    for col in 1..cols {
+        let base_x = col * width / cols;
+        let x = (base_x as i32 + (trench_noise(seed ^ col as u64, col, 0) * 3.0) as i32)
+            .clamp(0, width as i32 - 1) as u32;
+        for y in 3..height.saturating_sub(3) {
+            if x < width && image.get(x, y).a > 0 {
+                image.blend_pixel(x, y, palette.stone_shadow, 0.44);
+            }
+        }
+    }
+    for row in 1..rows {
+        let base_y = row * height / rows;
+        let y = (base_y as i32 + (trench_noise(seed ^ row as u64, 0, row) * 2.0) as i32)
+            .clamp(0, height as i32 - 1) as u32;
+        for x in 3..width.saturating_sub(3) {
+            if y < height && image.get(x, y).a > 0 {
+                image.blend_pixel(x, y, palette.stone_shadow, 0.34);
+                if y > 0 {
+                    image.blend_pixel(x, y - 1, palette.stone_light, 0.12);
+                }
+            }
+        }
+    }
+}
+
+fn draw_stone_block_courses(image: &mut PixelImage, recipe: &TerrainSpriteRecipe, seed: u64) {
+    let palette = &recipe.style.palette;
+    let width = image.width;
+    let height = image.height;
+    let course_h = (height / 4).max(8);
+    for y in (course_h..height).step_by(course_h as usize) {
+        for x in 2..width.saturating_sub(2) {
+            if image.get(x, y).a > 0 {
+                image.blend_pixel(x, y, palette.stone_shadow, 0.40);
+                if y > 0 {
+                    image.blend_pixel(x, y - 1, palette.stone_light, 0.10);
+                }
+            }
+        }
+    }
+    for row in 0..4 {
+        let offset = if row % 2 == 0 { 0 } else { width / 8 };
+        let y0 = row * course_h;
+        for joint in 1..5 {
+            let x = offset + joint * width / 5;
+            for y in y0..(y0 + course_h).min(height) {
+                if x < width && image.get(x, y).a > 0 {
+                    let wobble = (trench_noise(seed ^ joint as u64, x / 3, y / 5) * 1.5) as i32;
+                    let xx = (x as i32 + wobble).clamp(0, width as i32 - 1) as u32;
+                    image.blend_pixel(xx, y, palette.stone_shadow, 0.28);
+                }
+            }
+        }
+    }
+    let chip_count = ((width * height) as f32 * recipe.style.stone.block_crack_density / 180.0)
+        .round()
+        .max(2.0) as u32;
+    for i in 0..chip_count {
+        let x = (hash(seed ^ 0x6151 ^ i as u64) % width as u64) as u32;
+        let y = (hash(seed ^ 0x6152 ^ (i as u64 * 5)) % height as u64) as u32;
+        draw_motif_from_set(
+            image,
+            x,
+            y,
+            &recipe.motifs.stone_chips,
+            seed ^ 0x6153 ^ i as u64,
+            &stone_color_picker(recipe),
+        );
+    }
+}
+
 fn trench_noise(seed: u64, x: u32, y: u32) -> f32 {
     hash01(seed ^ ((x as u64) << 18) ^ (y as u64 * 0x9e37)) * 2.0 - 1.0
 }
@@ -2773,6 +3268,32 @@ fn berm_dirt_color_picker(recipe: &TerrainSpriteRecipe) -> impl Fn(i8) -> Rgba8 
             ),
             2 => palette.pebble,
             _ => palette.dirt_mid,
+        }
+    }
+}
+
+fn stone_color_picker(recipe: &TerrainSpriteRecipe) -> impl Fn(i8) -> Rgba8 + '_ {
+    move |shade| {
+        let palette = &recipe.style.palette;
+        match shade {
+            -2 => palette.stone_shadow,
+            -1 => palette.stone_dark,
+            1 => palette.stone_light,
+            2 => palette.pebble,
+            _ => palette.stone_mid,
+        }
+    }
+}
+
+fn stone_moss_color_picker(recipe: &TerrainSpriteRecipe) -> impl Fn(i8) -> Rgba8 + '_ {
+    move |shade| {
+        let palette = &recipe.style.palette;
+        match shade {
+            -2 => palette.grass_shadow,
+            -1 => palette.grass_dark,
+            1 => palette.grass_light,
+            2 => palette.grass_flower,
+            _ => palette.stone_moss,
         }
     }
 }

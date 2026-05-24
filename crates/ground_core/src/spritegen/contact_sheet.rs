@@ -642,6 +642,59 @@ pub fn build_berm_contact_sheet(
     sheet
 }
 
+pub fn build_stone_contact_sheet(
+    sprites: &[GeneratedTerrainSprite],
+    _recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    let stone = sprites
+        .iter()
+        .filter(|sprite| sprite.kind.is_stone())
+        .collect::<Vec<_>>();
+    let columns = 3;
+    let padding = 12;
+    let cell_w = stone
+        .iter()
+        .map(|sprite| sprite.image.width)
+        .max()
+        .unwrap_or(64)
+        + padding * 2;
+    let cell_h = stone
+        .iter()
+        .map(|sprite| sprite.image.height)
+        .max()
+        .unwrap_or(32)
+        + padding * 2;
+    let rows = (stone.len() as u32).div_ceil(columns).max(1);
+    let mut sheet = PixelImage::new(
+        cell_w * columns + padding,
+        cell_h * rows + padding,
+        Rgba8::opaque(13, 15, 17),
+    );
+
+    for (i, sprite) in stone.iter().enumerate() {
+        let col = i as u32 % columns;
+        let row = i as u32 / columns;
+        let x = padding + col * cell_w;
+        let y = padding + row * cell_h;
+        sheet.fill_rect(
+            x,
+            y,
+            cell_w - padding,
+            cell_h - padding,
+            Rgba8::opaque(28, 31, 28),
+        );
+        sheet.outline_rect(
+            x,
+            y,
+            cell_w - padding,
+            cell_h - padding,
+            Rgba8::opaque(55, 60, 54),
+        );
+        sheet.blit(&sprite.image, x + padding / 2, y + padding / 2);
+    }
+    sheet
+}
+
 pub fn build_trench_oblique_straight_preview(
     sprites: &[GeneratedTerrainSprite],
     recipe: &TerrainSpriteRecipe,
@@ -774,6 +827,86 @@ pub fn build_berm_oblique_shadow_preview(
         blit_scaled_i32(&mut preview, fringe, 118, 84, 270, 28);
     }
     draw_straight_berm(&mut preview, sprites, 128, 102, 1.0);
+    preview
+}
+
+pub fn build_stone_oblique_platform_preview(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    let mut preview = trench_preview_base(sprites, recipe, 5, 3);
+    draw_stone_platform(&mut preview, sprites, 120, 84, 1.0);
+    preview
+}
+
+pub fn build_stone_oblique_steps_preview(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    let mut preview = trench_preview_base(sprites, recipe, 5, 3);
+    draw_stone_platform(&mut preview, sprites, 120, 76, 0.92);
+    if let Some(steps) = sprite_image(sprites, TerrainSpriteKind::StoneStepFront, 1) {
+        blit_scaled_i32(&mut preview, steps, 202, 166, 104, 54);
+    }
+    preview
+}
+
+pub fn build_stone_oblique_caps_preview(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    let mut preview = trench_preview_base(sprites, recipe, 5, 3);
+    draw_stone_platform(&mut preview, sprites, 132, 84, 0.76);
+    if let Some(cap) = sprite_image(sprites, TerrainSpriteKind::StoneEndCapLeft, 1) {
+        blit_scaled_i32(&mut preview, cap, 108, 108, 52, 72);
+    }
+    if let Some(cap) = sprite_image(sprites, TerrainSpriteKind::StoneEndCapRight, 1) {
+        blit_scaled_i32(&mut preview, cap, 330, 108, 52, 72);
+    }
+    preview
+}
+
+pub fn build_stone_oblique_corner_preview(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    let mut preview = trench_preview_base(sprites, recipe, 5, 4);
+    draw_stone_platform(&mut preview, sprites, 100, 128, 0.66);
+    if let Some(shadow) = sprite_image(sprites, TerrainSpriteKind::StoneContactShadow, 1) {
+        blit_scaled_i32(&mut preview, shadow, 210, 124, 96, 74);
+    }
+    if let Some(side) = sprite_image(sprites, TerrainSpriteKind::StoneSideFace, 1) {
+        blit_scaled_i32(&mut preview, side, 246, 106, 58, 116);
+    }
+    if let Some(corner) = sprite_image(sprites, TerrainSpriteKind::StoneCornerInner, 1) {
+        preview.blit(corner, 210, 130);
+    }
+    if let Some(corner) = sprite_image(sprites, TerrainSpriteKind::StoneCornerOuter, 1) {
+        preview.blit(corner, 258, 164);
+    }
+    preview
+}
+
+pub fn build_stone_mask_debug_preview(recipe: &TerrainSpriteRecipe) -> PixelImage {
+    let projection = &recipe.style.projection;
+    let cell_w = projection.cell_width_px;
+    let cell_h = projection.cell_height_px;
+    let face_h = projection.face_height_px.max(8);
+    let mut preview = PixelImage::new(cell_w * 3, cell_h * 2, Rgba8::opaque(36, 43, 31));
+    let top = recipe.style.palette.stone_mid;
+    let face = recipe.style.palette.stone_dark;
+    let bevel = recipe.style.palette.stone_light;
+    let shadow = Rgba8::opaque(20, 22, 18);
+    preview.fill_rect(
+        cell_w / 2,
+        cell_h / 2 + face_h / 2,
+        cell_w * 2,
+        face_h / 2,
+        shadow,
+    );
+    preview.fill_rect(cell_w / 2, cell_h / 2, cell_w * 2, face_h, face);
+    preview.fill_rect(cell_w / 2, cell_h / 2 - face_h, cell_w * 2, face_h, top);
+    preview.fill_rect(cell_w / 2, cell_h / 2 - face_h - 3, cell_w * 2, 4, bevel);
     preview
 }
 
@@ -1874,6 +2007,37 @@ fn draw_straight_berm(
     }
     if let Some(lip) = sprite_image(sprites, TerrainSpriteKind::BermLipFront, 1) {
         blit_scaled_i32(target, lip, x - 6, y + 60, berm_w + 12, 24);
+    }
+}
+
+fn draw_stone_platform(
+    target: &mut PixelImage,
+    sprites: &[GeneratedTerrainSprite],
+    x: i32,
+    y: i32,
+    width_factor: f32,
+) {
+    let platform_w = (248.0 * width_factor).round() as u32;
+    if let Some(shadow) = sprite_image(sprites, TerrainSpriteKind::StoneContactShadow, 1) {
+        blit_scaled_i32(target, shadow, x - 18, y + 98, platform_w + 38, 62);
+    }
+    if let Some(face) = sprite_image(sprites, TerrainSpriteKind::StoneFrontFace, 1) {
+        blit_scaled_i32(target, face, x + 8, y + 88, platform_w - 16, 68);
+    }
+    if let Some(side) = sprite_image(sprites, TerrainSpriteKind::StoneSideFace, 1) {
+        blit_scaled_i32(target, side, x + platform_w as i32 - 20, y + 62, 48, 92);
+    }
+    if let Some(top) = sprite_image(sprites, TerrainSpriteKind::StoneFloorTop, 1) {
+        blit_scaled_i32(target, top, x, y + 20, platform_w, 88);
+    }
+    if let Some(bevel) = sprite_image(sprites, TerrainSpriteKind::StoneBevel, 1) {
+        blit_scaled_i32(target, bevel, x - 2, y + 96, platform_w + 4, 24);
+    }
+    if let Some(cracks) = sprite_image(sprites, TerrainSpriteKind::StoneCrackDecal, 1) {
+        blit_scaled_i32(target, cracks, x + 64, y + 44, 88, 58);
+    }
+    if let Some(moss) = sprite_image(sprites, TerrainSpriteKind::StoneMossGrassEdge, 1) {
+        blit_scaled_i32(target, moss, x - 8, y + 18, platform_w + 16, 24);
     }
 }
 

@@ -12,16 +12,19 @@ use ground_core::{
     build_path_autotile_sheet, build_path_mask_debug_preview, build_path_neighbor_seam_heatmap,
     build_path_preview_dense, build_path_preview_junctions, build_path_preview_loop,
     build_path_preview_random, build_path_preview_sparse, build_seam_heatmap,
-    build_single_repeat_preview, build_sprite_contact_sheet,
-    build_terrain_engineering_topology_preview, build_transition_edges_preview,
-    build_transition_repeat_preview, build_trench_autotile_sheet, build_trench_contact_sheet,
-    build_trench_floor_continuity_heatmap, build_trench_lip_continuity_heatmap,
-    build_trench_mask_debug_preview, build_trench_neighbor_seam_heatmap,
-    build_trench_oblique_caps_preview, build_trench_oblique_corner_preview,
-    build_trench_oblique_shadow_preview, build_trench_oblique_straight_preview,
-    build_trench_preview_dense, build_trench_preview_junctions, build_trench_preview_loop,
-    build_trench_preview_sparse, build_trench_worst_neighbor_pairs_sheet,
-    build_variant_repeat_preview, export_terrain_sprite_bundle, generate_effective_terrain_sprites,
+    build_single_repeat_preview, build_sprite_contact_sheet, build_stone_contact_sheet,
+    build_stone_mask_debug_preview, build_stone_oblique_caps_preview,
+    build_stone_oblique_corner_preview, build_stone_oblique_platform_preview,
+    build_stone_oblique_steps_preview, build_terrain_engineering_topology_preview,
+    build_transition_edges_preview, build_transition_repeat_preview, build_trench_autotile_sheet,
+    build_trench_contact_sheet, build_trench_floor_continuity_heatmap,
+    build_trench_lip_continuity_heatmap, build_trench_mask_debug_preview,
+    build_trench_neighbor_seam_heatmap, build_trench_oblique_caps_preview,
+    build_trench_oblique_corner_preview, build_trench_oblique_shadow_preview,
+    build_trench_oblique_straight_preview, build_trench_preview_dense,
+    build_trench_preview_junctions, build_trench_preview_loop, build_trench_preview_sparse,
+    build_trench_worst_neighbor_pairs_sheet, build_variant_repeat_preview,
+    export_terrain_sprite_bundle, generate_effective_terrain_sprites,
     promote_terrain_sprite_overrides, scale_nearest, GeneratedTerrainSprite, PixelImage, Rgba8,
     TerrainSpriteKind, TerrainSpriteOverrideReport, TerrainSpriteRecipe,
     BUILTIN_SPRITE_STYLE_PROFILES, DEFAULT_SPRITEGEN_EXPORT_DIR,
@@ -83,6 +86,12 @@ enum PreviewPanel {
     BermFaceContinuity,
     BermShadowContinuity,
     BermWorstNeighborPairs,
+    StoneContactSheet,
+    StonePlatformPreview,
+    StoneStepsPreview,
+    StoneCapsPreview,
+    StoneCornerPreview,
+    StoneMaskDebug,
     TrenchContactSheet,
     TrenchStraightPreview,
     TrenchCapsPreview,
@@ -106,7 +115,7 @@ enum PreviewPanel {
 }
 
 impl PreviewPanel {
-    const ALL: [PreviewPanel; 57] = [
+    const ALL: [PreviewPanel; 63] = [
         PreviewPanel::Selected,
         PreviewPanel::ContactSheet,
         PreviewPanel::GeneratedContactSheet,
@@ -144,6 +153,12 @@ impl PreviewPanel {
         PreviewPanel::BermFaceContinuity,
         PreviewPanel::BermShadowContinuity,
         PreviewPanel::BermWorstNeighborPairs,
+        PreviewPanel::StoneContactSheet,
+        PreviewPanel::StonePlatformPreview,
+        PreviewPanel::StoneStepsPreview,
+        PreviewPanel::StoneCapsPreview,
+        PreviewPanel::StoneCornerPreview,
+        PreviewPanel::StoneMaskDebug,
         PreviewPanel::TrenchContactSheet,
         PreviewPanel::TrenchStraightPreview,
         PreviewPanel::TrenchCapsPreview,
@@ -205,6 +220,12 @@ impl PreviewPanel {
             PreviewPanel::BermFaceContinuity => "Berm face continuity",
             PreviewPanel::BermShadowContinuity => "Berm shadow continuity",
             PreviewPanel::BermWorstNeighborPairs => "Berm worst neighbor pairs",
+            PreviewPanel::StoneContactSheet => "Stone contact sheet",
+            PreviewPanel::StonePlatformPreview => "Stone platform preview",
+            PreviewPanel::StoneStepsPreview => "Stone steps preview",
+            PreviewPanel::StoneCapsPreview => "Stone caps preview",
+            PreviewPanel::StoneCornerPreview => "Stone corner preview",
+            PreviewPanel::StoneMaskDebug => "Stone mask debug",
             PreviewPanel::TrenchContactSheet => "Trench contact sheet",
             PreviewPanel::TrenchStraightPreview => "Trench straight preview",
             PreviewPanel::TrenchCapsPreview => "Trench caps preview",
@@ -236,16 +257,18 @@ enum PrimitivePanel {
     Path,
     Trench,
     Berm,
+    Stone,
     Projection,
 }
 
 impl PrimitivePanel {
-    const ALL: [PrimitivePanel; 6] = [
+    const ALL: [PrimitivePanel; 7] = [
         PrimitivePanel::Grass,
         PrimitivePanel::Dirt,
         PrimitivePanel::Path,
         PrimitivePanel::Trench,
         PrimitivePanel::Berm,
+        PrimitivePanel::Stone,
         PrimitivePanel::Projection,
     ];
 
@@ -256,6 +279,7 @@ impl PrimitivePanel {
             PrimitivePanel::Path => "Path / transition",
             PrimitivePanel::Trench => "Trench",
             PrimitivePanel::Berm => "Berm",
+            PrimitivePanel::Stone => "Stone",
             PrimitivePanel::Projection => "Projection / global",
         }
     }
@@ -267,6 +291,7 @@ impl PrimitivePanel {
             PrimitivePanel::Path => PreviewPanel::PathAutotileSheet,
             PrimitivePanel::Trench => PreviewPanel::TrenchAutotileSheet,
             PrimitivePanel::Berm => PreviewPanel::BermAutotileSheet,
+            PrimitivePanel::Stone => PreviewPanel::StonePlatformPreview,
             PrimitivePanel::Projection => PreviewPanel::ObliqueMaterialPreview,
         }
     }
@@ -323,6 +348,12 @@ struct SpriteForgeApp {
     berm_face_continuity_texture: Option<egui::TextureHandle>,
     berm_shadow_continuity_texture: Option<egui::TextureHandle>,
     berm_worst_neighbor_texture: Option<egui::TextureHandle>,
+    stone_contact_texture: Option<egui::TextureHandle>,
+    stone_platform_texture: Option<egui::TextureHandle>,
+    stone_steps_texture: Option<egui::TextureHandle>,
+    stone_caps_texture: Option<egui::TextureHandle>,
+    stone_corner_texture: Option<egui::TextureHandle>,
+    stone_mask_debug_texture: Option<egui::TextureHandle>,
     trench_contact_texture: Option<egui::TextureHandle>,
     trench_straight_texture: Option<egui::TextureHandle>,
     trench_caps_texture: Option<egui::TextureHandle>,
@@ -408,6 +439,12 @@ impl SpriteForgeApp {
             berm_face_continuity_texture: None,
             berm_shadow_continuity_texture: None,
             berm_worst_neighbor_texture: None,
+            stone_contact_texture: None,
+            stone_platform_texture: None,
+            stone_steps_texture: None,
+            stone_caps_texture: None,
+            stone_corner_texture: None,
+            stone_mask_debug_texture: None,
             trench_contact_texture: None,
             trench_straight_texture: None,
             trench_caps_texture: None,
@@ -753,6 +790,48 @@ impl SpriteForgeApp {
             "berm_worst_neighbor_pairs",
             &berm_worst,
         );
+        let stone_contact = build_stone_contact_sheet(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.stone_contact_texture,
+            "stone_contact_sheet",
+            &stone_contact,
+        );
+        let stone_platform = build_stone_oblique_platform_preview(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.stone_platform_texture,
+            "stone_platform_preview",
+            &stone_platform,
+        );
+        let stone_steps = build_stone_oblique_steps_preview(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.stone_steps_texture,
+            "stone_steps_preview",
+            &stone_steps,
+        );
+        let stone_caps = build_stone_oblique_caps_preview(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.stone_caps_texture,
+            "stone_caps_preview",
+            &stone_caps,
+        );
+        let stone_corner = build_stone_oblique_corner_preview(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.stone_corner_texture,
+            "stone_corner_preview",
+            &stone_corner,
+        );
+        let stone_mask_debug = build_stone_mask_debug_preview(&self.recipe);
+        put_texture(
+            ctx,
+            &mut self.stone_mask_debug_texture,
+            "stone_mask_debug",
+            &stone_mask_debug,
+        );
         let trench_contact = build_trench_contact_sheet(&self.sprites, &self.recipe);
         put_texture(
             ctx,
@@ -894,7 +973,7 @@ impl SpriteForgeApp {
 
     fn show_controls(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.heading("Pixel Terrain Forge");
-        ui.label("ArtGen 3.3: shared topology continuity polish.");
+        ui.label("ArtGen 4.0: stone platform / raised terrain kit.");
         ui.separator();
         let selected_profile = BUILTIN_SPRITE_STYLE_PROFILES
             .get(self.selected_profile_index)
@@ -1068,6 +1147,7 @@ impl SpriteForgeApp {
             PrimitivePanel::Path => changed |= self.show_path_tuning(ui),
             PrimitivePanel::Trench => changed |= self.show_trench_tuning(ui),
             PrimitivePanel::Berm => changed |= self.show_berm_tuning(ui),
+            PrimitivePanel::Stone => changed |= self.show_stone_tuning(ui),
             PrimitivePanel::Projection => changed |= self.show_projection_tuning(ui),
         }
         changed
@@ -1390,6 +1470,79 @@ impl SpriteForgeApp {
         ));
         if ui.button("Reset berm rules").clicked() {
             self.recipe.style.berm = Default::default();
+            changed = true;
+        }
+        changed
+    }
+
+    fn show_stone_tuning(&mut self, ui: &mut egui::Ui) -> bool {
+        ui.label("Stone color ramp");
+        let mut changed = false;
+        changed |= edit_color(ui, "shadow", &mut self.recipe.style.palette.stone_shadow);
+        changed |= edit_color(ui, "dark", &mut self.recipe.style.palette.stone_dark);
+        changed |= edit_color(ui, "mid", &mut self.recipe.style.palette.stone_mid);
+        changed |= edit_color(ui, "light", &mut self.recipe.style.palette.stone_light);
+        changed |= edit_color(ui, "moss", &mut self.recipe.style.palette.stone_moss);
+        ui.separator();
+        ui.label("Stone platform and lighting");
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.stone.top_contrast,
+            0.0..=1.0,
+            "top contrast",
+        );
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.stone.face_shadow_strength,
+            0.0..=1.0,
+            "face shadow",
+        );
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.stone.bevel_highlight_strength,
+            0.0..=1.0,
+            "bevel highlight",
+        );
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.stone.step_shadow_strength,
+            0.0..=1.0,
+            "step shadow",
+        );
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.stone.contact_shadow_strength,
+            0.0..=1.0,
+            "contact shadow",
+        );
+        ui.separator();
+        ui.label("Stone surface detail");
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.stone.block_crack_density,
+            0.0..=1.0,
+            "cracks / chips",
+        );
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.recipe.style.stone.slab_jitter_px, 0..=12)
+                    .text("slab jitter"),
+            )
+            .changed();
+        changed |= slider_f32(
+            ui,
+            &mut self.recipe.style.stone.moss_density,
+            0.0..=1.0,
+            "moss",
+        );
+        ui.label(format!(
+            "Motifs: {} cracks · {} chips · {} moss",
+            self.recipe.motifs.stone_cracks.len(),
+            self.recipe.motifs.stone_chips.len(),
+            self.recipe.motifs.stone_moss.len()
+        ));
+        if ui.button("Reset stone rules").clicked() {
+            self.recipe.style.stone = Default::default();
             changed = true;
         }
         changed
@@ -1801,6 +1954,54 @@ impl SpriteForgeApp {
                     self.berm_worst_neighbor_texture.as_ref(),
                     1.0,
                     "No berm worst neighbor pair sheet",
+                );
+            }
+            PreviewPanel::StoneContactSheet => {
+                show_texture(
+                    ui,
+                    self.stone_contact_texture.as_ref(),
+                    1.0,
+                    "No stone contact sheet",
+                );
+            }
+            PreviewPanel::StonePlatformPreview => {
+                show_texture(
+                    ui,
+                    self.stone_platform_texture.as_ref(),
+                    1.0,
+                    "No stone platform preview",
+                );
+            }
+            PreviewPanel::StoneStepsPreview => {
+                show_texture(
+                    ui,
+                    self.stone_steps_texture.as_ref(),
+                    1.0,
+                    "No stone steps preview",
+                );
+            }
+            PreviewPanel::StoneCapsPreview => {
+                show_texture(
+                    ui,
+                    self.stone_caps_texture.as_ref(),
+                    1.0,
+                    "No stone caps preview",
+                );
+            }
+            PreviewPanel::StoneCornerPreview => {
+                show_texture(
+                    ui,
+                    self.stone_corner_texture.as_ref(),
+                    1.0,
+                    "No stone corner preview",
+                );
+            }
+            PreviewPanel::StoneMaskDebug => {
+                show_texture(
+                    ui,
+                    self.stone_mask_debug_texture.as_ref(),
+                    1.0,
+                    "No stone mask debug",
                 );
             }
             PreviewPanel::TrenchContactSheet => {

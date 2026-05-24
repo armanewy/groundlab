@@ -18,22 +18,25 @@ use crate::spritegen::{
     build_path_autotile_sheet, build_path_mask_debug_preview, build_path_neighbor_seam_heatmap,
     build_path_preview_dense, build_path_preview_junctions, build_path_preview_loop,
     build_path_preview_random, build_path_preview_sparse, build_repeat_preview, build_seam_heatmap,
-    build_single_repeat_preview, build_sprite_contact_sheet,
-    build_terrain_engineering_topology_preview, build_transition_edges_preview,
-    build_transition_repeat_preview, build_trench_autotile_sheet, build_trench_contact_sheet,
-    build_trench_floor_continuity_edge_heatmap, build_trench_floor_continuity_heatmap,
-    build_trench_lip_continuity_edge_heatmap, build_trench_lip_continuity_heatmap,
-    build_trench_mask_debug_preview, build_trench_neighbor_seam_edge_heatmap,
-    build_trench_neighbor_seam_heatmap, build_trench_oblique_caps_preview,
-    build_trench_oblique_corner_preview, build_trench_oblique_shadow_preview,
-    build_trench_oblique_straight_preview, build_trench_preview_corners,
-    build_trench_preview_dead_ends, build_trench_preview_dense, build_trench_preview_dense_clean,
-    build_trench_preview_junctions, build_trench_preview_loop, build_trench_preview_single_masks,
-    build_trench_preview_sparse, build_trench_worst_neighbor_pairs_sheet,
-    build_variant_repeat_preview, generate_effective_terrain_sprites,
-    promote_generated_sprites_to_overrides, validate_terrain_sprites, GeneratedTerrainSprite,
-    TerrainSpriteBundleManifest, TerrainSpriteKind, TerrainSpritePieceManifest,
-    TerrainSpriteRecipe, DEFAULT_SPRITEGEN_EXPORT_DIR,
+    build_single_repeat_preview, build_sprite_contact_sheet, build_stone_contact_sheet,
+    build_stone_mask_debug_preview, build_stone_oblique_caps_preview,
+    build_stone_oblique_corner_preview, build_stone_oblique_platform_preview,
+    build_stone_oblique_steps_preview, build_terrain_engineering_topology_preview,
+    build_transition_edges_preview, build_transition_repeat_preview, build_trench_autotile_sheet,
+    build_trench_contact_sheet, build_trench_floor_continuity_edge_heatmap,
+    build_trench_floor_continuity_heatmap, build_trench_lip_continuity_edge_heatmap,
+    build_trench_lip_continuity_heatmap, build_trench_mask_debug_preview,
+    build_trench_neighbor_seam_edge_heatmap, build_trench_neighbor_seam_heatmap,
+    build_trench_oblique_caps_preview, build_trench_oblique_corner_preview,
+    build_trench_oblique_shadow_preview, build_trench_oblique_straight_preview,
+    build_trench_preview_corners, build_trench_preview_dead_ends, build_trench_preview_dense,
+    build_trench_preview_dense_clean, build_trench_preview_junctions, build_trench_preview_loop,
+    build_trench_preview_single_masks, build_trench_preview_sparse,
+    build_trench_worst_neighbor_pairs_sheet, build_variant_repeat_preview,
+    generate_effective_terrain_sprites, promote_generated_sprites_to_overrides,
+    validate_terrain_sprites, GeneratedTerrainSprite, TerrainSpriteBundleManifest,
+    TerrainSpriteKind, TerrainSpritePieceManifest, TerrainSpriteRecipe,
+    DEFAULT_SPRITEGEN_EXPORT_DIR,
 };
 use crate::terrain_artkit::{
     TerrainArtKitFile, TerrainArtOcclusion, TerrainArtOrientationSupport, TerrainArtPiece,
@@ -178,6 +181,17 @@ pub fn export_terrain_sprite_bundle(
         .save_png(out_dir.join("berm_preview_oblique_corner.png"))?;
     build_berm_oblique_shadow_preview(&sprites, &recipe)
         .save_png(out_dir.join("berm_preview_oblique_shadow.png"))?;
+    build_stone_contact_sheet(&sprites, &recipe)
+        .save_png(out_dir.join("stone_contact_sheet.png"))?;
+    build_stone_oblique_platform_preview(&sprites, &recipe)
+        .save_png(out_dir.join("stone_preview_oblique_platform.png"))?;
+    build_stone_oblique_steps_preview(&sprites, &recipe)
+        .save_png(out_dir.join("stone_preview_oblique_steps.png"))?;
+    build_stone_oblique_caps_preview(&sprites, &recipe)
+        .save_png(out_dir.join("stone_preview_oblique_caps.png"))?;
+    build_stone_oblique_corner_preview(&sprites, &recipe)
+        .save_png(out_dir.join("stone_preview_oblique_corner.png"))?;
+    build_stone_mask_debug_preview(&recipe).save_png(out_dir.join("stone_mask_debug.png"))?;
     build_berm_mask_debug_preview(&recipe).save_png(out_dir.join("berm_mask_debug.png"))?;
     build_berm_autotile_sheet(&sprites, &recipe)
         .save_png(out_dir.join("berm_autotile_sheet.png"))?;
@@ -458,6 +472,57 @@ fn art_piece_for_sprite(sprite: &GeneratedTerrainSprite) -> TerrainArtPiece {
             Some(GroundMaterial::Grass),
             TerrainArtRepeatMode::StretchMiddle,
             vec!["spritegen", "cozy", "berm", "grass-fringe"],
+        ),
+        TerrainSpriteKind::StoneFloorTop => (
+            TerrainArtPieceKind::StoneFloor,
+            Some(GroundMaterial::Rock),
+            TerrainArtRepeatMode::StretchMiddle,
+            vec!["spritegen", "cozy", "stone", "top"],
+        ),
+        TerrainSpriteKind::StoneFrontFace | TerrainSpriteKind::StoneSideFace => (
+            TerrainArtPieceKind::StoneWallFront,
+            Some(GroundMaterial::Rock),
+            TerrainArtRepeatMode::StretchMiddle,
+            vec!["spritegen", "cozy", "stone", "front-face"],
+        ),
+        TerrainSpriteKind::StoneBevel => (
+            TerrainArtPieceKind::CornerCap,
+            Some(GroundMaterial::Rock),
+            TerrainArtRepeatMode::StretchMiddle,
+            vec!["spritegen", "cozy", "stone", "bevel"],
+        ),
+        TerrainSpriteKind::StoneStepFront => (
+            TerrainArtPieceKind::StoneWallFront,
+            Some(GroundMaterial::Rock),
+            TerrainArtRepeatMode::Stamp,
+            vec!["spritegen", "cozy", "stone", "steps"],
+        ),
+        TerrainSpriteKind::StoneEndCapLeft
+        | TerrainSpriteKind::StoneEndCapRight
+        | TerrainSpriteKind::StoneCornerInner
+        | TerrainSpriteKind::StoneCornerOuter => (
+            TerrainArtPieceKind::CornerCap,
+            Some(GroundMaterial::Rock),
+            TerrainArtRepeatMode::Stamp,
+            vec!["spritegen", "cozy", "stone", "corner-cap"],
+        ),
+        TerrainSpriteKind::StoneContactShadow => (
+            TerrainArtPieceKind::SoftShadow,
+            None,
+            TerrainArtRepeatMode::StretchMiddle,
+            vec!["spritegen", "cozy", "stone", "contact-shadow"],
+        ),
+        TerrainSpriteKind::StoneCrackDecal => (
+            TerrainArtPieceKind::DirtScrape,
+            Some(GroundMaterial::Rock),
+            TerrainArtRepeatMode::Stamp,
+            vec!["spritegen", "cozy", "stone", "crack-decal"],
+        ),
+        TerrainSpriteKind::StoneMossGrassEdge => (
+            TerrainArtPieceKind::GrassFloorEdge,
+            Some(GroundMaterial::Grass),
+            TerrainArtRepeatMode::StretchMiddle,
+            vec!["spritegen", "cozy", "stone", "moss-grass-edge"],
         ),
         TerrainSpriteKind::BermMask00
         | TerrainSpriteKind::BermMask01
