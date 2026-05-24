@@ -4,7 +4,7 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: ProcGen 4 — generated mission browser and mission packs
+## Current status: ProcGen 5 — theme calibration and difficulty curves
 
 GroundLab has pivoted again from manually tuning one mission toward generating compact tactical
 terrain problems in batches. The primary product direction is still a 2.5D tactical engineering
@@ -17,7 +17,7 @@ SpriteGen remains in the repository as the terrain art forge. It still provides 
 profiles, override PNGs, sprite manifests, validation, and exportable grass/dirt/path/trench/berm/
 stone pieces. It is now supporting infrastructure rather than the main roadmap driver.
 
-GamePivot 8 and ProcGen 1-4 build on the `ground_game` crate with:
+GamePivot 8 and ProcGen 1-5 build on the `ground_game` crate with:
 
 - `MissionSpec`, `MissionMap`, and `MissionCell`
 - earth states such as normal, scraped, trench, deep trench, spoil pile, berm, unstable, and muddy
@@ -58,9 +58,11 @@ GamePivot 8 and ProcGen 1-4 build on the `ground_game` crate with:
 - ProcGen preview exports including per-candidate mission/route previews, accepted/rejected contact sheets, and a top-ranked contact sheet with route overlays plus score/sensitivity bars
 - six generated mission theme classes: dry road below, orchard approach, dry wash, ridge trap, old wall, and split approach
 - all-theme generation that writes per-theme candidate batches plus combined `theme_summary.json`, `all_ranked_candidates.json`, `all_rejected_candidates.json`, and cross-theme contact sheets
-- a generated mission browser index with seed, theme, score, accepted/rejected state, best plan, plan sensitivity, route diversity, hazard viability, local material affordance, primary affordance, rejection reason, and mission path for every candidate
+- a generated mission browser index with seed, theme, score, accepted/rejected state, best plan, plan sensitivity, route diversity, hazard viability, local material affordance, difficulty, complexity, primary affordance, rejection reason, and mission path for every candidate
 - a Mission Lab generated-mission browser that filters accepted/rejected candidates by theme and loads any candidate mission into the playable briefing/prep/assault loop
-- auto-built mission packs that pick diverse accepted candidates across themes, sort them into a difficulty curve, and export pack manifests/contact sheets without manual map curation
+- auto-built mission packs that pick diverse accepted candidates across themes, sort them into difficulty/complexity curves, and export pack manifests/contact sheets without manual map curation
+- theme calibration reports that track acceptance rate, target bands, average score, average difficulty, average complexity, plan sensitivity, route diversity, hazard usefulness, material affordance, top rejection reasons, and generator-tuning recommendations per theme
+- pack diversity reports that check unique themes, tree/material coverage, rolling-hazard coverage, split-route coverage, and curve monotonicity
 - a Mission Lab file loader for opening generated `mission.ron` candidates directly from disk
 - assault summary and debrief exports for debugging why the plan worked or failed
 - per-cell influence summaries for crossed cells, delayed cells, damaging cells, defender pressure, breach cells, effective obstacles, and unused defenses
@@ -118,16 +120,16 @@ Run the GamePivot 7 mission balance pass:
 cargo run -p ground_cli -- mission-balance exports/gamepivot_07
 ```
 
-Generate a batch of ProcGen 4 all-theme mission candidates:
+Generate a batch of ProcGen 5 all-theme mission candidates:
 
 ```bash
-cargo run -p ground_cli -- generate-missions exports/procgen_04 --theme all --count 20 --seed 99418113
+cargo run -p ground_cli -- generate-missions exports/procgen_05_batch --theme all --count 20 --seed 99418113
 ```
 
 ProcGen output includes:
 
 ```txt
-exports/procgen_04/
+exports/procgen_05_batch/
   browser_index.json
   theme_summary.json
   all_ranked_candidates.json
@@ -147,20 +149,40 @@ exports/procgen_04/
 Build a generated mission pack from the accepted candidates:
 
 ```bash
-cargo run -p ground_cli -- generate-mission-pack exports/procgen_04_pack --seed 99418113 --missions 6 --candidates-per-theme 20
+cargo run -p ground_cli -- generate-mission-pack exports/procgen_05_pack --seed 99418113 --missions 6 --candidates-per-theme 20 --curve tutorial
 ```
 
 Mission pack output includes:
 
 ```txt
-exports/procgen_04_pack/
+exports/procgen_05_pack/
   mission_pack.ron
   mission_pack_summary.json
   mission_pack_contact_sheet.png
   difficulty_curve.json
+  complexity_curve.json
+  pack_diversity_report.json
   source_candidates/
     browser_index.json
     per_theme/
+```
+
+Calibrate every theme with the same evaluator:
+
+```bash
+cargo run -p ground_cli -- calibrate-themes exports/procgen_05 --count 200 --seed 99418113
+```
+
+Calibration output includes:
+
+```txt
+exports/procgen_05/
+  theme_calibration_report.json
+  theme_calibration_summary.png
+  rejection_reason_histogram.png
+  difficulty_complexity_scatter.png
+  browser_index.json
+  per_theme/
 ```
 
 Road Below player plans saved from Mission Lab are written to:
@@ -178,6 +200,12 @@ cargo run -p ground_app
 The full-scene terrain renderer and ArtGen outputs remain downstream infrastructure for terrain
 data, pathing, LOS, and future art-kit composition, but the active gameplay roadmap now emphasizes
 seeded mission generation, automatic evaluation, ranking, and playable candidate export.
+
+## Previous status: ProcGen 4 — generated mission browser and mission packs
+
+ProcGen 4 added `browser_index.json`, Mission Lab generated-mission browsing, candidate cards,
+theme filters, accepted-only browsing, direct candidate loading, and automatic mission-pack export
+with pack manifests, difficulty curves, and contact sheets.
 
 ## Previous status: ProcGen 3 — theme classes
 

@@ -255,7 +255,7 @@ impl GroundLabApp {
             ],
             mission_load_path_text: "exports/procgen_01/candidates/seed_0001/mission.ron"
                 .to_string(),
-            mission_browser_path_text: "exports/procgen_04/browser_index.json".to_string(),
+            mission_browser_path_text: "exports/procgen_05/browser_index.json".to_string(),
             mission_browser: None,
             mission_browser_theme_filter: None,
             mission_browser_accepted_only: true,
@@ -430,7 +430,7 @@ impl GroundLabApp {
     fn show_mission_controls(&mut self, ui: &mut egui::Ui) {
         self.show_panel_tabs(ui);
         ui.heading("Mission Lab");
-        ui.label("ProcGen 4: generated mission browser and playable prep loop");
+        ui.label("ProcGen 5: generated mission calibration and playable candidate browser");
         ui.separator();
 
         self.show_mission_status_panel(ui);
@@ -734,7 +734,9 @@ impl GroundLabApp {
                 entry.primary_affordance
             ));
             ui.small(format!(
-                "route {:.2} · material {:.2} · hazard {:.2}",
+                "difficulty {} · complexity {} · route {:.2} · material {:.2} · hazard {:.2}",
+                entry.difficulty_score,
+                entry.complexity_score,
                 entry.route_diversity_score,
                 entry.local_material_score,
                 entry.hazard_viability_score

@@ -8,7 +8,8 @@ forge, while `ground_game` owns mission specs, prep-phase work orders, local mat
 environment-object states, doctrine route preview, deterministic assault sandbox, assault
 readability/debrief artifacts, the first deterministic rolling hazard sandbox, mission balance
 scenario comparison, seeded mission generation/ranking with structured rejection diagnostics across
-multiple mission theme grammars, generated mission browsing, and automatic mission pack selection.
+multiple mission theme grammars, generated mission browsing, theme calibration, and automatic
+mission pack selection with difficulty/complexity curves.
 `ground_app` now treats Mission Lab as the primary tactical prep surface rather than a generic
 terrain editor panel, and Road Below starts as a playable briefing-to-debrief slice. The same
 mission loop now evaluates generated Road-Below-like candidates so GroundLab can batch-generate,
@@ -33,7 +34,10 @@ score, reject, and export compact terrain-defense problems.
 - Mission theme grammars for road, orchard, dry wash, ridge, old wall, and split-approach tactical
   problems
 - Generated mission browser indexes, candidate-card metadata, and Mission Lab candidate loading
-- Automatic mission pack selection, difficulty curves, and pack contact sheets
+- Theme calibration reports, rejection histograms, difficulty/complexity scatter charts, and
+  tuning recommendations
+- Automatic mission pack selection, difficulty/complexity curves, pack diversity reports, and pack
+  contact sheets
 - Terrain editing brushes
 - Pixel tile recipes
 - Palette ramps and palette file format
@@ -105,7 +109,8 @@ MissionGeneratorSpec + MissionTheme
   -> accepted/rejected/top-candidate contact sheets
   -> browser_index.json candidate cards
   -> generated mission browser filters
-  -> mission pack selection + difficulty curve
+  -> theme calibration report + rejection/actionability diagnostics
+  -> mission pack selection + difficulty/complexity curves
   -> Mission Lab inspection / playable retry
 ```
 

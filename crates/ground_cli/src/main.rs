@@ -5,11 +5,12 @@ use ground_core::{
     DEFAULT_RECIPE_PATH,
 };
 use ground_game::{
-    export_assault_run, export_generated_mission_batch, export_generated_mission_pack,
+    export_assault_run, export_generated_mission_batch, export_generated_mission_pack_with_curve,
     export_generated_mission_theme_batch, export_hazard_sandbox_run, export_mission_balance_run,
-    export_order_script_run, export_road_below_seed, load_mission_spec, load_work_order_script,
-    road_below_basic_prep_script, road_below_hazard_prep_script, road_below_spec,
-    MissionGeneratorSpec, MissionTheme, DEFAULT_MISSION_EXPORT_DIR,
+    export_order_script_run, export_road_below_seed, export_theme_calibration_report,
+    load_mission_spec, load_work_order_script, road_below_basic_prep_script,
+    road_below_hazard_prep_script, road_below_spec, MissionGeneratorSpec, MissionPackCurve,
+    MissionTheme, DEFAULT_MISSION_EXPORT_DIR,
 };
 
 fn main() -> Result<()> {
@@ -257,7 +258,7 @@ fn main() -> Result<()> {
             if let Some(theme) = theme {
                 generator.theme = theme;
                 let report = export_generated_mission_batch(&out_dir, generator, count)?;
-                println!("Exported ProcGen 4 mission batch to {out_dir}.");
+                println!("Exported ProcGen 5 mission batch to {out_dir}.");
                 println!(
                     "Generated {} candidate(s): {} accepted, {} rejected.",
                     report.generated_count, report.accepted_count, report.rejected_count
@@ -275,7 +276,7 @@ fn main() -> Result<()> {
                     count,
                     &MissionTheme::GENERATABLE,
                 )?;
-                println!("Exported ProcGen 4 all-theme mission batch to {out_dir}.");
+                println!("Exported ProcGen 5 all-theme mission batch to {out_dir}.");
                 println!(
                     "Generated {} candidate(s): {} accepted, {} rejected across {} theme(s).",
                     report.total_generated_count,
@@ -301,10 +302,11 @@ fn main() -> Result<()> {
         "generate-mission-pack" => {
             let out_dir = args
                 .next()
-                .unwrap_or_else(|| "exports/procgen_04_pack".to_string());
+                .unwrap_or_else(|| "exports/procgen_05_pack".to_string());
             let mut seed = 0x5eed_0001;
             let mut missions = 6;
             let mut candidates_per_theme = 20;
+            let mut curve = MissionPackCurve::Balanced;
             while let Some(arg) = args.next() {
                 match arg.as_str() {
                     "--seed" => {
@@ -325,32 +327,91 @@ fn main() -> Result<()> {
                         };
                         candidates_per_theme = value.parse()?;
                     }
+                    "--curve" => {
+                        let Some(value) = args.next() else {
+                            bail!("--curve requires a value");
+                        };
+                        curve = value.parse().map_err(|err: String| anyhow::anyhow!(err))?;
+                    }
                     other => bail!("unknown generate-mission-pack option: {other}"),
                 }
             }
             let generator = MissionGeneratorSpec::road_below(seed);
-            let summary =
-                export_generated_mission_pack(&out_dir, generator, missions, candidates_per_theme)?;
-            println!("Exported ProcGen 4 mission pack to {out_dir}.");
+            let summary = export_generated_mission_pack_with_curve(
+                &out_dir,
+                generator,
+                missions,
+                candidates_per_theme,
+                curve,
+            )?;
+            println!("Exported ProcGen 5 mission pack to {out_dir}.");
             println!(
-                "Selected {} mission(s) from {} generated candidate(s), {} accepted.",
+                "Selected {} {}-curve mission(s) from {} generated candidate(s), {} accepted.",
                 summary.pack.missions.len(),
+                summary.curve.label(),
                 summary.total_generated_count,
                 summary.total_accepted_count
             );
             for mission in &summary.pack.missions {
                 println!(
-                    "{}. {} [{}] · score {} · difficulty {} · {}",
+                    "{}. {} [{}] · score {} · difficulty {} · complexity {} · {}",
                     mission.order,
                     mission.title,
                     mission.theme_slug,
                     mission.tactical_interest_score,
                     mission.difficulty_score,
+                    mission.complexity_score,
                     mission.best_plan_label
                 );
             }
             println!(
-                "Pack files: mission_pack.ron, mission_pack_summary.json, mission_pack_contact_sheet.png, difficulty_curve.json, source_candidates/browser_index.json"
+                "Pack files: mission_pack.ron, mission_pack_summary.json, mission_pack_contact_sheet.png, difficulty_curve.json, complexity_curve.json, pack_diversity_report.json, source_candidates/browser_index.json"
+            );
+        }
+        "calibrate-themes" => {
+            let out_dir = args
+                .next()
+                .unwrap_or_else(|| "exports/procgen_05".to_string());
+            let mut count = 200;
+            let mut seed = 0x5eed_0001;
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--count" => {
+                        let Some(value) = args.next() else {
+                            bail!("--count requires a value");
+                        };
+                        count = value.parse()?;
+                    }
+                    "--seed" => {
+                        let Some(value) = args.next() else {
+                            bail!("--seed requires a value");
+                        };
+                        seed = value.parse()?;
+                    }
+                    other => bail!("unknown calibrate-themes option: {other}"),
+                }
+            }
+            let generator = MissionGeneratorSpec::road_below(seed);
+            let report = export_theme_calibration_report(&out_dir, generator, count)?;
+            println!("Exported ProcGen 5 theme calibration to {out_dir}.");
+            println!(
+                "Generated {} candidate(s): {} accepted, {} rejected.",
+                report.total_generated_count,
+                report.total_accepted_count,
+                report.total_rejected_count
+            );
+            for theme in &report.theme_summaries {
+                println!(
+                    "{}: {:.0}% accepted · avg score {:.1} · avg difficulty {:.1} · avg complexity {:.1}",
+                    theme.theme_slug,
+                    theme.acceptance_rate * 100.0,
+                    theme.average_score,
+                    theme.average_difficulty_score,
+                    theme.average_complexity_score
+                );
+            }
+            println!(
+                "Calibration files: theme_calibration_report.json, theme_calibration_summary.png, rejection_reason_histogram.png, difficulty_complexity_scatter.png, browser_index.json"
             );
         }
         "help" | "--help" | "-h" => print_help(),
@@ -374,5 +435,8 @@ fn print_help() {
     eprintln!("  cargo run -p ground_cli -- mission-hazards [out_dir] [mission_spec.ron|json] [order_script.ron|json]");
     eprintln!("  cargo run -p ground_cli -- mission-balance [out_dir] [mission_spec.ron|json]");
     eprintln!("  cargo run -p ground_cli -- generate-missions [out_dir] [--theme dry_road_below|ridge_trap|orchard_approach|dry_wash|old_wall|split_approach|all] [--count 10] [--seed 99418113]");
-    eprintln!("  cargo run -p ground_cli -- generate-mission-pack [out_dir] [--seed 99418113] [--missions 6] [--candidates-per-theme 20]");
+    eprintln!("  cargo run -p ground_cli -- generate-mission-pack [out_dir] [--seed 99418113] [--missions 6] [--candidates-per-theme 20] [--curve balanced|tutorial]");
+    eprintln!(
+        "  cargo run -p ground_cli -- calibrate-themes [out_dir] [--count 200] [--seed 99418113]"
+    );
 }

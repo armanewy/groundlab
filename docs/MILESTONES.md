@@ -278,6 +278,37 @@ This milestone turns procedural generation into a usable content pipeline: gener
 browse/rank/filter them, open them in Mission Lab, and build a small diverse mission set without
 manual map curation.
 
+## ProcGen 5 — Theme calibration and difficulty curves
+
+Implemented in this drop.
+
+- added `ThemeCalibrationReport` with per-theme generated count, accepted count, rejected count,
+  acceptance rate, target acceptance band, target difficulty label, average score, best score,
+  average difficulty, average complexity, average plan sensitivity, route diversity, hazard
+  usefulness, material affordance, top rejection reason, and recommendations
+- added `cargo run -p ground_cli -- calibrate-themes [out_dir] [--count N] [--seed N]`
+- calibration export writes `theme_calibration_report.json`, `theme_calibration_summary.png`,
+  `rejection_reason_histogram.png`, `difficulty_complexity_scatter.png`, and the normal all-theme
+  ProcGen batch outputs including `browser_index.json`
+- added per-theme target bands for dry road below, orchard approach, dry wash, ridge trap, old wall,
+  and split approach
+- added structured generator-tuning recommendations for common failures such as missing hazard
+  opportunity, low route diversity, weak local materials, too-flat dry wash maps, and bad spawn
+  pressure
+- added mission complexity scoring separate from difficulty; complexity tracks route count, doctrine
+  spread, material types, hazard presence, height interest, and meaningful affordance count
+- mission browser entries now include difficulty and complexity scores
+- mission pack entries now include complexity scores beside tactical-interest and difficulty scores
+- mission pack summaries now export `complexity_curve.json` and `pack_diversity_report.json`
+- added `--curve balanced|tutorial` to `generate-mission-pack`
+- the tutorial curve prefers a teaching sequence across dry road below, orchard approach, dry wash,
+  ridge trap, split approach, and old wall while still falling back to the best available accepted
+  candidates when a theme is sparse
+
+This milestone does not add new mechanics or themes. It makes generated content more dependable by
+showing which themes are over/under-accepting, why candidates fail, and whether a generated mission
+pack has a sane difficulty and complexity progression.
+
 ## Milestone 0 — Project seed
 
 Implemented.

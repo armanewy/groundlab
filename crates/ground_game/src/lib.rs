@@ -800,7 +800,7 @@ impl MissionGeneratorSpec {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum MissionTheme {
     DryRoadBelow,
     OrchardApproach,
@@ -1093,6 +1093,8 @@ pub struct GeneratedMissionBrowserEntry {
     pub route_diversity_score: f32,
     pub hazard_viability_score: f32,
     pub local_material_score: f32,
+    pub difficulty_score: i32,
+    pub complexity_score: i32,
     pub top_rejection_kind: Option<GeneratedMissionRejectionKind>,
     pub top_rejection_reason: Option<String>,
     pub primary_affordance: String,
@@ -1118,6 +1120,7 @@ pub struct GeneratedMissionPackEntry {
     pub seed: u64,
     pub tactical_interest_score: i32,
     pub difficulty_score: i32,
+    pub complexity_score: i32,
     pub mission_path: String,
     pub best_plan_label: String,
 }
@@ -1125,13 +1128,43 @@ pub struct GeneratedMissionPackEntry {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GeneratedMissionPackSummary {
     pub pack: GeneratedMissionPack,
+    pub curve: MissionPackCurve,
     pub requested_missions: u32,
     pub candidate_count_per_theme: u32,
     pub source_batch_dir: String,
     pub total_generated_count: u32,
     pub total_accepted_count: u32,
     pub difficulty_curve: Vec<GeneratedMissionDifficultyPoint>,
+    pub complexity_curve: Vec<GeneratedMissionComplexityPoint>,
+    pub pack_diversity_report: GeneratedMissionPackDiversityReport,
     pub notes: Vec<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MissionPackCurve {
+    Balanced,
+    Tutorial,
+}
+
+impl MissionPackCurve {
+    pub fn label(self) -> &'static str {
+        match self {
+            MissionPackCurve::Balanced => "balanced",
+            MissionPackCurve::Tutorial => "tutorial",
+        }
+    }
+}
+
+impl std::str::FromStr for MissionPackCurve {
+    type Err = String;
+
+    fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
+        match value {
+            "balanced" | "default" => Ok(MissionPackCurve::Balanced),
+            "tutorial" | "teaching" => Ok(MissionPackCurve::Tutorial),
+            other => Err(format!("unknown mission pack curve `{other}`")),
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1143,6 +1176,76 @@ pub struct GeneratedMissionDifficultyPoint {
     pub baseline_score: i32,
     pub best_score: i32,
     pub tactical_interest_score: i32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionComplexityPoint {
+    pub order: u32,
+    pub title: String,
+    pub theme_slug: String,
+    pub complexity_score: i32,
+    pub route_count: u32,
+    pub doctrine_count: u32,
+    pub material_types_present: u32,
+    pub hazard_count: u32,
+    pub height_interest_score: f32,
+    pub meaningful_affordances: u32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionPackDiversityReport {
+    pub mission_count: u32,
+    pub unique_theme_count: u32,
+    pub repeated_theme_count: u32,
+    pub has_tree_material_mission: bool,
+    pub has_hazard_mission: bool,
+    pub has_split_approach_mission: bool,
+    pub difficulty_curve_is_monotonic: bool,
+    pub complexity_curve_is_monotonic: bool,
+    pub notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ThemeCalibrationReport {
+    pub seed: u64,
+    pub count_per_theme: u32,
+    pub total_generated_count: u32,
+    pub total_accepted_count: u32,
+    pub total_rejected_count: u32,
+    pub theme_summaries: Vec<ThemeCalibrationSummary>,
+    pub global_rejection_reasons: Vec<RejectionReasonHistogramEntry>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ThemeCalibrationSummary {
+    pub theme: MissionTheme,
+    pub theme_slug: String,
+    pub generated_count: u32,
+    pub accepted_count: u32,
+    pub rejected_count: u32,
+    pub acceptance_rate: f32,
+    pub target_acceptance_min: f32,
+    pub target_acceptance_max: f32,
+    pub target_difficulty: String,
+    pub average_score: f32,
+    pub best_score: i32,
+    pub average_difficulty_score: f32,
+    pub average_complexity_score: f32,
+    pub average_plan_sensitivity: f32,
+    pub average_route_diversity: f32,
+    pub average_hazard_usefulness: f32,
+    pub average_material_affordance: f32,
+    pub most_common_rejection: Option<GeneratedMissionRejectionKind>,
+    pub rejection_reasons: Vec<RejectionReasonHistogramEntry>,
+    pub recommendations: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RejectionReasonHistogramEntry {
+    pub kind: GeneratedMissionRejectionKind,
+    pub count: u32,
+    pub ratio: f32,
 }
 
 #[derive(Clone, Debug)]
@@ -2662,6 +2765,22 @@ pub fn export_generated_mission_pack(
     requested_missions: u32,
     candidate_count_per_theme: u32,
 ) -> Result<GeneratedMissionPackSummary> {
+    export_generated_mission_pack_with_curve(
+        out_dir,
+        base_generator,
+        requested_missions,
+        candidate_count_per_theme,
+        MissionPackCurve::Balanced,
+    )
+}
+
+pub fn export_generated_mission_pack_with_curve(
+    out_dir: impl AsRef<Path>,
+    base_generator: MissionGeneratorSpec,
+    requested_missions: u32,
+    candidate_count_per_theme: u32,
+    curve: MissionPackCurve,
+) -> Result<GeneratedMissionPackSummary> {
     let out_dir = out_dir.as_ref();
     fs::create_dir_all(out_dir)
         .with_context(|| format!("failed to create {}", out_dir.display()))?;
@@ -2675,12 +2794,15 @@ pub fn export_generated_mission_pack(
     let selected = select_mission_pack_candidates(
         &theme_report.all_ranked_candidates,
         requested_missions as usize,
+        curve,
     );
     let mut entries = Vec::new();
     let mut difficulty_curve = Vec::new();
+    let mut complexity_curve = Vec::new();
     for (index, candidate) in selected.iter().enumerate() {
         let order = index as u32 + 1;
         let difficulty_score = generated_mission_difficulty_score(candidate);
+        let complexity_score = generated_mission_complexity_score(candidate);
         let mission_path = candidate
             .mission_path
             .clone()
@@ -2694,6 +2816,7 @@ pub fn export_generated_mission_pack(
             seed: candidate.seed,
             tactical_interest_score: candidate.tactical_interest_score,
             difficulty_score,
+            complexity_score,
             mission_path,
             best_plan_label: candidate.best_plan_label.clone(),
         });
@@ -2706,6 +2829,11 @@ pub fn export_generated_mission_pack(
             best_score: candidate.best_rating.score,
             tactical_interest_score: candidate.tactical_interest_score,
         });
+        complexity_curve.push(generated_mission_complexity_point(
+            order,
+            candidate,
+            complexity_score,
+        ));
     }
     let pack = GeneratedMissionPack {
         id: format!("generated_pack_{:016x}", base_generator.seed),
@@ -2742,14 +2870,19 @@ pub fn export_generated_mission_pack(
     {
         notes.push("Pack includes a tree/material-heavy orchard mission.".to_string());
     }
+    let pack_diversity_report =
+        generated_mission_pack_diversity_report(&pack, &difficulty_curve, &complexity_curve);
     let summary = GeneratedMissionPackSummary {
         pack,
+        curve,
         requested_missions,
         candidate_count_per_theme,
         source_batch_dir: source_batch_dir.to_string_lossy().to_string(),
         total_generated_count: theme_report.total_generated_count,
         total_accepted_count: theme_report.total_accepted_count,
         difficulty_curve,
+        complexity_curve,
+        pack_diversity_report,
         notes,
     };
     write_ron(out_dir.join("mission_pack.ron"), &summary.pack)?;
@@ -2758,12 +2891,51 @@ pub fn export_generated_mission_pack(
         out_dir.join("difficulty_curve.json"),
         &summary.difficulty_curve,
     )?;
+    write_json(
+        out_dir.join("complexity_curve.json"),
+        &summary.complexity_curve,
+    )?;
+    write_json(
+        out_dir.join("pack_diversity_report.json"),
+        &summary.pack_diversity_report,
+    )?;
     save_generated_mission_evaluation_contact_sheet(
         out_dir.join("mission_pack_contact_sheet.png"),
         &selected,
         selected.len(),
     )?;
     Ok(summary)
+}
+
+pub fn export_theme_calibration_report(
+    out_dir: impl AsRef<Path>,
+    base_generator: MissionGeneratorSpec,
+    count_per_theme: u32,
+) -> Result<ThemeCalibrationReport> {
+    let out_dir = out_dir.as_ref();
+    fs::create_dir_all(out_dir)
+        .with_context(|| format!("failed to create {}", out_dir.display()))?;
+    let theme_report = export_generated_mission_theme_batch(
+        out_dir,
+        base_generator.clone(),
+        count_per_theme,
+        &MissionTheme::GENERATABLE,
+    )?;
+    let calibration = build_theme_calibration_report(&theme_report);
+    write_json(out_dir.join("theme_calibration_report.json"), &calibration)?;
+    save_theme_calibration_summary_image(
+        out_dir.join("theme_calibration_summary.png"),
+        &calibration,
+    )?;
+    save_rejection_reason_histogram_image(
+        out_dir.join("rejection_reason_histogram.png"),
+        &calibration.global_rejection_reasons,
+    )?;
+    save_difficulty_complexity_scatter_image(
+        out_dir.join("difficulty_complexity_scatter.png"),
+        &theme_report.all_ranked_candidates,
+    )?;
+    Ok(calibration)
 }
 
 pub fn load_generated_mission_browser_index(
@@ -2816,6 +2988,8 @@ fn browser_entry_from_evaluation(
         route_diversity_score: evaluation.route_diversity_score,
         hazard_viability_score: evaluation.rolling_hazard_score,
         local_material_score: evaluation.local_material_score,
+        difficulty_score: generated_mission_difficulty_score(evaluation),
+        complexity_score: generated_mission_complexity_score(evaluation),
         top_rejection_kind: evaluation.rejection_kinds.first().copied(),
         top_rejection_reason: evaluation.rejection_reasons.first().cloned(),
         primary_affordance: primary_affordance_label(evaluation),
@@ -2846,6 +3020,7 @@ fn primary_affordance_label(evaluation: &GeneratedMissionEvaluation) -> String {
 fn select_mission_pack_candidates(
     ranked_candidates: &[GeneratedMissionEvaluation],
     requested_count: usize,
+    curve: MissionPackCurve,
 ) -> Vec<GeneratedMissionEvaluation> {
     if requested_count == 0 {
         return Vec::new();
@@ -2853,28 +3028,22 @@ fn select_mission_pack_candidates(
 
     let mut selected = Vec::new();
     let mut selected_ids = HashSet::new();
-    for theme in MissionTheme::GENERATABLE {
+    for theme in mission_pack_theme_sequence(curve) {
         if selected.len() >= requested_count {
             break;
         }
-        let candidate = ranked_candidates
-            .iter()
-            .find(|candidate| {
-                candidate.theme == theme
-                    && candidate.mission_path.is_some()
-                    && !selected_ids.contains(&candidate.mission_id)
-                    && generated_mission_pack_prefers(candidate)
-            })
-            .or_else(|| {
-                ranked_candidates.iter().find(|candidate| {
-                    candidate.theme == theme
-                        && candidate.mission_path.is_some()
-                        && !selected_ids.contains(&candidate.mission_id)
-                })
-            });
+        let candidate = best_pack_candidate_for_theme(
+            ranked_candidates,
+            theme,
+            curve,
+            selected.len() + 1,
+            false,
+        )
+        .into_iter()
+        .find(|candidate| !selected_ids.contains(&candidate.mission_id));
         if let Some(candidate) = candidate {
             selected_ids.insert(candidate.mission_id.clone());
-            selected.push(candidate.clone());
+            selected.push(candidate);
         }
     }
 
@@ -2898,13 +3067,104 @@ fn select_mission_pack_candidates(
         }
     }
 
-    selected.sort_by(|a, b| {
-        generated_mission_difficulty_score(a)
+    selected.sort_by(|a, b| match curve {
+        MissionPackCurve::Balanced => generated_mission_difficulty_score(a)
             .cmp(&generated_mission_difficulty_score(b))
             .then_with(|| b.tactical_interest_score.cmp(&a.tactical_interest_score))
-            .then_with(|| a.seed.cmp(&b.seed))
+            .then_with(|| a.seed.cmp(&b.seed)),
+        MissionPackCurve::Tutorial => generated_mission_difficulty_score(a)
+            .cmp(&generated_mission_difficulty_score(b))
+            .then_with(|| {
+                generated_mission_complexity_score(a).cmp(&generated_mission_complexity_score(b))
+            })
+            .then_with(|| tutorial_theme_order(a.theme).cmp(&tutorial_theme_order(b.theme))),
     });
     selected
+}
+
+fn mission_pack_theme_sequence(curve: MissionPackCurve) -> [MissionTheme; 6] {
+    match curve {
+        MissionPackCurve::Balanced => MissionTheme::GENERATABLE,
+        MissionPackCurve::Tutorial => [
+            MissionTheme::DryRoadBelow,
+            MissionTheme::OrchardApproach,
+            MissionTheme::DryWash,
+            MissionTheme::RidgeTrap,
+            MissionTheme::SplitApproach,
+            MissionTheme::OldWall,
+        ],
+    }
+}
+
+fn best_pack_candidate_for_theme(
+    ranked_candidates: &[GeneratedMissionEvaluation],
+    theme: MissionTheme,
+    curve: MissionPackCurve,
+    order: usize,
+    allow_fallback: bool,
+) -> Option<GeneratedMissionEvaluation> {
+    let mut candidates = ranked_candidates
+        .iter()
+        .filter(|candidate| {
+            candidate.theme == theme
+                && candidate.mission_path.is_some()
+                && (allow_fallback || generated_mission_pack_prefers(candidate))
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    candidates.sort_by(|a, b| {
+        let a_preferred = generated_mission_pack_prefers(a);
+        let b_preferred = generated_mission_pack_prefers(b);
+        b_preferred
+            .cmp(&a_preferred)
+            .then_with(|| match curve {
+                MissionPackCurve::Balanced => b
+                    .tactical_interest_score
+                    .cmp(&a.tactical_interest_score)
+                    .then_with(|| {
+                        generated_mission_difficulty_score(a)
+                            .cmp(&generated_mission_difficulty_score(b))
+                    }),
+                MissionPackCurve::Tutorial => {
+                    let target_complexity = tutorial_target_complexity(order);
+                    let a_distance =
+                        (generated_mission_complexity_score(a) - target_complexity).abs();
+                    let b_distance =
+                        (generated_mission_complexity_score(b) - target_complexity).abs();
+                    a_distance
+                        .cmp(&b_distance)
+                        .then_with(|| {
+                            generated_mission_difficulty_score(a)
+                                .cmp(&generated_mission_difficulty_score(b))
+                        })
+                        .then_with(|| b.tactical_interest_score.cmp(&a.tactical_interest_score))
+                }
+            })
+            .then_with(|| a.seed.cmp(&b.seed))
+    });
+    candidates.into_iter().next()
+}
+
+fn tutorial_theme_order(theme: MissionTheme) -> u8 {
+    match theme {
+        MissionTheme::DryRoadBelow => 0,
+        MissionTheme::OrchardApproach => 1,
+        MissionTheme::DryWash => 2,
+        MissionTheme::RidgeTrap => 3,
+        MissionTheme::SplitApproach => 4,
+        MissionTheme::OldWall => 5,
+    }
+}
+
+fn tutorial_target_complexity(order: usize) -> i32 {
+    match order {
+        0 | 1 => 22,
+        2 => 34,
+        3 => 46,
+        4 => 58,
+        5 => 70,
+        _ => 78,
+    }
 }
 
 fn generated_mission_pack_prefers(evaluation: &GeneratedMissionEvaluation) -> bool {
@@ -2920,6 +3180,416 @@ fn generated_mission_difficulty_score(evaluation: &GeneratedMissionEvaluation) -
     let sensitivity = (evaluation.plan_sensitivity.best_minus_worst / 4).clamp(0, 25);
     let hazard_complexity = (evaluation.rolling_hazard_score * 10.0).round() as i32;
     baseline_pressure + best_pressure + sensitivity + hazard_complexity
+}
+
+fn generated_mission_complexity_score(evaluation: &GeneratedMissionEvaluation) -> i32 {
+    let route_count = evaluation.affordance_report.route_count.min(4) as i32 * 3;
+    let doctrine_count = evaluation
+        .scenarios
+        .first()
+        .map(|_| (evaluation.doctrine_spread_score * 12.0).round() as i32)
+        .unwrap_or(0);
+    let material_types = generated_mission_material_type_count(evaluation) as i32 * 4;
+    let hazard = (evaluation.rolling_hazard_score * 10.0).round() as i32;
+    let height = (evaluation.height_interest_score * 14.0).round() as i32;
+    let affordances = generated_mission_meaningful_affordance_count(evaluation) as i32 * 4;
+    (route_count + doctrine_count + material_types + hazard + height + affordances).clamp(0, 100)
+}
+
+fn generated_mission_material_type_count(evaluation: &GeneratedMissionEvaluation) -> u32 {
+    let mut count = 0;
+    if evaluation.affordance_report.tree_count > 0 {
+        count += 1;
+    }
+    if evaluation.affordance_report.loose_log_count > 0 {
+        count += 1;
+    }
+    if evaluation.affordance_report.trenchable_soil_cells > 0 {
+        count += 1;
+    }
+    if evaluation.theme == MissionTheme::OldWall {
+        count += 1;
+    }
+    count
+}
+
+fn generated_mission_meaningful_affordance_count(evaluation: &GeneratedMissionEvaluation) -> u32 {
+    let mut count = 0;
+    if evaluation.affordance_report.road_cell_count >= 8 {
+        count += 1;
+    }
+    if evaluation.affordance_report.ridge_cell_count >= 6 {
+        count += 1;
+    }
+    if evaluation.affordance_report.tree_count >= 3 {
+        count += 1;
+    }
+    if evaluation.affordance_report.trenchable_soil_cells >= 36 {
+        count += 1;
+    }
+    if evaluation.rolling_hazard_score > 0.0 {
+        count += 1;
+    }
+    if evaluation.route_diversity_score >= 0.4 {
+        count += 1;
+    }
+    count
+}
+
+fn generated_mission_complexity_point(
+    order: u32,
+    evaluation: &GeneratedMissionEvaluation,
+    complexity_score: i32,
+) -> GeneratedMissionComplexityPoint {
+    GeneratedMissionComplexityPoint {
+        order,
+        title: evaluation.title.clone(),
+        theme_slug: evaluation.theme_slug.clone(),
+        complexity_score,
+        route_count: evaluation.affordance_report.route_count,
+        doctrine_count: ((evaluation.doctrine_spread_score * 3.0).round() as u32).max(1),
+        material_types_present: generated_mission_material_type_count(evaluation),
+        hazard_count: (evaluation.rolling_hazard_score > 0.0) as u32,
+        height_interest_score: evaluation.height_interest_score,
+        meaningful_affordances: generated_mission_meaningful_affordance_count(evaluation),
+    }
+}
+
+fn generated_mission_pack_diversity_report(
+    pack: &GeneratedMissionPack,
+    difficulty_curve: &[GeneratedMissionDifficultyPoint],
+    complexity_curve: &[GeneratedMissionComplexityPoint],
+) -> GeneratedMissionPackDiversityReport {
+    let themes = pack
+        .missions
+        .iter()
+        .map(|mission| mission.theme)
+        .collect::<HashSet<_>>();
+    let difficulty_curve_is_monotonic = difficulty_curve
+        .windows(2)
+        .all(|window| window[0].difficulty_score <= window[1].difficulty_score);
+    let complexity_curve_is_monotonic = complexity_curve
+        .windows(2)
+        .all(|window| window[0].complexity_score <= window[1].complexity_score + 5);
+    let has_tree_material_mission = pack
+        .missions
+        .iter()
+        .any(|mission| mission.theme == MissionTheme::OrchardApproach);
+    let has_hazard_mission = pack
+        .missions
+        .iter()
+        .any(|mission| mission.theme == MissionTheme::RidgeTrap);
+    let has_split_approach_mission = pack
+        .missions
+        .iter()
+        .any(|mission| mission.theme == MissionTheme::SplitApproach);
+    let repeated_theme_count = pack.missions.len().saturating_sub(themes.len()) as u32;
+    let mut notes = Vec::new();
+    if has_tree_material_mission {
+        notes.push("Includes at least one tree/material dilemma.".to_string());
+    } else {
+        notes.push("Missing a tree/material dilemma mission.".to_string());
+    }
+    if has_hazard_mission {
+        notes.push("Includes at least one rolling-hazard mission.".to_string());
+    } else {
+        notes.push("Missing a rolling-hazard mission.".to_string());
+    }
+    if has_split_approach_mission {
+        notes.push("Includes at least one split-route prioritization mission.".to_string());
+    } else {
+        notes.push("Missing a split-route prioritization mission.".to_string());
+    }
+    if repeated_theme_count > 0 {
+        notes.push(format!(
+            "Pack repeats {repeated_theme_count} theme slot(s) because not enough preferred candidates were available."
+        ));
+    }
+    if !difficulty_curve_is_monotonic {
+        notes.push("Difficulty curve has a local spike or dip.".to_string());
+    }
+    if !complexity_curve_is_monotonic {
+        notes.push("Complexity curve has a local spike or dip.".to_string());
+    }
+
+    GeneratedMissionPackDiversityReport {
+        mission_count: pack.missions.len() as u32,
+        unique_theme_count: themes.len() as u32,
+        repeated_theme_count,
+        has_tree_material_mission,
+        has_hazard_mission,
+        has_split_approach_mission,
+        difficulty_curve_is_monotonic,
+        complexity_curve_is_monotonic,
+        notes,
+    }
+}
+
+fn build_theme_calibration_report(
+    theme_report: &GeneratedMissionThemeBatchReport,
+) -> ThemeCalibrationReport {
+    let mut theme_summaries = Vec::new();
+    for theme in MissionTheme::GENERATABLE {
+        let accepted = theme_report
+            .all_ranked_candidates
+            .iter()
+            .filter(|candidate| candidate.theme == theme)
+            .collect::<Vec<_>>();
+        let rejected = theme_report
+            .all_rejected_candidates
+            .iter()
+            .filter(|candidate| candidate.theme == theme)
+            .collect::<Vec<_>>();
+        let generated_count = accepted.len() as u32 + rejected.len() as u32;
+        let accepted_count = accepted.len() as u32;
+        let rejected_count = rejected.len() as u32;
+        let acceptance_rate = ratio(accepted_count, generated_count);
+        let (target_min, target_max, target_difficulty) = theme_calibration_target(theme);
+        let all = accepted
+            .iter()
+            .copied()
+            .chain(rejected.iter().copied())
+            .collect::<Vec<_>>();
+        let rejection_reasons = rejection_histogram(rejected.iter().copied(), rejected_count);
+        let most_common_rejection = rejection_reasons.first().map(|entry| entry.kind);
+        let average_score = average_i32(
+            all.iter()
+                .map(|candidate| candidate.tactical_interest_score),
+        );
+        let best_score = all
+            .iter()
+            .map(|candidate| candidate.tactical_interest_score)
+            .max()
+            .unwrap_or(0);
+        let average_difficulty_score = average_i32(
+            all.iter()
+                .map(|candidate| generated_mission_difficulty_score(candidate)),
+        );
+        let average_complexity_score = average_i32(
+            all.iter()
+                .map(|candidate| generated_mission_complexity_score(candidate)),
+        );
+        let average_plan_sensitivity = average_i32(
+            all.iter()
+                .map(|candidate| candidate.plan_sensitivity.best_minus_worst),
+        );
+        let average_route_diversity =
+            average_f32(all.iter().map(|candidate| candidate.route_diversity_score));
+        let average_hazard_usefulness =
+            average_f32(all.iter().map(|candidate| candidate.rolling_hazard_score));
+        let average_material_affordance =
+            average_f32(all.iter().map(|candidate| candidate.local_material_score));
+        let recommendations = theme_calibration_recommendations(
+            theme,
+            acceptance_rate,
+            target_min,
+            target_max,
+            &rejection_reasons,
+        );
+        theme_summaries.push(ThemeCalibrationSummary {
+            theme,
+            theme_slug: theme.slug().to_string(),
+            generated_count,
+            accepted_count,
+            rejected_count,
+            acceptance_rate,
+            target_acceptance_min: target_min,
+            target_acceptance_max: target_max,
+            target_difficulty: target_difficulty.to_string(),
+            average_score,
+            best_score,
+            average_difficulty_score,
+            average_complexity_score,
+            average_plan_sensitivity,
+            average_route_diversity,
+            average_hazard_usefulness,
+            average_material_affordance,
+            most_common_rejection,
+            rejection_reasons,
+            recommendations,
+        });
+    }
+
+    let global_rejection_reasons = rejection_histogram(
+        theme_report.all_rejected_candidates.iter(),
+        theme_report.total_rejected_count,
+    );
+    let mut notes = Vec::new();
+    for summary in &theme_summaries {
+        if summary.acceptance_rate < summary.target_acceptance_min {
+            notes.push(format!(
+                "{} acceptance is below target ({:.0}% vs {:.0}%).",
+                summary.theme.label(),
+                summary.acceptance_rate * 100.0,
+                summary.target_acceptance_min * 100.0
+            ));
+        } else if summary.acceptance_rate > summary.target_acceptance_max {
+            notes.push(format!(
+                "{} acceptance is above target ({:.0}% vs {:.0}%).",
+                summary.theme.label(),
+                summary.acceptance_rate * 100.0,
+                summary.target_acceptance_max * 100.0
+            ));
+        }
+    }
+    if notes.is_empty() {
+        notes.push("All theme acceptance rates are inside target bands.".to_string());
+    }
+
+    ThemeCalibrationReport {
+        seed: theme_report.seed,
+        count_per_theme: theme_report.count_per_theme,
+        total_generated_count: theme_report.total_generated_count,
+        total_accepted_count: theme_report.total_accepted_count,
+        total_rejected_count: theme_report.total_rejected_count,
+        theme_summaries,
+        global_rejection_reasons,
+        notes,
+    }
+}
+
+fn theme_calibration_target(theme: MissionTheme) -> (f32, f32, &'static str) {
+    match theme {
+        MissionTheme::DryRoadBelow => (0.15, 0.35, "early"),
+        MissionTheme::OrchardApproach => (0.10, 0.30, "early-mid"),
+        MissionTheme::DryWash => (0.10, 0.30, "mid"),
+        MissionTheme::RidgeTrap => (0.08, 0.25, "mid"),
+        MissionTheme::OldWall => (0.08, 0.25, "late"),
+        MissionTheme::SplitApproach => (0.08, 0.20, "late"),
+    }
+}
+
+fn theme_calibration_recommendations(
+    theme: MissionTheme,
+    acceptance_rate: f32,
+    target_min: f32,
+    target_max: f32,
+    rejection_reasons: &[RejectionReasonHistogramEntry],
+) -> Vec<String> {
+    let mut recommendations = Vec::new();
+    if acceptance_rate < target_min {
+        recommendations.push("Acceptance is low; loosen or enrich this theme grammar.".to_string());
+    }
+    if acceptance_rate > target_max {
+        recommendations
+            .push("Acceptance is high; add stricter tactical-interest gates.".to_string());
+    }
+    if let Some(top) = rejection_reasons.first() {
+        if top.ratio >= 0.35 {
+            recommendations.push(theme_rejection_recommendation(theme, top.kind).to_string());
+        }
+    }
+    if recommendations.is_empty() {
+        recommendations
+            .push("Theme is inside target bands; keep monitoring pack diversity.".to_string());
+    }
+    recommendations
+}
+
+fn theme_rejection_recommendation(
+    theme: MissionTheme,
+    kind: GeneratedMissionRejectionKind,
+) -> &'static str {
+    match (theme, kind) {
+        (MissionTheme::RidgeTrap, GeneratedMissionRejectionKind::NoHazardOpportunity) => {
+            "Increase slope/log co-location or route crossing probability."
+        }
+        (MissionTheme::SplitApproach, GeneratedMissionRejectionKind::NoRouteDiversity) => {
+            "Increase spawn separation or route-lane obstacles."
+        }
+        (MissionTheme::OrchardApproach, GeneratedMissionRejectionKind::NoUsefulMaterials) => {
+            "Increase useful tree clusters near plausible prep zones."
+        }
+        (MissionTheme::DryWash, GeneratedMissionRejectionKind::TerrainTooFlat) => {
+            "Deepen the wash or add stronger overlook height contrast."
+        }
+        (MissionTheme::OldWall, GeneratedMissionRejectionKind::NoRouteDiversity) => {
+            "Vary breach/cover gaps so wall routes diverge more clearly."
+        }
+        (_, GeneratedMissionRejectionKind::TooEasyNoPrep) => {
+            "Raise baseline pressure or expose the objective to more doctrine variation."
+        }
+        (_, GeneratedMissionRejectionKind::TooHardAllPlansFail) => {
+            "Add stronger local materials or reduce enemy pressure."
+        }
+        (_, GeneratedMissionRejectionKind::SpawnTooClose) => {
+            "Move spawns farther from the objective."
+        }
+        (_, GeneratedMissionRejectionKind::NoHazardOpportunity) => {
+            "Add optional hazard affordance or relax hazard requirement for this theme."
+        }
+        (_, GeneratedMissionRejectionKind::NoUsefulMaterials) => {
+            "Increase local material affordances near the defensive problem."
+        }
+        (_, GeneratedMissionRejectionKind::DuplicateCandidate) => {
+            "Increase layout variance or reduce repeated route/objective patterns."
+        }
+        _ => {
+            "Inspect the top rejected candidates and tune the terrain grammar around that failure."
+        }
+    }
+}
+
+fn rejection_histogram<'a>(
+    evaluations: impl Iterator<Item = &'a GeneratedMissionEvaluation>,
+    total_rejected_count: u32,
+) -> Vec<RejectionReasonHistogramEntry> {
+    let mut counts: HashMap<GeneratedMissionRejectionKind, u32> = HashMap::new();
+    for evaluation in evaluations {
+        for kind in &evaluation.rejection_kinds {
+            *counts.entry(*kind).or_default() += 1;
+        }
+    }
+    let mut entries = counts
+        .into_iter()
+        .map(|(kind, count)| RejectionReasonHistogramEntry {
+            kind,
+            count,
+            ratio: ratio(count, total_rejected_count),
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by(|a, b| {
+        b.count
+            .cmp(&a.count)
+            .then_with(|| format!("{:?}", a.kind).cmp(&format!("{:?}", b.kind)))
+    });
+    entries
+}
+
+fn average_i32(values: impl Iterator<Item = i32>) -> f32 {
+    let mut total = 0;
+    let mut count = 0;
+    for value in values {
+        total += value;
+        count += 1;
+    }
+    if count == 0 {
+        0.0
+    } else {
+        total as f32 / count as f32
+    }
+}
+
+fn average_f32(values: impl Iterator<Item = f32>) -> f32 {
+    let mut total = 0.0;
+    let mut count = 0;
+    for value in values {
+        total += value;
+        count += 1;
+    }
+    if count == 0 {
+        0.0
+    } else {
+        total / count as f32
+    }
+}
+
+fn ratio(numerator: u32, denominator: u32) -> f32 {
+    if denominator == 0 {
+        0.0
+    } else {
+        numerator as f32 / denominator as f32
+    }
 }
 
 fn generate_road_ridge_candidate(
@@ -4032,6 +4702,226 @@ fn parse_validation_issue_count(note: &str) -> Option<u32> {
     let (_, tail) = note.split_once(", ")?;
     let (count, _) = tail.split_once(" validation issue")?;
     count.parse().ok()
+}
+
+fn save_theme_calibration_summary_image(
+    path: impl AsRef<Path>,
+    report: &ThemeCalibrationReport,
+) -> Result<()> {
+    let path = path.as_ref();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let width = 820;
+    let row_h = 42;
+    let height = 24 + report.theme_summaries.len() as u32 * row_h;
+    let mut image = RgbaImage::from_pixel(width, height.max(64), Rgba([23, 26, 25, 255]));
+    for (index, summary) in report.theme_summaries.iter().enumerate() {
+        let y = 12 + index as u32 * row_h;
+        let base = theme_preview_color(summary.theme);
+        fill_preview_rect(&mut image, 12, y, 28, 28, base);
+        let bar_x = 56;
+        let bar_w = 220;
+        fill_preview_rect(&mut image, bar_x, y + 2, bar_w, 7, Rgba([47, 52, 49, 255]));
+        fill_preview_rect(
+            &mut image,
+            bar_x,
+            y + 2,
+            scaled_bar(summary.acceptance_rate, bar_w),
+            7,
+            Rgba([82, 184, 104, 255]),
+        );
+        fill_preview_rect(&mut image, bar_x, y + 12, bar_w, 5, Rgba([47, 52, 49, 255]));
+        fill_preview_rect(
+            &mut image,
+            bar_x,
+            y + 12,
+            scaled_bar(summary.average_score / 100.0, bar_w),
+            5,
+            Rgba([226, 196, 88, 255]),
+        );
+        fill_preview_rect(&mut image, bar_x, y + 21, bar_w, 5, Rgba([47, 52, 49, 255]));
+        fill_preview_rect(
+            &mut image,
+            bar_x,
+            y + 21,
+            scaled_bar(summary.average_complexity_score / 100.0, bar_w),
+            5,
+            Rgba([84, 156, 218, 255]),
+        );
+
+        let target_x = 304;
+        let target_w = 170;
+        fill_preview_rect(
+            &mut image,
+            target_x,
+            y + 2,
+            target_w,
+            7,
+            Rgba([47, 52, 49, 255]),
+        );
+        fill_preview_rect(
+            &mut image,
+            target_x + scaled_bar(summary.target_acceptance_min, target_w),
+            y + 1,
+            2,
+            9,
+            Rgba([205, 205, 180, 255]),
+        );
+        fill_preview_rect(
+            &mut image,
+            target_x + scaled_bar(summary.target_acceptance_max, target_w),
+            y + 1,
+            2,
+            9,
+            Rgba([205, 205, 180, 255]),
+        );
+        fill_preview_rect(
+            &mut image,
+            target_x,
+            y + 15,
+            scaled_bar(summary.average_route_diversity, target_w),
+            5,
+            Rgba([142, 196, 111, 255]),
+        );
+        fill_preview_rect(
+            &mut image,
+            target_x,
+            y + 24,
+            scaled_bar(summary.average_hazard_usefulness, target_w),
+            5,
+            Rgba([211, 112, 81, 255]),
+        );
+
+        let reject_w = 230;
+        fill_preview_rect(&mut image, 506, y + 2, reject_w, 6, Rgba([47, 52, 49, 255]));
+        if let Some(top) = summary.rejection_reasons.first() {
+            fill_preview_rect(
+                &mut image,
+                506,
+                y + 2,
+                scaled_bar(top.ratio, reject_w),
+                6,
+                Rgba([198, 82, 74, 255]),
+            );
+        }
+        let accepted_w = (summary.accepted_count.min(20) * 4).max(1);
+        fill_preview_rect(
+            &mut image,
+            506,
+            y + 17,
+            accepted_w,
+            7,
+            Rgba([82, 184, 104, 255]),
+        );
+        let rejected_w = (summary.rejected_count.min(40) * 3).max(1);
+        fill_preview_rect(
+            &mut image,
+            506,
+            y + 27,
+            rejected_w,
+            7,
+            Rgba([198, 82, 74, 255]),
+        );
+    }
+    image
+        .save(path)
+        .with_context(|| format!("failed to save {}", path.display()))
+}
+
+fn save_rejection_reason_histogram_image(
+    path: impl AsRef<Path>,
+    histogram: &[RejectionReasonHistogramEntry],
+) -> Result<()> {
+    let path = path.as_ref();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let width = 720;
+    let row_h = 24;
+    let height = 28 + histogram.len().max(1) as u32 * row_h;
+    let mut image = RgbaImage::from_pixel(width, height.max(64), Rgba([23, 26, 25, 255]));
+    let max_count = histogram.iter().map(|entry| entry.count).max().unwrap_or(1);
+    for (index, entry) in histogram.iter().enumerate() {
+        let y = 14 + index as u32 * row_h;
+        let color = rejection_preview_color(entry.kind);
+        fill_preview_rect(&mut image, 12, y, 20, 12, color);
+        fill_preview_rect(&mut image, 44, y + 2, 600, 8, Rgba([47, 52, 49, 255]));
+        let width = ((entry.count as f32 / max_count as f32) * 600.0).round() as u32;
+        fill_preview_rect(&mut image, 44, y + 2, width.max(1), 8, color);
+    }
+    image
+        .save(path)
+        .with_context(|| format!("failed to save {}", path.display()))
+}
+
+fn save_difficulty_complexity_scatter_image(
+    path: impl AsRef<Path>,
+    evaluations: &[GeneratedMissionEvaluation],
+) -> Result<()> {
+    let path = path.as_ref();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let width = 640;
+    let height = 420;
+    let mut image = RgbaImage::from_pixel(width, height, Rgba([23, 26, 25, 255]));
+    fill_preview_rect(&mut image, 48, 32, 544, 328, Rgba([32, 36, 34, 255]));
+    for tick in 0..=4 {
+        let x = 48 + tick * 136;
+        fill_preview_rect(&mut image, x, 32, 1, 328, Rgba([54, 60, 56, 255]));
+        let y = 32 + tick * 82;
+        fill_preview_rect(&mut image, 48, y, 544, 1, Rgba([54, 60, 56, 255]));
+    }
+    for evaluation in evaluations {
+        let difficulty = generated_mission_difficulty_score(evaluation).clamp(0, 100) as u32;
+        let complexity = generated_mission_complexity_score(evaluation).clamp(0, 100) as u32;
+        let x = 48 + (difficulty * 544) / 100;
+        let y = 360 - (complexity * 328) / 100;
+        fill_preview_rect(
+            &mut image,
+            x.saturating_sub(2),
+            y.saturating_sub(2),
+            5,
+            5,
+            theme_preview_color(evaluation.theme),
+        );
+    }
+    image
+        .save(path)
+        .with_context(|| format!("failed to save {}", path.display()))
+}
+
+fn scaled_bar(value: f32, width: u32) -> u32 {
+    ((value.clamp(0.0, 1.0) * width as f32).round() as u32).max(1)
+}
+
+fn theme_preview_color(theme: MissionTheme) -> Rgba<u8> {
+    match theme {
+        MissionTheme::DryRoadBelow => Rgba([216, 173, 88, 255]),
+        MissionTheme::OrchardApproach => Rgba([104, 174, 88, 255]),
+        MissionTheme::DryWash => Rgba([170, 134, 92, 255]),
+        MissionTheme::RidgeTrap => Rgba([124, 151, 188, 255]),
+        MissionTheme::OldWall => Rgba([158, 158, 143, 255]),
+        MissionTheme::SplitApproach => Rgba([205, 112, 92, 255]),
+    }
+}
+
+fn rejection_preview_color(kind: GeneratedMissionRejectionKind) -> Rgba<u8> {
+    match kind {
+        GeneratedMissionRejectionKind::TooEasyNoPrep => Rgba([216, 173, 88, 255]),
+        GeneratedMissionRejectionKind::TooHardAllPlansFail => Rgba([190, 74, 66, 255]),
+        GeneratedMissionRejectionKind::NoRouteDiversity => Rgba([88, 143, 205, 255]),
+        GeneratedMissionRejectionKind::NoUsefulMaterials => Rgba([104, 174, 88, 255]),
+        GeneratedMissionRejectionKind::NoHazardOpportunity => Rgba([211, 112, 81, 255]),
+        GeneratedMissionRejectionKind::HazardTooDominant => Rgba([236, 96, 112, 255]),
+        GeneratedMissionRejectionKind::ObjectiveUnreachable => Rgba([110, 92, 174, 255]),
+        GeneratedMissionRejectionKind::TerrainTooFlat => Rgba([170, 134, 92, 255]),
+        GeneratedMissionRejectionKind::SpawnTooClose => Rgba([230, 130, 76, 255]),
+        GeneratedMissionRejectionKind::SpawnTooFar => Rgba([118, 186, 186, 255]),
+        GeneratedMissionRejectionKind::InvalidMap => Rgba([218, 218, 218, 255]),
+        GeneratedMissionRejectionKind::DuplicateCandidate => Rgba([210, 150, 54, 255]),
+    }
 }
 
 fn save_generated_mission_contact_sheet(
