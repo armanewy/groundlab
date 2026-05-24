@@ -338,6 +338,29 @@ This milestone does not add mechanics, themes, campaign progression, or a GPU re
 the generated mission pipeline back to the effective SpriteGen asset pipeline so generated missions
 can be scanned as high-oblique 2.5D tactical previews instead of only schematic grids.
 
+## ProcGen 6.1 — Generated mission visual composition polish
+
+Implemented in this drop.
+
+- split generated mission visuals into `mission_visual_beauty.png`,
+  `mission_visual_routes.png`, and `mission_visual_debug.png`
+- kept `mission_visual_preview.png` as a compatibility alias for the beauty render
+- increased high-oblique feature scale and height step so generated mission terrain reads less like
+  a tiny schematic grid
+- added a darker field backdrop, map drop shadow, terrain-feature contact shadows, and chunkier
+  object silhouettes for trees, logs, stakes, rocks, walls, wire, and fighting positions
+- route overlays are now thinner and separated from the beauty render so they remain useful without
+  dominating the visual judgment image
+- `visual_asset_report.json` now records effective SpriteGen piece ids used by the render and counts
+  placeholder object sprite classes separately from missing/fallback terrain pieces
+- added `generated_feature_map.json` with grass, path, trench, berm, and stone feature cell counts,
+  component counts, topology-mask histograms, and object counts
+- visual contact sheets now prefer beauty renders when available instead of route-overlaid images
+
+This milestone does not add new gameplay, new themes, manual dressing, or a GPU renderer. It makes
+ProcGen visual outputs better suited for scanning generated mission style while preserving route and
+debug exports as tactical overlays.
+
 ## Milestone 0 — Project seed
 
 Implemented.

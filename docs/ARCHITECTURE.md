@@ -10,8 +10,8 @@ readability/debrief artifacts, the first deterministic rolling hazard sandbox, m
 scenario comparison, seeded mission generation/ranking with structured rejection diagnostics across
 multiple mission theme grammars, generated mission browsing, theme calibration, and automatic
 mission pack selection with difficulty/complexity curves. Generated missions now also carry visual
-theme bindings and can be rendered through effective SpriteGen assets as high-oblique mission
-previews.
+theme bindings and can be rendered through effective SpriteGen assets as high-oblique beauty,
+route-overlay, and debug mission previews.
 `ground_app` now treats Mission Lab as the primary tactical prep surface rather than a generic
 terrain editor panel, and Road Below starts as a playable briefing-to-debrief slice. The same
 mission loop now evaluates generated Road-Below-like candidates so GroundLab can batch-generate,
@@ -40,8 +40,8 @@ score, reject, and export compact terrain-defense problems.
   tuning recommendations
 - Automatic mission pack selection, difficulty/complexity curves, pack diversity reports, and pack
   contact sheets
-- Mission visual theme bindings, high-oblique generated mission previews, visual route/debug
-  overlays, and visual asset reports
+- Mission visual theme bindings, high-oblique generated mission beauty previews, visual route/debug
+  overlays, generated feature maps, and visual asset reports
 - Terrain editing brushes
 - Pixel tile recipes
 - Palette ramps and palette file format
@@ -141,8 +141,8 @@ MissionSpec + MissionVisualTheme
   -> TerrainSpriteRecipe::from_style_profile_path
   -> generated/effective SpriteGen terrain sprites
   -> high-oblique software mission renderer
-  -> mission_visual_preview.png / mission_visual_routes.png / mission_visual_debug.png
-  -> visual_asset_report.json
+  -> mission_visual_beauty.png / mission_visual_routes.png / mission_visual_debug.png
+  -> generated_feature_map.json + visual_asset_report.json
   -> generated mission browser and mission-pack visual sheets
 ```
 
@@ -178,7 +178,8 @@ Visual/software-rendered systems:
 - height and slope are shown as overlays
 - 2.5D terrain is previewed by lifting cell tops and drawing generated exposed-face art
 - generated missions can be rendered as high-oblique previews using effective SpriteGen art,
-  tactical markers, and route overlays
+  optional tactical markers, route overlays, generated feature maps, and placeholder/fallback asset
+  diagnostics
 
 Hazard systems:
 

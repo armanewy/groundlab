@@ -297,7 +297,7 @@ fn main() -> Result<()> {
                 }
             }
             println!(
-                "ProcGen files: generator_summary.json or theme_summary.json, ranked candidate JSON, accepted/rejected/top contact sheets, visual contact sheets, candidates/*/mission.ron, candidates/*/mission_visual_*.png"
+                "ProcGen files: generator_summary.json or theme_summary.json, ranked candidate JSON, accepted/rejected/top contact sheets, visual contact sheets, candidates/*/mission.ron, candidates/*/mission_visual_*.png, candidates/*/generated_feature_map.json"
             );
         }
         "generate-mission-pack" => {
@@ -391,7 +391,7 @@ fn main() -> Result<()> {
                 println!("Visual warnings: {}", report.warnings.join(" | "));
             }
             println!(
-                "Visual files: mission_visual_preview.png, mission_visual_routes.png, mission_visual_debug.png, visual_asset_report.json"
+                "Visual files: mission_visual_beauty.png, mission_visual_preview.png, mission_visual_routes.png, mission_visual_debug.png, generated_feature_map.json, visual_asset_report.json"
             );
         }
         "calibrate-themes" => {

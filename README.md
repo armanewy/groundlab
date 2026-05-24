@@ -4,7 +4,7 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: ProcGen 6 — generated mission visual integration
+## Current status: ProcGen 6.1 — generated mission visual composition polish
 
 GroundLab has pivoted again from manually tuning one mission toward generating compact tactical
 terrain problems in batches. The primary product direction is still a 2.5D tactical engineering
@@ -65,7 +65,7 @@ GamePivot 8 and ProcGen 1-6 build on the `ground_game` crate with:
 - pack diversity reports that check unique themes, tree/material coverage, rolling-hazard coverage, split-route coverage, and curve monotonicity
 - visual theme bindings that map generated mission themes to SpriteGen style profiles
 - high-oblique mission visual previews rendered from generated/effective SpriteGen terrain pieces
-- per-candidate visual exports for preview, route overlay, debug grid, and sprite asset reports
+- per-candidate visual exports for beauty preview, compatibility preview, route overlay, debug grid, feature map, and sprite asset report
 - visual contact sheets for generated batches and mission packs
 - a Mission Lab file loader for opening generated `mission.ron` candidates directly from disk
 - assault summary and debrief exports for debugging why the plan worked or failed
@@ -152,9 +152,11 @@ exports/procgen_06_batch/
     top_ranked_all_themes.png
     top_ranked_all_themes_visual.png
   per_theme/*/candidates/*/
+    mission_visual_beauty.png
     mission_visual_preview.png
     mission_visual_routes.png
     mission_visual_debug.png
+    generated_feature_map.json
     visual_asset_report.json
 ```
 
@@ -190,9 +192,11 @@ Visual output includes:
 
 ```txt
 exports/procgen_06_visual/
+  mission_visual_beauty.png
   mission_visual_preview.png
   mission_visual_routes.png
   mission_visual_debug.png
+  generated_feature_map.json
   visual_asset_report.json
 ```
 
@@ -228,8 +232,15 @@ cargo run -p ground_app
 
 The full-scene terrain renderer and ArtGen outputs remain downstream infrastructure for terrain
 data, pathing, LOS, and art-kit composition. ProcGen 6 reconnects that asset pipeline to generated
-missions through deterministic visual previews while the active gameplay roadmap still emphasizes
+missions through deterministic visual previews, and ProcGen 6.1 separates beauty/routes/debug
+outputs while improving generated mission composition. The active gameplay roadmap still emphasizes
 seeded mission generation, automatic evaluation, ranking, and playable candidate export.
+
+## Previous status: ProcGen 6 — generated mission visual integration
+
+ProcGen 6 added visual theme bindings, high-oblique generated mission previews backed by effective
+SpriteGen art, per-candidate visual previews/routes/debug images, visual contact sheets for batches
+and packs, `visual_asset_report.json`, `render-mission`, and Mission Lab's `visual` map mode.
 
 ## Previous status: ProcGen 5 — theme calibration and difficulty curves
 

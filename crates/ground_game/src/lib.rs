@@ -1299,9 +1299,40 @@ pub struct MissionVisualAssetReport {
     pub effective_sprite_count: usize,
     pub overridden_sprite_count: usize,
     pub override_issue_count: usize,
+    pub effective_sprite_pieces_used: Vec<String>,
+    pub placeholder_object_sprites: Vec<String>,
     pub missing_visual_pieces: Vec<String>,
     pub fallback_pieces_used: Vec<String>,
     pub warnings: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionFeatureMap {
+    pub mission_id: String,
+    pub width: u32,
+    pub height: u32,
+    pub features: Vec<GeneratedMissionFeatureSummary>,
+    pub object_counts: Vec<GeneratedMissionObjectCount>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionFeatureSummary {
+    pub feature: String,
+    pub cell_count: u32,
+    pub component_count: u32,
+    pub mask_counts: Vec<GeneratedMissionMaskCount>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionMaskCount {
+    pub mask: u8,
+    pub count: u32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionObjectCount {
+    pub object: String,
+    pub count: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -2585,9 +2616,13 @@ pub fn export_generated_mission_batch(
             &initial_state,
             &initial_routes,
         )?;
-        let visual_report = save_mission_visual_preview_png(
-            candidate_dir.join("mission_visual_preview.png"),
+        let visual_report = save_mission_visual_beauty_png(
+            candidate_dir.join("mission_visual_beauty.png"),
             &initial_state,
+        )?;
+        copy_visual_alias(
+            candidate_dir.join("mission_visual_beauty.png"),
+            candidate_dir.join("mission_visual_preview.png"),
         )?;
         save_mission_visual_routes_png(
             candidate_dir.join("mission_visual_routes.png"),
@@ -2600,6 +2635,10 @@ pub fn export_generated_mission_batch(
         write_json(
             candidate_dir.join("visual_asset_report.json"),
             &visual_report,
+        )?;
+        write_json(
+            candidate_dir.join("generated_feature_map.json"),
+            &mission_visual_feature_map(&initial_state),
         )?;
 
         let balance_dir = candidate_dir.join("balance");
@@ -5150,14 +5189,19 @@ fn save_generated_mission_visual_contact_sheet(
         Rgba([22, 24, 23, 255]),
     );
     for (index, artifact) in entries.iter().enumerate() {
-        let visual_path = artifact.candidate_dir.join("mission_visual_routes.png");
-        let visual = if visual_path.is_file() {
-            image::open(&visual_path)
-                .with_context(|| format!("failed to read {}", visual_path.display()))?
+        let beauty_path = artifact.candidate_dir.join("mission_visual_beauty.png");
+        let preview_path = artifact.candidate_dir.join("mission_visual_preview.png");
+        let routes_path = artifact.candidate_dir.join("mission_visual_routes.png");
+        let visual_path = [beauty_path, preview_path, routes_path]
+            .into_iter()
+            .find(|path| path.is_file());
+        let visual = if let Some(path) = visual_path {
+            image::open(&path)
+                .with_context(|| format!("failed to read {}", path.display()))?
                 .to_rgba8()
         } else {
             let state = MissionState::from_spec(artifact.spec.clone());
-            let (visual, _) = mission_visual_image(&state, MissionVisualOverlay::Routes)?;
+            let (visual, _) = mission_visual_image(&state, MissionVisualOverlay::Beauty)?;
             visual
         };
         let thumb = image::imageops::resize(
@@ -8044,15 +8088,149 @@ pub fn export_mission_visuals(
     fs::create_dir_all(out_dir)
         .with_context(|| format!("failed to create {}", out_dir.display()))?;
     let state = MissionState::from_spec(spec);
-    let report =
-        save_mission_visual_preview_png(out_dir.join("mission_visual_preview.png"), &state)?;
+    let report = save_mission_visual_beauty_png(out_dir.join("mission_visual_beauty.png"), &state)?;
+    copy_visual_alias(
+        out_dir.join("mission_visual_beauty.png"),
+        out_dir.join("mission_visual_preview.png"),
+    )?;
     save_mission_visual_routes_png(out_dir.join("mission_visual_routes.png"), &state)?;
     save_mission_visual_debug_png(out_dir.join("mission_visual_debug.png"), &state)?;
     write_json(out_dir.join("visual_asset_report.json"), &report)?;
+    write_json(
+        out_dir.join("generated_feature_map.json"),
+        &mission_visual_feature_map(&state),
+    )?;
     Ok(report)
 }
 
-pub fn save_mission_visual_preview_png(
+fn copy_visual_alias(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<()> {
+    let src = src.as_ref();
+    let dst = dst.as_ref();
+    if let Some(parent) = dst.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    fs::copy(src, dst)
+        .with_context(|| format!("failed to copy {} to {}", src.display(), dst.display()))?;
+    Ok(())
+}
+
+pub fn mission_visual_feature_map(state: &MissionState) -> GeneratedMissionFeatureMap {
+    let features = vec![
+        generated_feature_summary(state, "grass_region", |cell| {
+            cell.ground == GroundKind::Grass
+                && !matches!(
+                    cell.earth_state,
+                    EarthState::Trench
+                        | EarthState::DeepTrench
+                        | EarthState::Ditch
+                        | EarthState::Berm
+                        | EarthState::SpoilPile
+                )
+        }),
+        generated_feature_summary(state, "path_network", |cell| {
+            cell.ground == GroundKind::Road
+        }),
+        generated_feature_summary(state, "trench_network", |cell| {
+            matches!(
+                cell.earth_state,
+                EarthState::Trench | EarthState::DeepTrench | EarthState::Ditch
+            )
+        }),
+        generated_feature_summary(state, "berm_network", |cell| {
+            matches!(cell.earth_state, EarthState::Berm | EarthState::SpoilPile)
+        }),
+        generated_feature_summary(state, "stone_region", |cell| {
+            cell.ground == GroundKind::Rock
+        }),
+    ];
+    GeneratedMissionFeatureMap {
+        mission_id: state.spec.id.clone(),
+        width: state.map.width,
+        height: state.map.height,
+        features,
+        object_counts: visual_object_counts(state),
+    }
+}
+
+fn generated_feature_summary(
+    state: &MissionState,
+    feature: &str,
+    include: impl Fn(&MissionCell) -> bool + Copy,
+) -> GeneratedMissionFeatureSummary {
+    let mut cell_count = 0;
+    let mut mask_histogram: HashMap<u8, u32> = HashMap::new();
+    for y in 0..state.map.height {
+        for x in 0..state.map.width {
+            let coord = CellCoord::new(x, y);
+            let Some(cell) = state.map.cell(coord) else {
+                continue;
+            };
+            if include(cell) {
+                cell_count += 1;
+                *mask_histogram
+                    .entry(cardinal_mask_for_cells(state, coord, include))
+                    .or_default() += 1;
+            }
+        }
+    }
+    let mut mask_counts = mask_histogram
+        .into_iter()
+        .map(|(mask, count)| GeneratedMissionMaskCount { mask, count })
+        .collect::<Vec<_>>();
+    mask_counts.sort_by_key(|entry| entry.mask);
+    GeneratedMissionFeatureSummary {
+        feature: feature.to_string(),
+        cell_count,
+        component_count: generated_feature_component_count(state, include),
+        mask_counts,
+    }
+}
+
+fn generated_feature_component_count(
+    state: &MissionState,
+    include: impl Fn(&MissionCell) -> bool + Copy,
+) -> u32 {
+    let mut seen = HashSet::new();
+    let mut components = 0;
+    for y in 0..state.map.height {
+        for x in 0..state.map.width {
+            let start = CellCoord::new(x, y);
+            if seen.contains(&start) || !state.map.cell(start).map(include).unwrap_or(false) {
+                continue;
+            }
+            components += 1;
+            let mut stack = vec![start];
+            seen.insert(start);
+            while let Some(cell) = stack.pop() {
+                for neighbor in cardinal_neighbors(cell) {
+                    if seen.contains(&neighbor)
+                        || !state.map.cell(neighbor).map(include).unwrap_or(false)
+                    {
+                        continue;
+                    }
+                    seen.insert(neighbor);
+                    stack.push(neighbor);
+                }
+            }
+        }
+    }
+    components
+}
+
+fn cardinal_neighbors(cell: CellCoord) -> Vec<CellCoord> {
+    let mut out = Vec::with_capacity(4);
+    if let Some(y) = cell.y.checked_sub(1) {
+        out.push(CellCoord::new(cell.x, y));
+    }
+    out.push(CellCoord::new(cell.x + 1, cell.y));
+    out.push(CellCoord::new(cell.x, cell.y + 1));
+    if let Some(x) = cell.x.checked_sub(1) {
+        out.push(CellCoord::new(x, cell.y));
+    }
+    out
+}
+
+pub fn save_mission_visual_beauty_png(
     path: impl AsRef<Path>,
     state: &MissionState,
 ) -> Result<MissionVisualAssetReport> {
@@ -8060,11 +8238,18 @@ pub fn save_mission_visual_preview_png(
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
-    let (image, report) = mission_visual_image(state, MissionVisualOverlay::None)?;
+    let (image, report) = mission_visual_image(state, MissionVisualOverlay::Beauty)?;
     image
         .save(path)
         .with_context(|| format!("failed to save {}", path.display()))?;
     Ok(report)
+}
+
+pub fn save_mission_visual_preview_png(
+    path: impl AsRef<Path>,
+    state: &MissionState,
+) -> Result<MissionVisualAssetReport> {
+    save_mission_visual_beauty_png(path, state)
 }
 
 pub fn save_mission_visual_routes_png(path: impl AsRef<Path>, state: &MissionState) -> Result<()> {
@@ -8091,7 +8276,7 @@ pub fn save_mission_visual_debug_png(path: impl AsRef<Path>, state: &MissionStat
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MissionVisualOverlay {
-    None,
+    Beauty,
     Routes,
     Debug,
 }
@@ -8108,12 +8293,12 @@ struct MissionVisualProjection {
 
 impl MissionVisualProjection {
     fn new(map: &MissionMap) -> Self {
-        let tile_w = 56;
-        let tile_h = 36;
-        let height_step = 10;
-        let margin = 80;
+        let tile_w = 76;
+        let tile_h = 48;
+        let height_step = 14;
+        let margin = 96;
         let width = (map.width + map.height) * tile_w / 2 + margin * 2;
-        let height = (map.width + map.height) * tile_h / 2 + margin * 2;
+        let height = (map.width + map.height) * tile_h / 2 + margin * 2 + 72;
         Self {
             tile_w,
             tile_h,
@@ -8145,10 +8330,13 @@ fn mission_visual_image(
 ) -> Result<(RgbaImage, MissionVisualAssetReport)> {
     let projection = MissionVisualProjection::new(&state.map);
     let mut image =
-        RgbaImage::from_pixel(projection.width, projection.height, Rgba([21, 24, 24, 255]));
+        RgbaImage::from_pixel(projection.width, projection.height, Rgba([31, 36, 31, 255]));
     let mut assets = mission_visual_asset_context(state);
     let mut missing = HashSet::new();
     let mut fallbacks = HashSet::new();
+    let mut used_pieces = HashSet::new();
+
+    draw_visual_backdrop(&mut image, state, &projection);
 
     for y in 0..state.map.height {
         for x in 0..state.map.width {
@@ -8156,10 +8344,22 @@ fn mission_visual_image(
             let Some(cell) = state.map.cell(coord) else {
                 continue;
             };
+            draw_visual_feature_shadow(
+                &mut image,
+                state,
+                coord,
+                cell,
+                &projection,
+                &assets.sprites,
+                &mut MissionVisualRenderNotes {
+                    used_pieces: &mut used_pieces,
+                    missing: &mut missing,
+                },
+            );
             draw_visual_cell_faces(&mut image, state, coord, cell, &projection);
             let kind = mission_cell_sprite_kind(state, coord, cell);
+            let mut selected_kind = kind;
             let sprite = mission_visual_sprite(&assets.sprites, kind).or_else(|| {
-                missing.insert(format!("{kind:?}"));
                 let fallback = match cell.ground {
                     GroundKind::Road | GroundKind::Dirt | GroundKind::Mud => {
                         TerrainSpriteKind::DirtTile
@@ -8167,10 +8367,13 @@ fn mission_visual_image(
                     GroundKind::Rock => TerrainSpriteKind::StoneFloorTop,
                     GroundKind::Grass => TerrainSpriteKind::GrassTile,
                 };
+                selected_kind = fallback;
+                missing.insert(format!("{kind:?}"));
                 fallbacks.insert(format!("{kind:?}->{fallback:?}"));
                 mission_visual_sprite(&assets.sprites, fallback)
             });
             if let Some(sprite) = sprite {
+                used_pieces.insert(selected_kind.id().to_string());
                 draw_diamond_sprite(&mut image, &sprite.image, &projection, coord, cell.height);
             } else {
                 draw_diamond_fill(
@@ -8194,17 +8397,19 @@ fn mission_visual_image(
     }
 
     draw_visual_objects(&mut image, state, &projection);
-    draw_visual_mission_markers(&mut image, state, &projection);
+    if !matches!(overlay, MissionVisualOverlay::Beauty) {
+        draw_visual_mission_markers(&mut image, state, &projection);
+    }
     if matches!(
         overlay,
         MissionVisualOverlay::Routes | MissionVisualOverlay::Debug
     ) {
         let routes = state.route_preview();
         let colors = [
-            Rgba([242, 183, 62, 220]),
-            Rgba([98, 205, 139, 220]),
-            Rgba([220, 108, 92, 220]),
-            Rgba([123, 171, 242, 220]),
+            Rgba([242, 183, 62, 170]),
+            Rgba([98, 205, 139, 160]),
+            Rgba([220, 108, 92, 155]),
+            Rgba([123, 171, 242, 160]),
         ];
         for (index, route) in routes.routes.iter().enumerate() {
             draw_visual_route(
@@ -8217,6 +8422,8 @@ fn mission_visual_image(
         }
     }
 
+    assets.report.effective_sprite_pieces_used = sorted_strings(used_pieces);
+    assets.report.placeholder_object_sprites = visual_placeholder_object_counts(state);
     assets.report.missing_visual_pieces = sorted_strings(missing);
     assets.report.fallback_pieces_used = sorted_strings(fallbacks);
     if !assets.report.missing_visual_pieces.is_empty() {
@@ -8231,6 +8438,11 @@ fn mission_visual_image(
 struct MissionVisualAssetContext {
     sprites: Vec<GeneratedTerrainSprite>,
     report: MissionVisualAssetReport,
+}
+
+struct MissionVisualRenderNotes<'a> {
+    used_pieces: &'a mut HashSet<String>,
+    missing: &'a mut HashSet<String>,
 }
 
 fn mission_visual_asset_context(state: &MissionState) -> MissionVisualAssetContext {
@@ -8255,6 +8467,8 @@ fn mission_visual_asset_context(state: &MissionState) -> MissionVisualAssetConte
         effective_sprite_count: bundle.effective.len(),
         overridden_sprite_count: bundle.report.overridden_count,
         override_issue_count: bundle.report.issue_count(),
+        effective_sprite_pieces_used: Vec::new(),
+        placeholder_object_sprites: Vec::new(),
         missing_visual_pieces: Vec::new(),
         fallback_pieces_used: Vec::new(),
         warnings,
@@ -8270,6 +8484,116 @@ fn mission_visual_sprite(
     kind: TerrainSpriteKind,
 ) -> Option<&GeneratedTerrainSprite> {
     sprites.iter().find(|sprite| sprite.kind == kind)
+}
+
+fn draw_visual_backdrop(
+    image: &mut RgbaImage,
+    state: &MissionState,
+    projection: &MissionVisualProjection,
+) {
+    for y in 0..image.height() {
+        let shade = (y as f32 / image.height().max(1) as f32 * 18.0).round() as u8;
+        for x in 0..image.width() {
+            let base = image.get_pixel_mut(x, y);
+            *base = Rgba([
+                base[0].saturating_add(shade / 3),
+                base[1].saturating_add(shade / 2),
+                base[2].saturating_add(shade / 4),
+                255,
+            ]);
+        }
+    }
+    for y in 0..state.map.height {
+        for x in 0..state.map.width {
+            let coord = CellCoord::new(x, y);
+            draw_diamond_fill_offset(image, projection, coord, 0, 18, 24, Rgba([4, 7, 5, 46]));
+        }
+    }
+}
+
+fn draw_visual_feature_shadow(
+    image: &mut RgbaImage,
+    state: &MissionState,
+    coord: CellCoord,
+    cell: &MissionCell,
+    projection: &MissionVisualProjection,
+    sprites: &[GeneratedTerrainSprite],
+    notes: &mut MissionVisualRenderNotes<'_>,
+) {
+    let shadow_kind = match cell.earth_state {
+        EarthState::Trench | EarthState::DeepTrench | EarthState::Ditch => {
+            Some(TerrainSpriteKind::TrenchContactShadow)
+        }
+        EarthState::Berm | EarthState::SpoilPile => Some(TerrainSpriteKind::BermContactShadow),
+        _ if cell.ground == GroundKind::Rock => Some(TerrainSpriteKind::StoneContactShadow),
+        _ => None,
+    };
+    if let Some(kind) = shadow_kind {
+        if let Some(sprite) = mission_visual_sprite(sprites, kind) {
+            notes.used_pieces.insert(kind.id().to_string());
+            draw_diamond_sprite_offset(image, &sprite.image, projection, coord, cell.height, 8, 10);
+        } else {
+            notes.missing.insert(format!("{kind:?}"));
+        }
+    } else if visual_outer_perimeter_cell(state, coord) {
+        draw_diamond_fill_offset(
+            image,
+            projection,
+            coord,
+            cell.height,
+            8,
+            12,
+            Rgba([2, 4, 3, 24]),
+        );
+    }
+}
+
+fn visual_outer_perimeter_cell(state: &MissionState, coord: CellCoord) -> bool {
+    coord.x == 0
+        || coord.y == 0
+        || coord.x + 1 == state.map.width
+        || coord.y + 1 == state.map.height
+}
+
+fn visual_object_counts(state: &MissionState) -> Vec<GeneratedMissionObjectCount> {
+    let mut counts: HashMap<String, u32> = HashMap::new();
+    for object in &state.map.objects {
+        *counts
+            .entry(visual_object_placeholder_label(object).to_string())
+            .or_default() += 1;
+    }
+    let mut out = counts
+        .into_iter()
+        .map(|(object, count)| GeneratedMissionObjectCount { object, count })
+        .collect::<Vec<_>>();
+    out.sort_by(|a, b| a.object.cmp(&b.object));
+    out
+}
+
+fn visual_placeholder_object_counts(state: &MissionState) -> Vec<String> {
+    visual_object_counts(state)
+        .into_iter()
+        .map(|entry| format!("{}:{}", entry.object, entry.count))
+        .collect()
+}
+
+fn visual_object_placeholder_label(object: &EnvironmentObject) -> &'static str {
+    match &object.kind {
+        EnvironmentObjectKind::Tree(TreeState::Standing)
+        | EnvironmentObjectKind::Tree(TreeState::PartiallyCut { .. }) => "tree_standing",
+        EnvironmentObjectKind::Tree(TreeState::Falling { .. })
+        | EnvironmentObjectKind::Tree(TreeState::FallenTrunk { .. })
+        | EnvironmentObjectKind::Tree(TreeState::CutLogs)
+        | EnvironmentObjectKind::Log(_) => "log_or_trunk",
+        EnvironmentObjectKind::Tree(TreeState::StakesBundle) | EnvironmentObjectKind::Stakes(_) => {
+            "stakes_cluster"
+        }
+        EnvironmentObjectKind::Tree(TreeState::Stump) => "stump",
+        EnvironmentObjectKind::Rock(_) => "rock",
+        EnvironmentObjectKind::Wall(_) => "wall_or_ruin",
+        EnvironmentObjectKind::Wire(_) => "wire",
+        EnvironmentObjectKind::FightingPosition(_) => "fighting_position",
+    }
 }
 
 fn mission_cell_sprite_kind(
@@ -8384,7 +8708,21 @@ fn draw_diamond_sprite(
     coord: CellCoord,
     height: i8,
 ) {
+    draw_diamond_sprite_offset(image, sprite, projection, coord, height, 0, 0);
+}
+
+fn draw_diamond_sprite_offset(
+    image: &mut RgbaImage,
+    sprite: &PixelImage,
+    projection: &MissionVisualProjection,
+    coord: CellCoord,
+    height: i8,
+    offset_x: i32,
+    offset_y: i32,
+) {
     let (x0, y0) = projection.top_left(coord, height);
+    let x0 = x0 + offset_x;
+    let y0 = y0 + offset_y;
     let tile_w = projection.tile_w as i32;
     let tile_h = projection.tile_h as i32;
     for dy in 0..tile_h {
@@ -8416,8 +8754,22 @@ fn draw_diamond_fill(
     height: i8,
     color: Rgba<u8>,
 ) {
+    draw_diamond_fill_offset(image, projection, coord, height, 0, 0, color);
+}
+
+fn draw_diamond_fill_offset(
+    image: &mut RgbaImage,
+    projection: &MissionVisualProjection,
+    coord: CellCoord,
+    height: i8,
+    offset_x: i32,
+    offset_y: i32,
+    color: Rgba<u8>,
+) {
     let fallback = PixelImage::new(16, 16, Rgba8::new(color[0], color[1], color[2], color[3]));
-    draw_diamond_sprite(image, &fallback, projection, coord, height);
+    draw_diamond_sprite_offset(
+        image, &fallback, projection, coord, height, offset_x, offset_y,
+    );
 }
 
 fn draw_diamond_outline(
@@ -8467,12 +8819,14 @@ fn draw_visual_objects(
             .map(|cell| cell.height)
             .unwrap_or(0);
         let (cx, cy) = projection.center(object.cell, height);
+        draw_visual_object_shadow(image, cx, cy);
         match &object.kind {
             EnvironmentObjectKind::Tree(TreeState::Standing)
             | EnvironmentObjectKind::Tree(TreeState::PartiallyCut { .. }) => {
-                fill_rgba_rect(image, cx - 3, cy - 17, 6, 18, Rgba([82, 49, 30, 255]));
-                fill_rgba_rect(image, cx - 11, cy - 27, 22, 16, Rgba([34, 88, 40, 245]));
-                fill_rgba_rect(image, cx - 7, cy - 34, 14, 14, Rgba([44, 112, 52, 245]));
+                fill_rgba_rect(image, cx - 4, cy - 22, 8, 24, Rgba([82, 49, 30, 255]));
+                fill_rgba_rect(image, cx - 17, cy - 39, 34, 22, Rgba([27, 74, 37, 245]));
+                fill_rgba_rect(image, cx - 12, cy - 51, 24, 20, Rgba([43, 105, 51, 245]));
+                fill_rgba_rect(image, cx - 20, cy - 29, 40, 12, Rgba([34, 88, 40, 230]));
             }
             EnvironmentObjectKind::Tree(TreeState::Falling { .. })
             | EnvironmentObjectKind::Tree(TreeState::FallenTrunk { .. })
@@ -8480,86 +8834,100 @@ fn draw_visual_objects(
             | EnvironmentObjectKind::Log(_) => {
                 draw_rgba_line(
                     image,
-                    cx - 15,
-                    cy - 7,
-                    cx + 15,
-                    cy + 4,
+                    cx - 24,
+                    cy - 8,
+                    cx + 24,
+                    cy + 8,
                     Rgba([92, 55, 30, 255]),
-                    5,
+                    7,
                 );
                 draw_rgba_line(
                     image,
-                    cx - 15,
-                    cy - 10,
-                    cx + 15,
-                    cy + 1,
+                    cx - 23,
+                    cy - 12,
+                    cx + 23,
+                    cy + 4,
                     Rgba([132, 83, 43, 255]),
-                    2,
+                    3,
                 );
             }
             EnvironmentObjectKind::Tree(TreeState::StakesBundle) => {
-                for offset in [-9, -3, 3, 9] {
+                for offset in [-14, -7, 0, 7, 14] {
                     draw_rgba_line(
                         image,
                         cx + offset,
-                        cy + 4,
+                        cy + 7,
                         cx + offset + 3,
-                        cy - 11,
+                        cy - 16,
                         Rgba([214, 188, 122, 255]),
-                        2,
+                        3,
                     );
                 }
             }
             EnvironmentObjectKind::Tree(TreeState::Stump) => {
-                fill_rgba_rect(image, cx - 5, cy - 10, 10, 8, Rgba([98, 62, 36, 255]));
-                fill_rgba_rect(image, cx - 7, cy - 12, 14, 4, Rgba([132, 88, 48, 255]));
+                fill_rgba_rect(image, cx - 7, cy - 13, 14, 10, Rgba([98, 62, 36, 255]));
+                fill_rgba_rect(image, cx - 10, cy - 16, 20, 5, Rgba([132, 88, 48, 255]));
             }
             EnvironmentObjectKind::Stakes(_) => {
-                for offset in [-8, 0, 8] {
+                for offset in [-14, -7, 0, 7, 14] {
                     draw_rgba_line(
                         image,
                         cx + offset,
-                        cy + 4,
+                        cy + 8,
                         cx + offset + 3,
-                        cy - 12,
+                        cy - 17,
                         Rgba([214, 188, 122, 255]),
-                        2,
+                        3,
                     );
                 }
             }
             EnvironmentObjectKind::Rock(_) => {
-                fill_rgba_rect(image, cx - 8, cy - 9, 16, 10, Rgba([116, 120, 110, 255]));
-                fill_rgba_rect(image, cx - 4, cy - 13, 10, 8, Rgba([145, 148, 132, 255]));
+                fill_rgba_rect(image, cx - 13, cy - 13, 26, 15, Rgba([116, 120, 110, 255]));
+                fill_rgba_rect(image, cx - 6, cy - 19, 16, 10, Rgba([145, 148, 132, 255]));
             }
             EnvironmentObjectKind::Wall(_) => {
-                fill_rgba_rect(image, cx - 15, cy - 14, 30, 16, Rgba([100, 94, 78, 255]));
-                fill_rgba_rect(image, cx - 13, cy - 16, 26, 4, Rgba([142, 136, 112, 255]));
+                fill_rgba_rect(image, cx - 23, cy - 22, 46, 22, Rgba([100, 94, 78, 255]));
+                fill_rgba_rect(image, cx - 20, cy - 25, 40, 6, Rgba([142, 136, 112, 255]));
             }
             EnvironmentObjectKind::Wire(_) => {
                 draw_rgba_line(
                     image,
-                    cx - 15,
-                    cy - 3,
-                    cx + 15,
-                    cy + 3,
+                    cx - 23,
+                    cy - 4,
+                    cx + 23,
+                    cy + 4,
                     Rgba([142, 148, 150, 255]),
                     2,
                 );
                 draw_rgba_line(
                     image,
-                    cx - 15,
-                    cy + 3,
-                    cx + 15,
-                    cy - 3,
+                    cx - 23,
+                    cy + 4,
+                    cx + 23,
+                    cy - 4,
                     Rgba([142, 148, 150, 180]),
                     1,
                 );
             }
             EnvironmentObjectKind::FightingPosition(_) => {
-                fill_rgba_rect(image, cx - 10, cy - 8, 20, 10, Rgba([74, 52, 37, 255]));
-                fill_rgba_rect(image, cx - 8, cy - 12, 16, 5, Rgba([112, 82, 48, 255]));
+                fill_rgba_rect(image, cx - 16, cy - 12, 32, 14, Rgba([74, 52, 37, 255]));
+                fill_rgba_rect(image, cx - 13, cy - 18, 26, 7, Rgba([112, 82, 48, 255]));
             }
         }
+    }
+}
+
+fn draw_visual_object_shadow(image: &mut RgbaImage, cx: i32, cy: i32) {
+    for row in -3_i32..=3 {
+        let width = 22 - row.abs() * 4;
+        fill_rgba_rect(
+            image,
+            cx - width,
+            cy + 5 + row,
+            (width * 2).max(1) as u32,
+            1,
+            Rgba([2, 4, 3, 42]),
+        );
     }
 }
 
@@ -8571,7 +8939,17 @@ fn draw_visual_mission_markers(
     for spawn in &state.map.spawn_cells {
         let height = state.map.cell(*spawn).map(|cell| cell.height).unwrap_or(0);
         let (cx, cy) = projection.center(*spawn, height);
-        fill_rgba_rect(image, cx - 6, cy - 21, 12, 12, Rgba([78, 130, 206, 235]));
+        draw_rgba_line(
+            image,
+            cx - 5,
+            cy - 7,
+            cx - 5,
+            cy - 31,
+            Rgba([48, 64, 70, 255]),
+            2,
+        );
+        fill_rgba_rect(image, cx - 5, cy - 31, 18, 10, Rgba([78, 130, 206, 225]));
+        fill_rgba_rect(image, cx - 5, cy - 21, 12, 5, Rgba([55, 94, 154, 220]));
     }
     let objective = state.spec.objective.defend_cell;
     let height = state
@@ -8580,8 +8958,9 @@ fn draw_visual_mission_markers(
         .map(|cell| cell.height)
         .unwrap_or(0);
     let (cx, cy) = projection.center(objective, height);
-    fill_rgba_rect(image, cx - 8, cy - 25, 16, 16, Rgba([226, 202, 88, 245]));
-    draw_preview_border_safe(image, cx - 8, cy - 25, 16, 16, Rgba([74, 62, 28, 255]));
+    fill_rgba_rect(image, cx - 13, cy - 20, 26, 16, Rgba([108, 78, 38, 255]));
+    fill_rgba_rect(image, cx - 10, cy - 29, 20, 10, Rgba([226, 202, 88, 245]));
+    draw_preview_border_safe(image, cx - 13, cy - 20, 26, 16, Rgba([74, 62, 28, 255]));
 }
 
 fn draw_visual_route(
@@ -8594,7 +8973,8 @@ fn draw_visual_route(
     for window in route.points.windows(2) {
         let a = visual_route_point(state, projection, window[0]);
         let b = visual_route_point(state, projection, window[1]);
-        draw_rgba_line(image, a.0, a.1, b.0, b.1, color, 4);
+        draw_rgba_line(image, a.0, a.1, b.0, b.1, Rgba([9, 10, 8, 90]), 4);
+        draw_rgba_line(image, a.0, a.1, b.0, b.1, color, 2);
     }
 }
 
