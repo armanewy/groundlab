@@ -11,8 +11,8 @@ use ground_core::{
 };
 use ground_game::{
     export_road_below_seed, road_below_seed_orders, CellCoord, CoverClass, EarthState,
-    EnvironmentObject, EnvironmentObjectKind, GroundKind, MissionState, TreeState, WorkOrderKind,
-    WorkTarget, DEFAULT_MISSION_EXPORT_DIR,
+    EnemyAgentStatus, EnvironmentObject, EnvironmentObjectKind, GroundKind, MissionState,
+    TreeState, WorkOrderKind, WorkTarget, DEFAULT_MISSION_EXPORT_DIR,
 };
 
 const MAX_UI_TEXTURE_SIDE: usize = 2048;
@@ -255,7 +255,7 @@ impl GroundLabApp {
             dirty_assets: true,
             dirty_preview: true,
             last_preview_size: [1, 1],
-            status: "Ready. GamePivot 4 tactical prep UI is active.".to_string(),
+            status: "Ready. GamePivot 5 assault sandbox is active.".to_string(),
         };
         app.refresh_if_dirty(&cc.egui_ctx);
         app
@@ -388,7 +388,7 @@ impl GroundLabApp {
     fn show_mission_controls(&mut self, ui: &mut egui::Ui) {
         self.show_panel_tabs(ui);
         ui.heading("Mission Lab");
-        ui.label("GamePivot 4: tactical prep UI over work orders, materials, and doctrine routes");
+        ui.label("GamePivot 5: deterministic assault sandbox over prepared terrain");
         ui.separator();
 
         self.show_mission_status_panel(ui);
@@ -396,6 +396,8 @@ impl GroundLabApp {
         self.show_mission_action_toolbar(ui);
         ui.separator();
         self.show_mission_route_panel(ui);
+        ui.separator();
+        self.show_assault_panel(ui);
         ui.separator();
         self.show_selected_mission_context(ui);
         ui.separator();
@@ -509,6 +511,72 @@ impl GroundLabApp {
                 route.points.len(),
                 route.total_cost
             ));
+        }
+    }
+
+    fn show_assault_panel(&mut self, ui: &mut egui::Ui) {
+        ui.strong("Assault sandbox");
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Start assault").clicked() {
+                self.mission_state.start_assault();
+                self.notify("Assault started from current prepared terrain.");
+            }
+            if ui.button("Step").clicked() {
+                let events = self.mission_state.step_assault();
+                if let Some(event) = events.last() {
+                    self.notify(format!("Assault step: {}", event.note));
+                } else {
+                    self.notify("Assault step produced no new event.");
+                }
+            }
+            if ui.button("Run").clicked() {
+                let summary = self.mission_state.run_assault_to_completion(160);
+                self.notify(summary.outcome_label);
+            }
+            if ui.button("Reset to prep").clicked() {
+                self.mission_state.reset_assault();
+                self.notify("Assault reset. Prep state remains intact.");
+            }
+        });
+
+        if let Some(assault) = &self.mission_state.assault {
+            let active = assault
+                .agents
+                .iter()
+                .filter(|agent| {
+                    matches!(
+                        agent.status,
+                        EnemyAgentStatus::Advancing | EnemyAgentStatus::Delayed
+                    )
+                })
+                .count();
+            let eliminated = assault
+                .agents
+                .iter()
+                .filter(|agent| matches!(agent.status, EnemyAgentStatus::Eliminated))
+                .count();
+            let reached = assault
+                .agents
+                .iter()
+                .filter(|agent| matches!(agent.status, EnemyAgentStatus::ReachedObjective))
+                .count();
+            ui.small(format!(
+                "{} · tick {} · objective {} · active {} · stopped {} · reached {}",
+                assault.status.label(),
+                assault.tick,
+                assault.objective_health.max(0),
+                active,
+                eliminated,
+                reached
+            ));
+            if let Some(summary) = &assault.summary {
+                ui.small(format!(
+                    "{} · damage {}",
+                    summary.outcome_label, summary.objective_damage_taken
+                ));
+            }
+        } else {
+            ui.small("No assault is running. Start uses the current prepared mission state.");
         }
     }
 
@@ -1612,10 +1680,11 @@ impl GroundLabApp {
             }
         }
         self.draw_mission_route_overlay(&painter, rect, cell_size);
+        self.draw_mission_assault_overlay(&painter, rect, cell_size);
 
         ui.add_space(8.0);
         ui.label(
-            "Blue route = initial plan. Gold/red route = current terrain after applied work orders. This is still a data-first mission view.",
+            "Blue route = initial plan. Gold/red route = current terrain. Enemy markers appear after assault starts.",
         );
     }
 
@@ -1625,7 +1694,8 @@ impl GroundLabApp {
                 ui.strong(self.mission_state.spec.title.as_str());
                 ui.separator();
                 ui.label(format!(
-                    "Phase PREP · time {}",
+                    "phase {} · time {}",
+                    self.mission_state.phase.label(),
                     format_duration(self.mission_state.remaining_prep_seconds)
                 ));
                 ui.separator();
@@ -1742,6 +1812,36 @@ impl GroundLabApp {
                     self.route_group_filter,
                 );
             }
+        }
+    }
+
+    fn draw_mission_assault_overlay(
+        &self,
+        painter: &egui::Painter,
+        rect: egui::Rect,
+        cell_size: f32,
+    ) {
+        for defender in &self.mission_state.spec.defender_positions {
+            let pos = mission_route_point(rect, cell_size, defender.cell);
+            painter.rect_filled(
+                egui::Rect::from_center_size(pos, egui::vec2(12.0, 12.0)),
+                0.0,
+                egui::Color32::from_rgb(90, 172, 226),
+            );
+        }
+        let Some(assault) = &self.mission_state.assault else {
+            return;
+        };
+        for agent in &assault.agents {
+            let pos = mission_route_point(rect, cell_size, agent.cell);
+            let color = match agent.status {
+                EnemyAgentStatus::Advancing => egui::Color32::from_rgb(220, 76, 60),
+                EnemyAgentStatus::Delayed => egui::Color32::from_rgb(230, 146, 58),
+                EnemyAgentStatus::Eliminated => egui::Color32::from_rgb(68, 70, 68),
+                EnemyAgentStatus::ReachedObjective => egui::Color32::from_rgb(178, 72, 178),
+            };
+            painter.circle_filled(pos, 6.5, color);
+            painter.circle_stroke(pos, 6.5, egui::Stroke::new(1.0, egui::Color32::BLACK));
         }
     }
 }

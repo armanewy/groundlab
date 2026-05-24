@@ -4,7 +4,7 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: GamePivot 4 — tactical prep UI
+## Current status: GamePivot 5 — assault sandbox
 
 GroundLab has pivoted from art-generation milestones back toward the game workbench. The primary
 product direction is now a 2.5D tactical engineering defense game: the player is a commander /
@@ -15,7 +15,7 @@ SpriteGen remains in the repository as the terrain art forge. It still provides 
 profiles, override PNGs, sprite manifests, validation, and exportable grass/dirt/path/trench/berm/
 stone pieces. It is now supporting infrastructure rather than the main roadmap driver.
 
-GamePivot 4 builds on the `ground_game` crate with:
+GamePivot 5 builds on the `ground_game` crate with:
 
 - `MissionSpec`, `MissionMap`, and `MissionCell`
 - earth states such as normal, scraped, trench, deep trench, spoil pile, berm, unstable, and muddy
@@ -28,9 +28,14 @@ GamePivot 4 builds on the `ground_game` crate with:
 - doctrine-specific route cost profiles for rushers, cover-seekers, flankers, obstacle-avoiders, push-through troops, and clearers
 - route explanations that report trench/berm/object/cover/road cells used by each projected route
 - route delta exports comparing the initial mission terrain against the post-order prepared terrain
+- mission phases for prep, assault, and debrief
+- deterministic enemy agents that spawn from doctrine routes and advance step by step
+- basic defender positions that apply range/line-of-sight pressure
+- terrain and obstacle effects for trenches, berms, mud, unstable ground, stakes, wire, and logs
+- assault timeline and summary exports for debugging the first assault loop
 - a seed mission, `The Road Below`, with a small road/ridge/tree terrain problem
 - CLI export of mission spec, order script, before/after mission state, work log, material ledger, validation, route previews, route delta, ASCII maps, PNG mission previews, and a summary
-- a `Mission Lab` tab in `ground_app` beside the older terrain forge controls, now organized as a tactical prep screen with mission status, order mode toolbar, selected-cell context actions, work-order queue, route overlay controls, map modes, enemy intel, objective panel, minimap, notifications, material ledger, and validation feedback
+- a `Mission Lab` tab in `ground_app` beside the older terrain forge controls, now organized as a tactical prep screen with mission status, order mode toolbar, selected-cell context actions, work-order queue, route overlay controls, assault controls, map modes, enemy intel, objective panel, minimap, notifications, material ledger, and validation feedback
 
 Run the sprite workbench:
 
@@ -56,10 +61,16 @@ Export the GamePivot mission seed:
 cargo run -p ground_cli -- mission-seed exports/gamepivot_03_seed
 ```
 
-Run the default GamePivot 3 scripted work-order and route-preview scenario:
+Run the scripted work-order and route-preview scenario:
 
 ```bash
-cargo run -p ground_cli -- mission-routes exports/gamepivot_03
+cargo run -p ground_cli -- mission-routes exports/gamepivot_05_routes
+```
+
+Run the deterministic GamePivot 5 assault sandbox:
+
+```bash
+cargo run -p ground_cli -- mission-assault exports/gamepivot_05
 ```
 
 Run the mission workbench:
@@ -71,6 +82,12 @@ cargo run -p ground_app
 The full-scene terrain renderer and ArtGen outputs remain downstream infrastructure for terrain
 data, pathing, LOS, and future art-kit composition, but the active gameplay roadmap now starts with
 mission prep, work orders, local materials, and predictable terrain consequences.
+
+## Previous status: GamePivot 4 — tactical prep UI
+
+GamePivot 4 reorganized Mission Lab into a prep screen with mission status, action modes, map modes,
+route controls, enemy intel, objective panel, minimap, work-order queue, notifications, and
+validation feedback.
 
 ## Previous status: GamePivot 3 — doctrine route preview
 

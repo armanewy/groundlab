@@ -80,6 +80,25 @@ Implemented in this drop.
 This milestone is UI-only. It does not add enemy movement, combat resolution, assault simulation,
 new art systems, or new terrain rules.
 
+## GamePivot 5 — Assault sandbox
+
+Implemented in this drop.
+
+- added mission phase state for prep, assault, and debrief
+- added deterministic assault state, enemy agents, agent statuses, timeline events, and assault summary data
+- enemy agents spawn from the current doctrine route preview and advance cell by cell
+- defender positions apply simple deterministic range/line-of-sight pressure
+- trenches, ditches, berms, mud, unstable ground, stakes, wire, and logs now affect assault movement, delay, or damage
+- added `cargo run -p ground_cli -- mission-assault [out_dir] [mission_spec.ron|json] [order_script.ron|json]`
+- assault export writes final prep state, initial assault routes, timeline, summary, start/end previews, and path trace
+- Mission Lab now includes Start Assault, Step, Run, and Reset to Prep controls
+- mission canvas now displays defender markers and enemy agent markers during assault
+- added regression coverage for running the Road Below assault to a deterministic debrief summary
+
+This milestone intentionally avoids full combat, projectiles, morale, animations, rolling hazards,
+advanced AI, and defender micromanagement. It only proves that prepared terrain can be exercised by
+a deterministic assault loop.
+
 ## Milestone 0 — Project seed
 
 Implemented.

@@ -7,7 +7,7 @@ use anyhow::{bail, Context, Result};
 use image::{Rgba, RgbaImage};
 use serde::{Deserialize, Serialize};
 
-pub const DEFAULT_MISSION_EXPORT_DIR: &str = "exports/gamepivot_03";
+pub const DEFAULT_MISSION_EXPORT_DIR: &str = "exports/gamepivot_05";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CellCoord {
@@ -65,6 +65,8 @@ pub struct MissionSpec {
     pub starting_tools: ToolLoadout,
     pub crew: CrewPool,
     pub enemy_groups: Vec<EnemyGroupSpec>,
+    #[serde(default)]
+    pub defender_positions: Vec<DefenderPositionSpec>,
     pub constraints: MissionConstraints,
 }
 
@@ -73,6 +75,15 @@ pub struct MissionObjective {
     pub label: String,
     pub defend_cell: CellCoord,
     pub objective_health: u32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DefenderPositionSpec {
+    pub id: String,
+    pub label: String,
+    pub cell: CellCoord,
+    pub range: u32,
+    pub pressure_per_step: i32,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -550,6 +561,112 @@ pub struct EnemyRouteDelta {
     pub explanation: String,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MissionPhase {
+    Briefing,
+    #[default]
+    Prep,
+    Assault,
+    Debrief,
+}
+
+impl MissionPhase {
+    pub fn label(self) -> &'static str {
+        match self {
+            MissionPhase::Briefing => "briefing",
+            MissionPhase::Prep => "prep",
+            MissionPhase::Assault => "assault",
+            MissionPhase::Debrief => "debrief",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AssaultState {
+    pub tick: u32,
+    pub status: AssaultStatus,
+    pub objective_health: i32,
+    pub initial_routes: DoctrineRouteSet,
+    pub agents: Vec<EnemyAgent>,
+    pub timeline: Vec<AssaultTimelineEvent>,
+    pub summary: Option<AssaultSummary>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AssaultStatus {
+    Ready,
+    Running,
+    Victory,
+    Defeat,
+}
+
+impl AssaultStatus {
+    pub fn label(self) -> &'static str {
+        match self {
+            AssaultStatus::Ready => "ready",
+            AssaultStatus::Running => "running",
+            AssaultStatus::Victory => "victory",
+            AssaultStatus::Defeat => "defeat",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EnemyAgent {
+    pub id: u32,
+    pub group_label: String,
+    pub doctrine: EnemyDoctrine,
+    pub cell: CellCoord,
+    pub route: Vec<CellCoord>,
+    pub route_index: usize,
+    pub hp: i32,
+    pub delay_ticks: u32,
+    pub status: EnemyAgentStatus,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EnemyAgentStatus {
+    Advancing,
+    Delayed,
+    Eliminated,
+    ReachedObjective,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AssaultTimelineEvent {
+    pub tick: u32,
+    pub agent_id: Option<u32>,
+    pub group_label: Option<String>,
+    pub cell: Option<CellCoord>,
+    pub kind: AssaultEventKind,
+    pub note: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AssaultEventKind {
+    AssaultStarted,
+    Spawned,
+    Moved,
+    Delayed,
+    Damaged,
+    Eliminated,
+    ObjectiveDamaged,
+    AssaultEnded,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct AssaultSummary {
+    pub victory: bool,
+    pub outcome_label: String,
+    pub ticks_elapsed: u32,
+    pub enemies_spawned: u32,
+    pub enemies_eliminated: u32,
+    pub enemies_reached_objective: u32,
+    pub objective_health_remaining: i32,
+    pub objective_damage_taken: i32,
+    pub notes: Vec<String>,
+}
+
 #[derive(Clone, Copy, Debug)]
 struct DoctrineWeights {
     trench_cost: f32,
@@ -637,6 +754,8 @@ impl EnemyDoctrine {
 pub struct MissionState {
     pub spec: MissionSpec,
     pub map: MissionMap,
+    #[serde(default)]
+    pub phase: MissionPhase,
     pub remaining_prep_seconds: u32,
     pub remaining_labor_seconds: u32,
     pub work_queue: Vec<WorkOrder>,
@@ -644,11 +763,14 @@ pub struct MissionState {
     pub material_ledger: Vec<MaterialLedgerEntry>,
     pub order_validation: Vec<OrderValidationEntry>,
     pub event_log: Vec<String>,
+    #[serde(default)]
+    pub assault: Option<AssaultState>,
 }
 
 impl MissionState {
     pub fn from_spec(spec: MissionSpec) -> Self {
         Self {
+            phase: MissionPhase::Prep,
             remaining_prep_seconds: spec.prep_time_seconds,
             remaining_labor_seconds: spec.crew.labor_seconds_available,
             map: spec.map.clone(),
@@ -658,6 +780,7 @@ impl MissionState {
             material_ledger: Vec::new(),
             order_validation: Vec::new(),
             event_log: Vec::new(),
+            assault: None,
         }
     }
 
@@ -875,6 +998,200 @@ impl MissionState {
 
     pub fn route_preview(&self) -> DoctrineRouteSet {
         route_preview_for_state(self)
+    }
+
+    pub fn start_assault(&mut self) {
+        let routes = self.route_preview();
+        let mut agents = Vec::new();
+        let mut agent_id = 1;
+        for group in &self.spec.enemy_groups {
+            let route = routes
+                .routes
+                .iter()
+                .find(|route| route.group_label == group.label)
+                .map(|route| route.points.clone())
+                .unwrap_or_default();
+            for _ in 0..group.count {
+                agents.push(EnemyAgent {
+                    id: agent_id,
+                    group_label: group.label.clone(),
+                    doctrine: group.doctrine,
+                    cell: group.spawn,
+                    route: route.clone(),
+                    route_index: 0,
+                    hp: enemy_hp_for_doctrine(group.doctrine),
+                    delay_ticks: 0,
+                    status: EnemyAgentStatus::Advancing,
+                });
+                agent_id += 1;
+            }
+        }
+
+        let mut timeline = Vec::new();
+        timeline.push(AssaultTimelineEvent {
+            tick: 0,
+            agent_id: None,
+            group_label: None,
+            cell: None,
+            kind: AssaultEventKind::AssaultStarted,
+            note: format!(
+                "Assault started with {} enemy agent(s) and {} defender position(s).",
+                agents.len(),
+                self.spec.defender_positions.len()
+            ),
+        });
+        for agent in &agents {
+            timeline.push(AssaultTimelineEvent {
+                tick: 0,
+                agent_id: Some(agent.id),
+                group_label: Some(agent.group_label.clone()),
+                cell: Some(agent.cell),
+                kind: AssaultEventKind::Spawned,
+                note: format!(
+                    "{} spawned at ({}, {}).",
+                    agent.group_label, agent.cell.x, agent.cell.y
+                ),
+            });
+        }
+
+        self.phase = MissionPhase::Assault;
+        self.assault = Some(AssaultState {
+            tick: 0,
+            status: AssaultStatus::Running,
+            objective_health: self.spec.objective.objective_health as i32,
+            initial_routes: routes,
+            agents,
+            timeline,
+            summary: None,
+        });
+    }
+
+    pub fn step_assault(&mut self) -> Vec<AssaultTimelineEvent> {
+        if self.assault.is_none() {
+            self.start_assault();
+        }
+        let Some(mut assault) = self.assault.take() else {
+            return Vec::new();
+        };
+        if !matches!(assault.status, AssaultStatus::Running) {
+            self.assault = Some(assault);
+            return Vec::new();
+        }
+
+        assault.tick += 1;
+        let mut events = Vec::new();
+        for index in 0..assault.agents.len() {
+            if assault.objective_health <= 0 {
+                break;
+            }
+            let event_count_before = events.len();
+            step_agent_assault(
+                &self.map,
+                &self.spec,
+                assault.tick,
+                &mut assault.objective_health,
+                &mut assault.agents[index],
+                &mut events,
+            );
+            if events.len() == event_count_before
+                && matches!(assault.agents[index].status, EnemyAgentStatus::Advancing)
+            {
+                events.push(AssaultTimelineEvent {
+                    tick: assault.tick,
+                    agent_id: Some(assault.agents[index].id),
+                    group_label: Some(assault.agents[index].group_label.clone()),
+                    cell: Some(assault.agents[index].cell),
+                    kind: AssaultEventKind::Delayed,
+                    note: "agent held position".to_string(),
+                });
+            }
+        }
+
+        let active_agents = assault
+            .agents
+            .iter()
+            .filter(|agent| {
+                matches!(
+                    agent.status,
+                    EnemyAgentStatus::Advancing | EnemyAgentStatus::Delayed
+                )
+            })
+            .count();
+        if assault.objective_health <= 0 || active_agents == 0 {
+            let summary = summarize_assault(&self.spec, &assault);
+            assault.status = if summary.victory {
+                AssaultStatus::Victory
+            } else {
+                AssaultStatus::Defeat
+            };
+            events.push(AssaultTimelineEvent {
+                tick: assault.tick,
+                agent_id: None,
+                group_label: None,
+                cell: Some(self.spec.objective.defend_cell),
+                kind: AssaultEventKind::AssaultEnded,
+                note: summary.outcome_label.clone(),
+            });
+            assault.summary = Some(summary);
+            self.phase = MissionPhase::Debrief;
+        }
+        assault.timeline.extend(events.clone());
+        self.assault = Some(assault);
+        events
+    }
+
+    pub fn run_assault_to_completion(&mut self, max_ticks: u32) -> AssaultSummary {
+        if self.assault.is_none() {
+            self.start_assault();
+        }
+        for _ in 0..max_ticks {
+            let done = self
+                .assault
+                .as_ref()
+                .map(|assault| !matches!(assault.status, AssaultStatus::Running))
+                .unwrap_or(true);
+            if done {
+                break;
+            }
+            self.step_assault();
+        }
+        if self
+            .assault
+            .as_ref()
+            .and_then(|assault| assault.summary.clone())
+            .is_none()
+        {
+            if let Some(mut assault) = self.assault.take() {
+                let summary = summarize_assault(&self.spec, &assault);
+                assault.status = if summary.victory {
+                    AssaultStatus::Victory
+                } else {
+                    AssaultStatus::Defeat
+                };
+                assault.summary = Some(summary);
+                self.phase = MissionPhase::Debrief;
+                self.assault = Some(assault);
+            }
+        }
+        self.assault
+            .as_ref()
+            .and_then(|assault| assault.summary.clone())
+            .unwrap_or_else(|| AssaultSummary {
+                victory: false,
+                outcome_label: "assault did not start".to_string(),
+                ticks_elapsed: 0,
+                enemies_spawned: 0,
+                enemies_eliminated: 0,
+                enemies_reached_objective: 0,
+                objective_health_remaining: self.spec.objective.objective_health as i32,
+                objective_damage_taken: 0,
+                notes: vec!["no assault state was available".to_string()],
+            })
+    }
+
+    pub fn reset_assault(&mut self) {
+        self.phase = MissionPhase::Prep;
+        self.assault = None;
     }
 }
 
@@ -1114,6 +1431,22 @@ pub fn road_below_spec() -> MissionSpec {
                     obstacle_tolerance: 0.3,
                     cover_preference: 0.45,
                 },
+            },
+        ],
+        defender_positions: vec![
+            DefenderPositionSpec {
+                id: "ridge_team_01".to_string(),
+                label: "ridge rifle pit".to_string(),
+                cell: CellCoord::new(9, 3),
+                range: 5,
+                pressure_per_step: 2,
+            },
+            DefenderPositionSpec {
+                id: "road_team_01".to_string(),
+                label: "road overwatch".to_string(),
+                cell: CellCoord::new(7, 3),
+                range: 4,
+                pressure_per_step: 1,
             },
         ],
         constraints: MissionConstraints {
@@ -1372,6 +1705,45 @@ pub fn export_order_script_run(
         &after_routes,
     )?;
     Ok(after)
+}
+
+pub fn export_assault_run(
+    out_dir: impl AsRef<Path>,
+    spec: MissionSpec,
+    script: WorkOrderScript,
+) -> Result<AssaultSummary> {
+    let out_dir = out_dir.as_ref();
+    fs::create_dir_all(out_dir)
+        .with_context(|| format!("failed to create {}", out_dir.display()))?;
+
+    let mut prep = run_work_order_script(spec.clone(), &script);
+    let assault_initial_routes = prep.route_preview();
+
+    write_json(out_dir.join("mission_spec.json"), &spec)?;
+    write_ron(out_dir.join("mission_spec.ron"), &spec)?;
+    write_json(out_dir.join("order_script.json"), &script)?;
+    write_ron(out_dir.join("order_script.ron"), &script)?;
+    write_json(out_dir.join("mission_prep_final.json"), &prep)?;
+    write_json(
+        out_dir.join("assault_initial_routes.json"),
+        &assault_initial_routes,
+    )?;
+    save_mission_route_debug_png(
+        out_dir.join("assault_path_trace.png"),
+        &prep,
+        &assault_initial_routes,
+    )?;
+
+    prep.start_assault();
+    save_mission_assault_preview_png(out_dir.join("assault_preview_start.png"), &prep)?;
+    let summary = prep.run_assault_to_completion(160);
+    if let Some(assault) = &prep.assault {
+        write_json(out_dir.join("assault_state_final.json"), assault)?;
+        write_json(out_dir.join("assault_timeline.json"), &assault.timeline)?;
+    }
+    write_json(out_dir.join("assault_summary.json"), &summary)?;
+    save_mission_assault_preview_png(out_dir.join("assault_preview_end.png"), &prep)?;
+    Ok(summary)
 }
 
 pub fn load_mission_spec(path: impl AsRef<Path>) -> Result<MissionSpec> {
@@ -1684,6 +2056,320 @@ fn reconstruct_route(
     }
     out.reverse();
     out
+}
+
+fn step_agent_assault(
+    map: &MissionMap,
+    spec: &MissionSpec,
+    tick: u32,
+    objective_health: &mut i32,
+    agent: &mut EnemyAgent,
+    events: &mut Vec<AssaultTimelineEvent>,
+) {
+    if !matches!(
+        agent.status,
+        EnemyAgentStatus::Advancing | EnemyAgentStatus::Delayed
+    ) {
+        return;
+    }
+    if agent.delay_ticks > 0 {
+        agent.delay_ticks -= 1;
+        agent.status = if agent.delay_ticks == 0 {
+            EnemyAgentStatus::Advancing
+        } else {
+            EnemyAgentStatus::Delayed
+        };
+        events.push(AssaultTimelineEvent {
+            tick,
+            agent_id: Some(agent.id),
+            group_label: Some(agent.group_label.clone()),
+            cell: Some(agent.cell),
+            kind: AssaultEventKind::Delayed,
+            note: format!("{} is delayed by terrain or obstacles.", agent.group_label),
+        });
+        return;
+    }
+
+    let defender_hit = defender_pressure_at_cell(map, spec, agent.cell);
+    if defender_hit > 0 {
+        agent.hp -= defender_hit;
+        events.push(AssaultTimelineEvent {
+            tick,
+            agent_id: Some(agent.id),
+            group_label: Some(agent.group_label.clone()),
+            cell: Some(agent.cell),
+            kind: AssaultEventKind::Damaged,
+            note: format!(
+                "{} took {defender_hit} pressure from defender positions.",
+                agent.group_label
+            ),
+        });
+        if agent.hp <= 0 {
+            agent.status = EnemyAgentStatus::Eliminated;
+            events.push(AssaultTimelineEvent {
+                tick,
+                agent_id: Some(agent.id),
+                group_label: Some(agent.group_label.clone()),
+                cell: Some(agent.cell),
+                kind: AssaultEventKind::Eliminated,
+                note: format!(
+                    "{} was stopped before reaching the objective.",
+                    agent.group_label
+                ),
+            });
+            return;
+        }
+    }
+
+    if agent.route_index + 1 >= agent.route.len() {
+        agent.status = EnemyAgentStatus::ReachedObjective;
+        *objective_health -= objective_damage_for_doctrine(agent.doctrine);
+        events.push(AssaultTimelineEvent {
+            tick,
+            agent_id: Some(agent.id),
+            group_label: Some(agent.group_label.clone()),
+            cell: Some(agent.cell),
+            kind: AssaultEventKind::ObjectiveDamaged,
+            note: format!("{} reached the objective.", agent.group_label),
+        });
+        return;
+    }
+
+    let next = agent.route[agent.route_index + 1];
+    let (delay, damage, reason) = assault_cell_effect(map, next, agent.doctrine);
+    agent.cell = next;
+    agent.route_index += 1;
+    events.push(AssaultTimelineEvent {
+        tick,
+        agent_id: Some(agent.id),
+        group_label: Some(agent.group_label.clone()),
+        cell: Some(agent.cell),
+        kind: AssaultEventKind::Moved,
+        note: format!(
+            "{} advanced to ({}, {}).",
+            agent.group_label, next.x, next.y
+        ),
+    });
+
+    if damage > 0 {
+        agent.hp -= damage;
+        events.push(AssaultTimelineEvent {
+            tick,
+            agent_id: Some(agent.id),
+            group_label: Some(agent.group_label.clone()),
+            cell: Some(agent.cell),
+            kind: AssaultEventKind::Damaged,
+            note: format!("{} took {damage} damage from {reason}.", agent.group_label),
+        });
+        if agent.hp <= 0 {
+            agent.status = EnemyAgentStatus::Eliminated;
+            events.push(AssaultTimelineEvent {
+                tick,
+                agent_id: Some(agent.id),
+                group_label: Some(agent.group_label.clone()),
+                cell: Some(agent.cell),
+                kind: AssaultEventKind::Eliminated,
+                note: format!("{} was stopped by {reason}.", agent.group_label),
+            });
+            return;
+        }
+    }
+
+    if next == spec.objective.defend_cell {
+        agent.status = EnemyAgentStatus::ReachedObjective;
+        let damage = objective_damage_for_doctrine(agent.doctrine);
+        *objective_health -= damage;
+        events.push(AssaultTimelineEvent {
+            tick,
+            agent_id: Some(agent.id),
+            group_label: Some(agent.group_label.clone()),
+            cell: Some(agent.cell),
+            kind: AssaultEventKind::ObjectiveDamaged,
+            note: format!("{} damaged the objective for {damage}.", agent.group_label),
+        });
+        return;
+    }
+
+    if delay > 0 {
+        agent.delay_ticks = delay;
+        agent.status = EnemyAgentStatus::Delayed;
+        events.push(AssaultTimelineEvent {
+            tick,
+            agent_id: Some(agent.id),
+            group_label: Some(agent.group_label.clone()),
+            cell: Some(agent.cell),
+            kind: AssaultEventKind::Delayed,
+            note: format!("{} is delayed by {reason}.", agent.group_label),
+        });
+    }
+}
+
+fn defender_pressure_at_cell(map: &MissionMap, spec: &MissionSpec, target: CellCoord) -> i32 {
+    spec.defender_positions
+        .iter()
+        .filter(|position| position.cell.manhattan(target) <= position.range)
+        .filter(|position| mission_line_of_sight_clear(map, position.cell, target))
+        .map(|position| position.pressure_per_step)
+        .sum()
+}
+
+fn mission_line_of_sight_clear(map: &MissionMap, from: CellCoord, to: CellCoord) -> bool {
+    if from == to {
+        return true;
+    }
+    let steps = from.x.abs_diff(to.x).max(from.y.abs_diff(to.y)).max(1);
+    for step in 1..steps {
+        let t = step as f32 / steps as f32;
+        let x = (from.x as f32 + (to.x as f32 - from.x as f32) * t).round() as u32;
+        let y = (from.y as f32 + (to.y as f32 - from.y as f32) * t).round() as u32;
+        let cell = CellCoord::new(x, y);
+        if cell == from || cell == to {
+            continue;
+        }
+        if let Some(tile) = map.cell(cell) {
+            if tile.blocks_sight || tile.height >= 3 || matches!(tile.earth_state, EarthState::Berm)
+            {
+                return false;
+            }
+        }
+        if map.objects_at_cell(cell).any(|object| object.blocks_sight) {
+            return false;
+        }
+    }
+    true
+}
+
+fn assault_cell_effect(
+    map: &MissionMap,
+    cell: CellCoord,
+    doctrine: EnemyDoctrine,
+) -> (u32, i32, String) {
+    let mut delay = 0;
+    let mut damage = 0;
+    let mut reasons = Vec::new();
+    if let Some(tile) = map.cell(cell) {
+        match tile.earth_state {
+            EarthState::Trench | EarthState::DeepTrench | EarthState::Ditch => {
+                delay += match doctrine {
+                    EnemyDoctrine::RushShortest | EnemyDoctrine::AvoidObstacles => 2,
+                    EnemyDoctrine::PushThroughLightObstacles | EnemyDoctrine::ClearObstacles => 1,
+                    _ => 1,
+                };
+                reasons.push("trench crossing");
+            }
+            EarthState::Berm | EarthState::SpoilPile => {
+                delay += match doctrine {
+                    EnemyDoctrine::AvoidObstacles => 2,
+                    _ => 1,
+                };
+                reasons.push("berm slope");
+            }
+            EarthState::Muddy => {
+                delay += 1;
+                reasons.push("mud");
+            }
+            EarthState::Unstable => {
+                damage += 1;
+                reasons.push("unstable ground");
+            }
+            EarthState::Normal | EarthState::Scraped => {}
+        }
+    }
+    for object in map.objects_at_cell(cell) {
+        match object.kind {
+            EnvironmentObjectKind::Stakes(ObstacleState::Placed) => {
+                delay += match doctrine {
+                    EnemyDoctrine::ClearObstacles => 0,
+                    EnemyDoctrine::PushThroughLightObstacles => 1,
+                    _ => 2,
+                };
+                damage += match doctrine {
+                    EnemyDoctrine::PushThroughLightObstacles => 2,
+                    EnemyDoctrine::ClearObstacles => 0,
+                    _ => 1,
+                };
+                reasons.push("stakes");
+            }
+            EnvironmentObjectKind::Wire(ObstacleState::Placed) => {
+                delay += match doctrine {
+                    EnemyDoctrine::ClearObstacles => 1,
+                    _ => 2,
+                };
+                reasons.push("wire");
+            }
+            EnvironmentObjectKind::Tree(TreeState::FallenTrunk { .. })
+            | EnvironmentObjectKind::Log(_) => {
+                delay += match doctrine {
+                    EnemyDoctrine::PushThroughLightObstacles | EnemyDoctrine::ClearObstacles => 1,
+                    _ => 2,
+                };
+                reasons.push("log obstacle");
+            }
+            _ => {}
+        }
+    }
+    if reasons.is_empty() {
+        reasons.push("clear ground");
+    }
+    (delay, damage, reasons.join(", "))
+}
+
+fn enemy_hp_for_doctrine(doctrine: EnemyDoctrine) -> i32 {
+    match doctrine {
+        EnemyDoctrine::RushShortest => 4,
+        EnemyDoctrine::PreferCover => 5,
+        EnemyDoctrine::FlankViaConcealment => 4,
+        EnemyDoctrine::AvoidObstacles => 5,
+        EnemyDoctrine::PushThroughLightObstacles => 7,
+        EnemyDoctrine::ClearObstacles => 5,
+    }
+}
+
+fn objective_damage_for_doctrine(doctrine: EnemyDoctrine) -> i32 {
+    match doctrine {
+        EnemyDoctrine::PushThroughLightObstacles => 12,
+        EnemyDoctrine::RushShortest => 10,
+        _ => 8,
+    }
+}
+
+fn summarize_assault(spec: &MissionSpec, assault: &AssaultState) -> AssaultSummary {
+    let enemies_spawned = assault.agents.len() as u32;
+    let enemies_eliminated = assault
+        .agents
+        .iter()
+        .filter(|agent| matches!(agent.status, EnemyAgentStatus::Eliminated))
+        .count() as u32;
+    let enemies_reached_objective = assault
+        .agents
+        .iter()
+        .filter(|agent| matches!(agent.status, EnemyAgentStatus::ReachedObjective))
+        .count() as u32;
+    let objective_damage_taken =
+        spec.objective.objective_health as i32 - assault.objective_health.max(0);
+    let victory = assault.objective_health > 0;
+    AssaultSummary {
+        victory,
+        outcome_label: if victory {
+            format!(
+                "Victory: objective held with {} health.",
+                assault.objective_health
+            )
+        } else {
+            "Defeat: objective was overrun.".to_string()
+        },
+        ticks_elapsed: assault.tick,
+        enemies_spawned,
+        enemies_eliminated,
+        enemies_reached_objective,
+        objective_health_remaining: assault.objective_health.max(0),
+        objective_damage_taken,
+        notes: vec![
+            format!("{enemies_eliminated}/{enemies_spawned} enemy agents stopped."),
+            format!("{enemies_reached_objective} enemy agent(s) reached the objective."),
+            format!("Objective damage taken: {objective_damage_taken}."),
+        ],
+    }
 }
 
 fn build_work_order(
@@ -2301,6 +2987,29 @@ pub fn save_mission_route_debug_png(
         .with_context(|| format!("failed to save {}", path.display()))
 }
 
+pub fn save_mission_assault_preview_png(
+    path: impl AsRef<Path>,
+    state: &MissionState,
+) -> Result<()> {
+    let path = path.as_ref();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let cell_px = 24;
+    let mut image = mission_preview_image(state, cell_px);
+    draw_defender_positions(&mut image, &state.spec, cell_px);
+    if let Some(assault) = &state.assault {
+        for route in &assault.initial_routes.routes {
+            draw_route_path(&mut image, route, cell_px, Rgba([90, 135, 210, 95]), 2);
+        }
+        draw_assault_agents(&mut image, assault, cell_px);
+    }
+    image
+        .save(path)
+        .with_context(|| format!("failed to save {}", path.display()))
+}
+
 fn mission_preview_image(state: &MissionState, cell_px: u32) -> RgbaImage {
     let mut image = RgbaImage::new(state.map.width * cell_px, state.map.height * cell_px);
     for y in 0..state.map.height {
@@ -2363,6 +3072,40 @@ fn mission_preview_image(state: &MissionState, cell_px: u32) -> RgbaImage {
     }
 
     image
+}
+
+fn draw_defender_positions(image: &mut RgbaImage, spec: &MissionSpec, cell_px: u32) {
+    for defender in &spec.defender_positions {
+        let (cx, cy) = route_cell_center(defender.cell, cell_px);
+        fill_preview_rect(
+            image,
+            cx.saturating_sub(5),
+            cy.saturating_sub(5),
+            11,
+            11,
+            Rgba([90, 172, 226, 255]),
+        );
+    }
+}
+
+fn draw_assault_agents(image: &mut RgbaImage, assault: &AssaultState, cell_px: u32) {
+    for agent in &assault.agents {
+        let color = match agent.status {
+            EnemyAgentStatus::Advancing => Rgba([218, 78, 62, 230]),
+            EnemyAgentStatus::Delayed => Rgba([232, 150, 60, 230]),
+            EnemyAgentStatus::Eliminated => Rgba([70, 72, 70, 210]),
+            EnemyAgentStatus::ReachedObjective => Rgba([178, 70, 178, 230]),
+        };
+        let (cx, cy) = route_cell_center(agent.cell, cell_px);
+        blend_preview_rect(
+            image,
+            cx.saturating_sub(4),
+            cy.saturating_sub(4),
+            9,
+            9,
+            color,
+        );
+    }
 }
 
 fn draw_route_path(
@@ -2624,5 +3367,37 @@ mod tests {
             .all(|route| !route.explanation.is_empty()));
         assert_eq!(delta.groups.len(), 3);
         assert!(delta.groups.iter().any(|group| group.changed));
+    }
+
+    #[test]
+    fn assault_sandbox_runs_to_deterministic_summary() {
+        let spec = road_below_spec();
+        let mut state = run_work_order_script(spec.clone(), &road_below_basic_prep_script());
+
+        state.start_assault();
+        assert!(matches!(state.phase, MissionPhase::Assault));
+        assert_eq!(
+            state.assault.as_ref().expect("assault").agents.len() as u32,
+            spec.enemy_groups
+                .iter()
+                .map(|group| group.count)
+                .sum::<u32>()
+        );
+
+        let summary = state.run_assault_to_completion(160);
+        assert!(matches!(state.phase, MissionPhase::Debrief));
+        assert!(summary.ticks_elapsed > 0);
+        assert_eq!(summary.enemies_spawned, 26);
+        assert!(
+            summary.enemies_eliminated + summary.enemies_reached_objective
+                <= summary.enemies_spawned
+        );
+        assert!(state
+            .assault
+            .as_ref()
+            .expect("assault")
+            .timeline
+            .iter()
+            .any(|event| matches!(event.kind, AssaultEventKind::AssaultEnded)));
     }
 }
