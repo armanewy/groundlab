@@ -169,6 +169,34 @@ This milestone does not add new mechanics or new art. It turns the existing Road
 an end-to-end playable slice that can be attempted, rated, retried, and compared against benchmark
 plans.
 
+## ProcGen 1 — Terrain / mission generator seed
+
+Implemented in this drop.
+
+- added `MissionGeneratorSpec` with deterministic seed, theme, terrain archetype, difficulty band,
+  objective kind, doctrine mix, material budget style, and required affordances
+- added Road-Below-like `ridge_trap` mission generation with compact road/ridge terrain, objective
+  placement, enemy spawns, doctrine groups, tree clusters, loose-log hazard opportunities, defenders,
+  tool loadouts, crew/prep budgets, and local material affordances
+- added generated affordance reports for road cells, ridge cells, trenchable soil, tree count, loose
+  logs, spawn count, route count, rolling hazard path cells, and rolling-hazard route intersections
+- added candidate evaluation using the existing route-preview, balance-scenario, assault, debrief,
+  and rating harnesses
+- added tactical-interest scoring across baseline/best rating spread, route diversity, height
+  interest, local materials, work-order opportunities, rolling hazards, doctrine spread, and objective
+  vulnerability
+- added accepted/rejected candidate reports with rejection reasons instead of silently discarding weak
+  seeds
+- added `cargo run -p ground_cli -- generate-missions [out_dir] [--theme ridge_trap] [--count N] [--seed N]`
+- each candidate exports `mission.ron`, `mission.json`, `mission_preview.png`, `route_preview.png`,
+  `affordance_report.json`, route previews, candidate evaluation, and a nested balance export
+- batch exports include `generator_spec`, `generator_summary.json`, `ranked_candidates.json`,
+  `rejected_candidates.json`, and `top_10_contact_sheet.png`
+
+This milestone changes the priority from hand-tuning one mission to batch-generating compact
+terrain-defense problems. SpriteGen and Mission Lab remain essential, but their new role is to
+support candidate generation, evaluation, inspection, and export.
+
 ## Milestone 0 — Project seed
 
 Implemented.

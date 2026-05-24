@@ -3,13 +3,15 @@
 GroundLab is intentionally not a general engine. It is a custom terrain/art/simulation workbench
 for one future game family: terrain-first prepared-ground defense.
 
-The active roadmap has pivoted to a mission-first workbench. SpriteGen remains the terrain art
+The active roadmap has pivoted to generated mission candidates. SpriteGen remains the terrain art
 forge, while `ground_game` owns mission specs, prep-phase work orders, local materials,
-environment-object states, doctrine route preview, deterministic assault sandbox, and assault
-readability/debrief artifacts, the first deterministic rolling hazard sandbox, and mission balance
-scenario comparison.
+environment-object states, doctrine route preview, deterministic assault sandbox, assault
+readability/debrief artifacts, the first deterministic rolling hazard sandbox, mission balance
+scenario comparison, and seeded mission generation/ranking.
 `ground_app` now treats Mission Lab as the primary tactical prep surface rather than a generic
-terrain editor panel, and Road Below starts as a playable briefing-to-debrief slice.
+terrain editor panel, and Road Below starts as a playable briefing-to-debrief slice. The same
+mission loop now evaluates generated Road-Below-like candidates so GroundLab can batch-generate,
+score, reject, and export compact terrain-defense problems.
 
 ## What is custom-owned now
 
@@ -23,6 +25,8 @@ terrain editor panel, and Road Below starts as a playable briefing-to-debrief sl
 - Deterministic rolling-log hazard path prediction, release, impact, and debrief reporting
 - Mission briefing, rating, and balance-scenario comparison
 - Playable mission lifecycle, prep-plan replay, tutorial prompts, and player-facing debrief panels
+- Seeded mission generator specs, generated affordance reports, tactical-interest scoring, and batch
+  ranking/rejection exports
 - Terrain editing brushes
 - Pixel tile recipes
 - Palette ramps and palette file format
@@ -73,6 +77,22 @@ MissionSpec
   -> prediction-vs-actual route comparison
   -> rating + scenario comparison reports
   -> player retry / saved prep-plan iteration
+```
+
+ProcGen mission flow:
+
+```txt
+MissionGeneratorSpec
+  -> deterministic terrain/object/enemy/objective grammar
+  -> GeneratedMissionCandidate
+  -> affordance report
+  -> doctrine route preview
+  -> scripted balance scenarios
+  -> deterministic assault/debrief/rating
+  -> tactical-interest score
+  -> accepted/rejected candidate reports
+  -> ranked mission batch + top-candidate contact sheet
+  -> Mission Lab inspection / playable retry
 ```
 
 Art asset flow:

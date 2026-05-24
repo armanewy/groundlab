@@ -4,18 +4,20 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: GamePivot 8 — first playable Road Below slice
+## Current status: ProcGen 1 — terrain/mission generator seed
 
-GroundLab has pivoted from art-generation milestones back toward the game workbench. The primary
-product direction is now a 2.5D tactical engineering defense game: the player is a commander /
-engineer who reads a compact level, issues prep-phase work orders, transforms terrain and local
-objects, then later tests those choices against predictable enemy doctrine.
+GroundLab has pivoted again from manually tuning one mission toward generating compact tactical
+terrain problems in batches. The primary product direction is still a 2.5D tactical engineering
+defense game: the player is a commander / engineer who reads a compact level, issues prep-phase work
+orders, transforms terrain and local objects, then tests those choices against predictable enemy
+doctrine. The workbench now uses that loop as an evaluation harness for generated mission
+candidates.
 
 SpriteGen remains in the repository as the terrain art forge. It still provides swappable style
 profiles, override PNGs, sprite manifests, validation, and exportable grass/dirt/path/trench/berm/
 stone pieces. It is now supporting infrastructure rather than the main roadmap driver.
 
-GamePivot 8 builds on the `ground_game` crate with:
+GamePivot 8 and ProcGen 1 build on the `ground_game` crate with:
 
 - `MissionSpec`, `MissionMap`, and `MissionCell`
 - earth states such as normal, scraped, trench, deep trench, spoil pile, berm, unstable, and muddy
@@ -47,6 +49,12 @@ GamePivot 8 builds on the `ground_game` crate with:
 - player prep-plan save/load/apply controls using `exports/gamepivot_08/player_plan.ron`
 - a Mission Lab rating breakdown that surfaces objective health, enemies stopped/reached, prep time, friendly-risk penalties, unused defenses, hazard impact, and route accuracy
 - a compact in-app balance dashboard that shows the scripted benchmark plans and their star/score outcomes
+- deterministic `MissionGeneratorSpec` records with seed, theme, terrain archetype, difficulty band, objective kind, doctrine mix, material budget style, and required affordances
+- a Road-Below-like ridge/road mission grammar that generates terrain height, road cells, objectives, enemy spawns, tree clusters, loose logs, defenders, tool loadouts, prep budgets, and local material opportunities
+- generated affordance reports for road approach, ridge height interest, trenchable soil, tree/timber availability, rolling-log opportunity, spawn count, and route intersections
+- batch mission generation that runs the existing route-preview, balance-scenario, assault, rating, and debrief harnesses against each candidate
+- accepted/rejected candidate reports with tactical-interest scoring, rejection reasons, best-known prep plan, baseline rating, best rating, route diversity, height interest, material score, work-order opportunity score, rolling-hazard score, doctrine spread, and objective vulnerability
+- ProcGen preview exports including per-candidate mission/route previews and a `top_10_contact_sheet.png`
 - assault summary and debrief exports for debugging why the plan worked or failed
 - per-cell influence summaries for crossed cells, delayed cells, damaging cells, defender pressure, breach cells, effective obstacles, and unused defenses
 - prediction-vs-actual route comparison for doctrine preview accuracy
@@ -103,6 +111,29 @@ Run the GamePivot 7 mission balance pass:
 cargo run -p ground_cli -- mission-balance exports/gamepivot_07
 ```
 
+Generate a batch of ProcGen 1 Road-Below-like mission candidates:
+
+```bash
+cargo run -p ground_cli -- generate-missions exports/procgen_01 --theme ridge_trap --count 10 --seed 99418113
+```
+
+ProcGen output includes:
+
+```txt
+exports/procgen_01/
+  generator_summary.json
+  ranked_candidates.json
+  rejected_candidates.json
+  top_10_contact_sheet.png
+  candidates/seed_0001/
+    mission.ron
+    mission_preview.png
+    route_preview.png
+    affordance_report.json
+    candidate_evaluation.json
+    balance/
+```
+
 Road Below player plans saved from Mission Lab are written to:
 
 ```txt
@@ -116,8 +147,14 @@ cargo run -p ground_app
 ```
 
 The full-scene terrain renderer and ArtGen outputs remain downstream infrastructure for terrain
-data, pathing, LOS, and future art-kit composition, but the active gameplay roadmap now starts with
-mission prep, work orders, local materials, and predictable terrain consequences.
+data, pathing, LOS, and future art-kit composition, but the active gameplay roadmap now emphasizes
+seeded mission generation, automatic evaluation, ranking, and playable candidate export.
+
+## Previous status: GamePivot 8 — first playable Road Below slice
+
+GamePivot 8 added the playable briefing-to-debrief Mission Lab loop, player prep-plan save/load,
+Road Below guide checklist, lifecycle controls, rating breakdown, retry flow, and in-app balance
+dashboard.
 
 ## Previous status: GamePivot 7 — first balanced mission pass
 

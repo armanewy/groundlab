@@ -559,7 +559,7 @@ pub struct EnemyGroupSpec {
     pub movement_profile: MovementProfile,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum EnemyDoctrine {
     RushShortest,
     PreferCover,
@@ -765,6 +765,177 @@ pub struct MissionBalanceReport {
     pub route_shift_summary: Vec<String>,
     pub hazard_effectiveness: Vec<String>,
     pub rating_breakdown: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MissionGeneratorSpec {
+    pub seed: u64,
+    pub theme: MissionTheme,
+    pub terrain_archetype: TerrainArchetype,
+    pub difficulty: DifficultyBand,
+    pub objective_kind: ObjectiveKind,
+    pub enemy_doctrine_mix: DoctrineMix,
+    pub material_budget_style: MaterialBudgetStyle,
+    pub required_affordances: Vec<GeneratedAffordance>,
+}
+
+impl MissionGeneratorSpec {
+    pub fn road_below(seed: u64) -> Self {
+        Self {
+            seed,
+            theme: MissionTheme::DryRoadBelow,
+            terrain_archetype: TerrainArchetype::RoadRidge,
+            difficulty: DifficultyBand::Standard,
+            objective_kind: ObjectiveKind::HoldMarker,
+            enemy_doctrine_mix: DoctrineMix::BalancedRoadPush,
+            material_budget_style: MaterialBudgetStyle::LocalSparse,
+            required_affordances: vec![
+                GeneratedAffordance::RoadApproach,
+                GeneratedAffordance::Ridge,
+                GeneratedAffordance::TreeCluster,
+                GeneratedAffordance::RollingLogOpportunity,
+                GeneratedAffordance::TrenchableSoil,
+            ],
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MissionTheme {
+    DryRoadBelow,
+    RidgeTrap,
+}
+
+impl MissionTheme {
+    pub fn slug(self) -> &'static str {
+        match self {
+            MissionTheme::DryRoadBelow => "dry_road_below",
+            MissionTheme::RidgeTrap => "ridge_trap",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            MissionTheme::DryRoadBelow => "Dry Road Below",
+            MissionTheme::RidgeTrap => "Ridge Trap",
+        }
+    }
+}
+
+impl std::str::FromStr for MissionTheme {
+    type Err = String;
+
+    fn from_str(value: &str) -> std::result::Result<Self, Self::Err> {
+        match value {
+            "dry_road_below" | "road_below" | "dry-road-below" => Ok(MissionTheme::DryRoadBelow),
+            "ridge_trap" | "ridge-trap" => Ok(MissionTheme::RidgeTrap),
+            other => Err(format!("unknown mission theme `{other}`")),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TerrainArchetype {
+    RoadRidge,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DifficultyBand {
+    Intro,
+    Standard,
+    Hard,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ObjectiveKind {
+    HoldMarker,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DoctrineMix {
+    BalancedRoadPush,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum MaterialBudgetStyle {
+    LocalSparse,
+    TimberRich,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum GeneratedAffordance {
+    RoadApproach,
+    Ridge,
+    TreeCluster,
+    RollingLogOpportunity,
+    TrenchableSoil,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionCandidate {
+    pub seed: u64,
+    pub spec: MissionSpec,
+    pub affordance_report: GeneratedMissionAffordanceReport,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct GeneratedMissionAffordanceReport {
+    pub road_cell_count: u32,
+    pub ridge_cell_count: u32,
+    pub trenchable_soil_cells: u32,
+    pub tree_count: u32,
+    pub loose_log_count: u32,
+    pub spawn_count: u32,
+    pub route_count: u32,
+    pub rolling_hazard_path_cells: u32,
+    pub rolling_hazard_route_intersections: u32,
+    pub notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionScenarioScore {
+    pub id: String,
+    pub label: String,
+    pub stars: u8,
+    pub score: i32,
+    pub victory: bool,
+    pub stopped: u32,
+    pub reached: u32,
+    pub prep_time_used_seconds: u32,
+    pub hazard_enemies_hit: u32,
+    pub validation_issue_count: u32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionEvaluation {
+    pub seed: u64,
+    pub mission_id: String,
+    pub title: String,
+    pub accepted: bool,
+    pub tactical_interest_score: i32,
+    pub rejection_reasons: Vec<String>,
+    pub baseline_rating: MissionRating,
+    pub best_rating: MissionRating,
+    pub best_plan_label: String,
+    pub route_diversity_score: f32,
+    pub height_interest_score: f32,
+    pub local_material_score: f32,
+    pub work_order_opportunity_score: f32,
+    pub rolling_hazard_score: f32,
+    pub doctrine_spread_score: f32,
+    pub objective_vulnerability_score: f32,
+    pub affordance_report: GeneratedMissionAffordanceReport,
+    pub scenarios: Vec<GeneratedMissionScenarioScore>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionBatchReport {
+    pub generator: MissionGeneratorSpec,
+    pub generated_count: u32,
+    pub accepted_count: u32,
+    pub rejected_count: u32,
+    pub ranked_candidates: Vec<GeneratedMissionEvaluation>,
+    pub rejected_candidates: Vec<GeneratedMissionEvaluation>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -1982,6 +2153,690 @@ pub fn road_below_balance_scripts() -> Vec<WorkOrderScript> {
         road_below_ridge_chokepoint_script(),
         road_below_overbuilt_bad_plan_script(),
     ]
+}
+
+pub fn generate_mission_candidate(
+    generator: &MissionGeneratorSpec,
+    seed: u64,
+) -> GeneratedMissionCandidate {
+    match generator.terrain_archetype {
+        TerrainArchetype::RoadRidge => generate_road_ridge_candidate(generator, seed),
+    }
+}
+
+pub fn export_generated_mission_batch(
+    out_dir: impl AsRef<Path>,
+    generator: MissionGeneratorSpec,
+    count: u32,
+) -> Result<GeneratedMissionBatchReport> {
+    let out_dir = out_dir.as_ref();
+    fs::create_dir_all(out_dir)
+        .with_context(|| format!("failed to create {}", out_dir.display()))?;
+    write_json(out_dir.join("generator_spec.json"), &generator)?;
+    write_ron(out_dir.join("generator_spec.ron"), &generator)?;
+
+    let mut evaluated = Vec::new();
+    let mut specs_by_seed = HashMap::new();
+    for index in 0..count {
+        let seed = generator
+            .seed
+            .wrapping_add((index as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15));
+        let candidate = generate_mission_candidate(&generator, seed);
+        let candidate_dir = out_dir
+            .join("candidates")
+            .join(format!("seed_{:04}", index + 1));
+        fs::create_dir_all(&candidate_dir)
+            .with_context(|| format!("failed to create {}", candidate_dir.display()))?;
+
+        let initial_state = MissionState::from_spec(candidate.spec.clone());
+        let initial_routes = initial_state.route_preview();
+        write_json(candidate_dir.join("mission.json"), &candidate.spec)?;
+        write_ron(candidate_dir.join("mission.ron"), &candidate.spec)?;
+        write_json(
+            candidate_dir.join("affordance_report.json"),
+            &candidate.affordance_report,
+        )?;
+        write_json(
+            candidate_dir.join("enemy_routes_initial.json"),
+            &initial_routes,
+        )?;
+        save_mission_preview_png(candidate_dir.join("mission_preview.png"), &initial_state)?;
+        save_mission_route_debug_png(
+            candidate_dir.join("route_preview.png"),
+            &initial_state,
+            &initial_routes,
+        )?;
+
+        let balance_dir = candidate_dir.join("balance");
+        let balance_report = export_mission_balance_run(&balance_dir, candidate.spec.clone())?;
+        write_json(candidate_dir.join("balance_summary.json"), &balance_report)?;
+        if let Some(best) = balance_report
+            .scenarios
+            .iter()
+            .max_by_key(|scenario| (scenario.rating.stars, scenario.rating.score))
+        {
+            write_json(candidate_dir.join("assault_summary.json"), &best.summary)?;
+        }
+
+        let evaluation =
+            evaluate_generated_mission_candidate(&candidate, &initial_routes, &balance_report);
+        write_json(candidate_dir.join("candidate_evaluation.json"), &evaluation)?;
+        specs_by_seed.insert(candidate.seed, candidate.spec);
+        evaluated.push(evaluation);
+    }
+
+    let mut ranked_candidates: Vec<_> = evaluated
+        .iter()
+        .filter(|candidate| candidate.accepted)
+        .cloned()
+        .collect();
+    ranked_candidates.sort_by(|a, b| {
+        b.tactical_interest_score
+            .cmp(&a.tactical_interest_score)
+            .then_with(|| a.seed.cmp(&b.seed))
+    });
+    let mut rejected_candidates: Vec<_> = evaluated
+        .into_iter()
+        .filter(|candidate| !candidate.accepted)
+        .collect();
+    rejected_candidates.sort_by(|a, b| {
+        b.tactical_interest_score
+            .cmp(&a.tactical_interest_score)
+            .then_with(|| a.seed.cmp(&b.seed))
+    });
+
+    let top_specs = ranked_candidates
+        .iter()
+        .take(10)
+        .filter_map(|candidate| specs_by_seed.get(&candidate.seed).cloned())
+        .collect::<Vec<_>>();
+    save_generated_mission_contact_sheet(out_dir.join("top_10_contact_sheet.png"), &top_specs)?;
+
+    let report = GeneratedMissionBatchReport {
+        generator,
+        generated_count: count,
+        accepted_count: ranked_candidates.len() as u32,
+        rejected_count: rejected_candidates.len() as u32,
+        ranked_candidates,
+        rejected_candidates,
+    };
+    write_json(
+        out_dir.join("ranked_candidates.json"),
+        &report.ranked_candidates,
+    )?;
+    write_json(
+        out_dir.join("rejected_candidates.json"),
+        &report.rejected_candidates,
+    )?;
+    write_json(out_dir.join("generator_summary.json"), &report)?;
+    Ok(report)
+}
+
+fn generate_road_ridge_candidate(
+    generator: &MissionGeneratorSpec,
+    seed: u64,
+) -> GeneratedMissionCandidate {
+    let mut rng = MissionRng::new(seed);
+    let mut map = MissionMap::new(12, 8, MissionCell::new(1, GroundKind::Grass));
+    let road_y = 4;
+    let south_spawn = CellCoord::new(rng.range_u32(0, 1), 7);
+    let west_spawn = CellCoord::new(0, rng.range_u32(5, 6));
+    map.spawn_cells.push(south_spawn);
+    map.spawn_cells.push(west_spawn);
+
+    for x in 0..map.width {
+        set_ground(&mut map, CellCoord::new(x, road_y), GroundKind::Road);
+        if rng.chance(1, 5) && road_y > 0 {
+            set_ground(&mut map, CellCoord::new(x, road_y - 1), GroundKind::Dirt);
+        }
+    }
+
+    let ridge_start = 7 + rng.range_u32(0, 1);
+    for x in ridge_start..map.width {
+        for y in 2..=3 {
+            if let Some(cell) = map.cell_mut(CellCoord::new(x, y)) {
+                cell.height = 2;
+            }
+        }
+    }
+    if rng.chance(1, 2) {
+        for x in ridge_start + 1..map.width {
+            if let Some(cell) = map.cell_mut(CellCoord::new(x, 1)) {
+                cell.height = 2;
+            }
+        }
+    }
+
+    let objective = CellCoord::new(10, 3 - rng.range_u32(0, 1));
+    let west_tree_x = 3 + rng.range_u32(0, 1);
+    let west_tree_two_x = if west_tree_x == 3 { 4 } else { 3 };
+    add_tree_object(
+        &mut map,
+        "tree_west_01",
+        "roadside pine",
+        CellCoord::new(west_tree_x, 2),
+    );
+    add_tree_object(
+        &mut map,
+        "tree_west_02",
+        "screening pine",
+        CellCoord::new(west_tree_two_x, 2),
+    );
+    add_tree_object(
+        &mut map,
+        "tree_east_01",
+        "low orchard tree",
+        CellCoord::new(8 + rng.range_u32(0, 1), 5),
+    );
+    for index in 0..rng.range_u32(1, 3) {
+        let x = 1 + rng.range_u32(0, 3);
+        let y = 5 + rng.range_u32(0, 1);
+        add_tree_object(
+            &mut map,
+            format!("tree_extra_{index:02}"),
+            "scrub tree",
+            CellCoord::new(x, y),
+        );
+    }
+
+    map.objects.push(EnvironmentObject {
+        id: "ridge_stone_01".to_string(),
+        label: "loose ridge stone".to_string(),
+        kind: EnvironmentObjectKind::Rock(RockState::Stable),
+        cell: CellCoord::new(8 + rng.range_u32(0, 1), 2),
+        footprint: (1, 1),
+        blocks_sight: false,
+        cover: CoverClass::Light,
+        movement_cost_delta: 0.3,
+    });
+    map.objects.push(EnvironmentObject {
+        id: "ridge_log_01".to_string(),
+        label: "ridge rolling log".to_string(),
+        kind: EnvironmentObjectKind::Log(LogState::Loose {
+            direction: Direction::South,
+        }),
+        cell: CellCoord::new(7, 3),
+        footprint: (2, 1),
+        blocks_sight: false,
+        cover: CoverClass::Light,
+        movement_cost_delta: 0.8,
+    });
+
+    let difficulty_extra = match generator.difficulty {
+        DifficultyBand::Intro => 0,
+        DifficultyBand::Standard => 2,
+        DifficultyBand::Hard => 5,
+    };
+    let title = format!("Generated Road Below {:04x}", (seed & 0xffff) as u32);
+    let spec = MissionSpec {
+        id: format!("procgen_road_below_{seed:016x}"),
+        title,
+        briefing: MissionBriefing {
+            summary: format!(
+                "{} seed {seed}: a compact generated road/ridge defense problem.",
+                generator.theme.label()
+            ),
+            primary: "Keep the ridge marker intact through the assault.".to_string(),
+            optional_objectives: vec![
+                "Find a prep plan that outperforms no prep.".to_string(),
+                "Use local material without wasting defenses.".to_string(),
+                "Treat rolling logs as a risky opportunity, not a guaranteed answer.".to_string(),
+            ],
+            intel: vec![
+                "Rushers test the road line.".to_string(),
+                "Cover-seekers and skirmishers probe orchard and side cover.".to_string(),
+                "The generator requires a ridge, timber, trenchable soil, and at least one rolling-log opportunity.".to_string(),
+            ],
+        },
+        objective: MissionObjective {
+            label: "Hold the ridge marker".to_string(),
+            defend_cell: objective,
+            objective_health: 100,
+        },
+        prep_time_seconds: 420 + rng.range_u32(0, 2) * 30,
+        map,
+        starting_tools: ToolLoadout::basic_field_kit(),
+        crew: CrewPool {
+            crews: 3,
+            labor_seconds_available: 440 + rng.range_u32(0, 2) * 20,
+        },
+        enemy_groups: vec![
+            EnemyGroupSpec {
+                label: "southern rushers".to_string(),
+                count: 10 + difficulty_extra + rng.range_u32(0, 3),
+                doctrine: EnemyDoctrine::RushShortest,
+                spawn: south_spawn,
+                objective,
+                movement_profile: MovementProfile {
+                    base_speed: 1.0,
+                    obstacle_tolerance: 0.35,
+                    cover_preference: 0.1,
+                },
+            },
+            EnemyGroupSpec {
+                label: "cautious riflemen".to_string(),
+                count: 6 + rng.range_u32(0, 2),
+                doctrine: EnemyDoctrine::PreferCover,
+                spawn: west_spawn,
+                objective,
+                movement_profile: MovementProfile {
+                    base_speed: 0.85,
+                    obstacle_tolerance: 0.2,
+                    cover_preference: 0.65,
+                },
+            },
+            EnemyGroupSpec {
+                label: "orchard skirmishers".to_string(),
+                count: 5 + rng.range_u32(0, 2),
+                doctrine: EnemyDoctrine::FlankViaConcealment,
+                spawn: west_spawn,
+                objective,
+                movement_profile: MovementProfile {
+                    base_speed: 0.95,
+                    obstacle_tolerance: 0.3,
+                    cover_preference: 0.45,
+                },
+            },
+        ],
+        defender_positions: vec![
+            DefenderPositionSpec {
+                id: "ridge_team_01".to_string(),
+                label: "ridge rifle pit".to_string(),
+                cell: CellCoord::new(objective.x.saturating_sub(1), objective.y),
+                range: 5,
+                pressure_per_step: 2,
+            },
+            DefenderPositionSpec {
+                id: "road_team_01".to_string(),
+                label: "road overwatch".to_string(),
+                cell: CellCoord::new(7, 3),
+                range: 4,
+                pressure_per_step: 1,
+            },
+        ],
+        constraints: MissionConstraints {
+            max_work_orders: 12,
+            allow_assault_preview: false,
+        },
+    };
+    let affordance_report = build_generated_affordance_report(&spec);
+    GeneratedMissionCandidate {
+        seed,
+        spec,
+        affordance_report,
+    }
+}
+
+fn evaluate_generated_mission_candidate(
+    candidate: &GeneratedMissionCandidate,
+    initial_routes: &DoctrineRouteSet,
+    balance_report: &MissionBalanceReport,
+) -> GeneratedMissionEvaluation {
+    let scenarios = balance_report
+        .scenarios
+        .iter()
+        .map(|scenario| GeneratedMissionScenarioScore {
+            id: scenario.id.clone(),
+            label: scenario.label.clone(),
+            stars: scenario.rating.stars,
+            score: scenario.rating.score,
+            victory: scenario.summary.victory,
+            stopped: scenario.summary.enemies_eliminated,
+            reached: scenario.summary.enemies_reached_objective,
+            prep_time_used_seconds: scenario.prep_time_used_seconds,
+            hazard_enemies_hit: scenario.rolling_hazards.enemies_hit,
+            validation_issue_count: scenario
+                .notes
+                .iter()
+                .find_map(|note| parse_validation_issue_count(note))
+                .unwrap_or(0),
+        })
+        .collect::<Vec<_>>();
+    let baseline = balance_report
+        .scenarios
+        .iter()
+        .find(|scenario| scenario.id == "baseline_no_prep")
+        .unwrap_or_else(|| {
+            balance_report
+                .scenarios
+                .first()
+                .expect("mission balance must include at least one scenario")
+        });
+    let best = balance_report
+        .scenarios
+        .iter()
+        .max_by_key(|scenario| (scenario.rating.stars, scenario.rating.score))
+        .unwrap_or(baseline);
+
+    let route_diversity_score = route_diversity_score(initial_routes);
+    let height_interest_score = height_interest_score(&candidate.spec.map);
+    let local_material_score = (candidate.affordance_report.tree_count as f32 / 4.0)
+        .min(1.0)
+        .max((candidate.affordance_report.loose_log_count as f32 / 1.0).min(1.0));
+    let work_order_opportunity_score =
+        ((candidate.affordance_report.trenchable_soil_cells as f32 / 48.0) * 0.55
+            + (candidate.affordance_report.tree_count as f32 / 4.0).min(1.0) * 0.45)
+            .min(1.0);
+    let rolling_hazard_score = if candidate.affordance_report.rolling_hazard_path_cells >= 4 {
+        (candidate
+            .affordance_report
+            .rolling_hazard_route_intersections as f32
+            / 3.0)
+            .min(1.0)
+    } else {
+        0.0
+    };
+    let doctrine_spread_score = doctrine_spread_score(&candidate.spec.enemy_groups);
+    let objective_vulnerability_score = match baseline.rating.stars {
+        0 => 0.7,
+        1 => 1.0,
+        2 => 0.55,
+        _ => 0.0,
+    };
+
+    let mut rejection_reasons = Vec::new();
+    if initial_routes
+        .routes
+        .iter()
+        .any(|route| !route.reached_goal)
+    {
+        rejection_reasons.push("one or more enemy routes cannot reach the objective".to_string());
+    }
+    if baseline.rating.stars >= 3 {
+        rejection_reasons.push("no-prep baseline earns 3 stars".to_string());
+    }
+    if best.rating.stars == 0 {
+        rejection_reasons.push("all known prep scripts fail".to_string());
+    }
+    if candidate.affordance_report.tree_count < 2 {
+        rejection_reasons.push("not enough local timber affordance".to_string());
+    }
+    if candidate.affordance_report.trenchable_soil_cells < 36 {
+        rejection_reasons.push("not enough trenchable soil".to_string());
+    }
+    if rolling_hazard_score <= 0.0 {
+        rejection_reasons.push("rolling-log opportunity does not cross likely routes".to_string());
+    }
+
+    let rating_delta = (best.rating.score - baseline.rating.score).max(0) as f32 / 100.0;
+    let tactical_interest_score = ((route_diversity_score * 14.0)
+        + (height_interest_score * 12.0)
+        + (local_material_score * 10.0)
+        + (work_order_opportunity_score * 14.0)
+        + (rolling_hazard_score * 18.0)
+        + (doctrine_spread_score * 10.0)
+        + (objective_vulnerability_score * 12.0)
+        + (rating_delta * 20.0))
+        .round() as i32;
+
+    GeneratedMissionEvaluation {
+        seed: candidate.seed,
+        mission_id: candidate.spec.id.clone(),
+        title: candidate.spec.title.clone(),
+        accepted: rejection_reasons.is_empty(),
+        tactical_interest_score,
+        rejection_reasons,
+        baseline_rating: baseline.rating.clone(),
+        best_rating: best.rating.clone(),
+        best_plan_label: best.label.clone(),
+        route_diversity_score,
+        height_interest_score,
+        local_material_score,
+        work_order_opportunity_score,
+        rolling_hazard_score,
+        doctrine_spread_score,
+        objective_vulnerability_score,
+        affordance_report: candidate.affordance_report.clone(),
+        scenarios,
+    }
+}
+
+#[derive(Clone, Debug)]
+struct MissionRng {
+    state: u64,
+}
+
+impl MissionRng {
+    fn new(seed: u64) -> Self {
+        Self {
+            state: seed ^ 0xa076_1d64_78bd_642f,
+        }
+    }
+
+    fn next_u32(&mut self) -> u32 {
+        self.state ^= self.state >> 12;
+        self.state ^= self.state << 25;
+        self.state ^= self.state >> 27;
+        ((self.state.wrapping_mul(0x2545_f491_4f6c_dd1d)) >> 32) as u32
+    }
+
+    fn range_u32(&mut self, min: u32, max: u32) -> u32 {
+        if max <= min {
+            return min;
+        }
+        min + self.next_u32() % (max - min + 1)
+    }
+
+    fn chance(&mut self, numerator: u32, denominator: u32) -> bool {
+        denominator == 0 || self.range_u32(1, denominator) <= numerator
+    }
+}
+
+fn set_ground(map: &mut MissionMap, cell: CellCoord, ground: GroundKind) {
+    if let Some(tile) = map.cell_mut(cell) {
+        tile.ground = ground;
+        tile.movement_cost = ground.base_movement_cost();
+    }
+}
+
+fn add_tree_object(
+    map: &mut MissionMap,
+    id: impl Into<String>,
+    label: impl Into<String>,
+    cell: CellCoord,
+) {
+    map.objects.push(EnvironmentObject {
+        id: id.into(),
+        label: label.into(),
+        kind: EnvironmentObjectKind::Tree(TreeState::Standing),
+        cell,
+        footprint: (1, 1),
+        blocks_sight: true,
+        cover: CoverClass::Partial,
+        movement_cost_delta: 0.4,
+    });
+}
+
+fn build_generated_affordance_report(spec: &MissionSpec) -> GeneratedMissionAffordanceReport {
+    let state = MissionState::from_spec(spec.clone());
+    let routes = state.route_preview();
+    let route_cells = routes
+        .routes
+        .iter()
+        .flat_map(|route| route.points.iter().copied())
+        .collect::<HashSet<_>>();
+    let mut report = GeneratedMissionAffordanceReport {
+        spawn_count: spec.map.spawn_cells.len() as u32,
+        route_count: routes.routes.len() as u32,
+        ..Default::default()
+    };
+
+    for cell in &spec.map.cells {
+        if cell.ground == GroundKind::Road {
+            report.road_cell_count += 1;
+        }
+        if cell.height >= 2 {
+            report.ridge_cell_count += 1;
+        }
+        if !matches!(cell.ground, GroundKind::Rock | GroundKind::Mud) {
+            report.trenchable_soil_cells += 1;
+        }
+    }
+    for object in &spec.map.objects {
+        match &object.kind {
+            EnvironmentObjectKind::Tree(TreeState::Standing)
+            | EnvironmentObjectKind::Tree(TreeState::PartiallyCut { .. }) => {
+                report.tree_count += 1;
+            }
+            EnvironmentObjectKind::Log(kind) => {
+                report.loose_log_count += 1;
+                if let Some(direction) =
+                    rolling_log_direction(&EnvironmentObjectKind::Log(kind.clone()))
+                {
+                    let path = predict_rolling_log_path(&spec.map, object.cell, direction);
+                    report.rolling_hazard_path_cells =
+                        report.rolling_hazard_path_cells.max(path.len() as u32);
+                    report.rolling_hazard_route_intersections +=
+                        path.iter()
+                            .filter(|step| route_cells.contains(&step.cell))
+                            .count() as u32;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if report.road_cell_count > 0 {
+        report.notes.push(format!(
+            "{} road cell(s) define the main approach.",
+            report.road_cell_count
+        ));
+    }
+    if report.ridge_cell_count > 0 {
+        report.notes.push(format!(
+            "{} raised ridge cell(s) create height interest.",
+            report.ridge_cell_count
+        ));
+    }
+    if report.tree_count > 0 {
+        report.notes.push(format!(
+            "{} standing tree(s) create timber/LOS tradeoffs.",
+            report.tree_count
+        ));
+    }
+    if report.rolling_hazard_route_intersections > 0 {
+        report.notes.push(format!(
+            "Rolling hazard path crosses likely routes at {} cell(s).",
+            report.rolling_hazard_route_intersections
+        ));
+    }
+    report
+}
+
+fn route_diversity_score(routes: &DoctrineRouteSet) -> f32 {
+    if routes.routes.len() < 2 {
+        return 0.0;
+    }
+    let route_sets = routes
+        .routes
+        .iter()
+        .map(|route| route.points.iter().copied().collect::<HashSet<_>>())
+        .collect::<Vec<_>>();
+    let mut total = 0.0;
+    let mut pairs = 0;
+    for i in 0..route_sets.len() {
+        for j in i + 1..route_sets.len() {
+            let shared = route_sets[i].intersection(&route_sets[j]).count() as f32;
+            let union = route_sets[i].union(&route_sets[j]).count().max(1) as f32;
+            total += 1.0 - shared / union;
+            pairs += 1;
+        }
+    }
+    if pairs == 0 {
+        0.0
+    } else {
+        (total / pairs as f32).clamp(0.0, 1.0)
+    }
+}
+
+fn height_interest_score(map: &MissionMap) -> f32 {
+    let mut transitions = 0;
+    let mut checked = 0;
+    for y in 0..map.height {
+        for x in 0..map.width {
+            let cell = CellCoord::new(x, y);
+            let Some(source) = map.cell(cell) else {
+                continue;
+            };
+            for neighbor in map.neighbors4(cell) {
+                if neighbor.x < x || neighbor.y < y {
+                    continue;
+                }
+                let Some(target) = map.cell(neighbor) else {
+                    continue;
+                };
+                checked += 1;
+                if source.height != target.height {
+                    transitions += 1;
+                }
+            }
+        }
+    }
+    if checked == 0 {
+        0.0
+    } else {
+        (transitions as f32 / checked as f32 * 4.0).clamp(0.0, 1.0)
+    }
+}
+
+fn doctrine_spread_score(groups: &[EnemyGroupSpec]) -> f32 {
+    let unique = groups
+        .iter()
+        .map(|group| group.doctrine)
+        .collect::<HashSet<_>>()
+        .len();
+    (unique as f32 / 3.0).min(1.0)
+}
+
+fn parse_validation_issue_count(note: &str) -> Option<u32> {
+    let (_, tail) = note.split_once(", ")?;
+    let (count, _) = tail.split_once(" validation issue")?;
+    count.parse().ok()
+}
+
+fn save_generated_mission_contact_sheet(
+    path: impl AsRef<Path>,
+    specs: &[MissionSpec],
+) -> Result<()> {
+    let path = path.as_ref();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let cell_px = 16;
+    let preview_w = 12 * cell_px;
+    let preview_h = 8 * cell_px;
+    let gap = 8;
+    let columns = specs.len().clamp(1, 5) as u32;
+    let rows = (specs.len() as u32).div_ceil(columns).max(1);
+    let mut sheet = RgbaImage::from_pixel(
+        columns * preview_w + (columns + 1) * gap,
+        rows * preview_h + (rows + 1) * gap,
+        Rgba([24, 27, 26, 255]),
+    );
+    for (index, spec) in specs.iter().enumerate() {
+        let state = MissionState::from_spec(spec.clone());
+        let image = mission_preview_image(&state, cell_px);
+        let col = index as u32 % columns;
+        let row = index as u32 / columns;
+        let x0 = gap + col * (preview_w + gap);
+        let y0 = gap + row * (preview_h + gap);
+        blit_image(&mut sheet, &image, x0, y0);
+    }
+    sheet
+        .save(path)
+        .with_context(|| format!("failed to save {}", path.display()))
+}
+
+fn blit_image(target: &mut RgbaImage, source: &RgbaImage, x0: u32, y0: u32) {
+    for y in 0..source.height() {
+        for x in 0..source.width() {
+            let tx = x0 + x;
+            let ty = y0 + y;
+            if tx < target.width() && ty < target.height() {
+                target.put_pixel(tx, ty, *source.get_pixel(x, y));
+            }
+        }
+    }
 }
 
 pub fn run_work_order_script(spec: MissionSpec, script: &WorkOrderScript) -> MissionState {
@@ -5455,5 +6310,29 @@ mod tests {
         assert!(chokepoint_rating.score > baseline_rating.score);
         assert_eq!(chokepoint_rating.stars, 3);
         assert!(bad_rating.stars <= baseline_rating.stars);
+    }
+
+    #[test]
+    fn procgen_road_below_candidate_has_tactical_affordances() {
+        let generator = MissionGeneratorSpec::road_below(99_418_113);
+        let candidate = generate_mission_candidate(&generator, generator.seed);
+
+        assert_eq!(candidate.spec.map.width, 12);
+        assert_eq!(candidate.spec.map.height, 8);
+        assert!(candidate.affordance_report.road_cell_count >= 8);
+        assert!(candidate.affordance_report.ridge_cell_count >= 6);
+        assert!(candidate.affordance_report.tree_count >= 3);
+        assert_eq!(candidate.affordance_report.loose_log_count, 1);
+        assert!(
+            candidate
+                .affordance_report
+                .rolling_hazard_route_intersections
+                > 0
+        );
+
+        let state = MissionState::from_spec(candidate.spec);
+        let routes = state.route_preview();
+        assert_eq!(routes.routes.len(), 3);
+        assert!(routes.routes.iter().all(|route| route.reached_goal));
     }
 }
