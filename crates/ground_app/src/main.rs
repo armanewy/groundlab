@@ -137,6 +137,7 @@ impl MissionActionMode {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum MissionMapMode {
+    Visual,
     Terrain,
     Height,
     Cover,
@@ -148,7 +149,8 @@ enum MissionMapMode {
 }
 
 impl MissionMapMode {
-    const ALL: [MissionMapMode; 8] = [
+    const ALL: [MissionMapMode; 9] = [
+        MissionMapMode::Visual,
         MissionMapMode::Terrain,
         MissionMapMode::Height,
         MissionMapMode::Cover,
@@ -161,6 +163,7 @@ impl MissionMapMode {
 
     fn label(self) -> &'static str {
         match self {
+            MissionMapMode::Visual => "visual",
             MissionMapMode::Terrain => "terrain",
             MissionMapMode::Height => "height",
             MissionMapMode::Cover => "cover",
@@ -2447,6 +2450,7 @@ impl GroundLabApp {
                 }
             }
             MissionMapMode::Terrain
+            | MissionMapMode::Visual
             | MissionMapMode::Height
             | MissionMapMode::Cover
             | MissionMapMode::Resources
@@ -2665,6 +2669,7 @@ fn build_balance_dashboard() -> Vec<MissionBalanceDashboardRow> {
 fn mission_cell_color(cell: &ground_game::MissionCell, mode: MissionMapMode) -> egui::Color32 {
     match mode {
         MissionMapMode::Terrain
+        | MissionMapMode::Visual
         | MissionMapMode::Delay
         | MissionMapMode::Pressure
         | MissionMapMode::Actual

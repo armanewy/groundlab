@@ -4,7 +4,7 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: ProcGen 5 — theme calibration and difficulty curves
+## Current status: ProcGen 6 — generated mission visual integration
 
 GroundLab has pivoted again from manually tuning one mission toward generating compact tactical
 terrain problems in batches. The primary product direction is still a 2.5D tactical engineering
@@ -17,7 +17,7 @@ SpriteGen remains in the repository as the terrain art forge. It still provides 
 profiles, override PNGs, sprite manifests, validation, and exportable grass/dirt/path/trench/berm/
 stone pieces. It is now supporting infrastructure rather than the main roadmap driver.
 
-GamePivot 8 and ProcGen 1-5 build on the `ground_game` crate with:
+GamePivot 8 and ProcGen 1-6 build on the `ground_game` crate with:
 
 - `MissionSpec`, `MissionMap`, and `MissionCell`
 - earth states such as normal, scraped, trench, deep trench, spoil pile, berm, unstable, and muddy
@@ -63,6 +63,10 @@ GamePivot 8 and ProcGen 1-5 build on the `ground_game` crate with:
 - auto-built mission packs that pick diverse accepted candidates across themes, sort them into difficulty/complexity curves, and export pack manifests/contact sheets without manual map curation
 - theme calibration reports that track acceptance rate, target bands, average score, average difficulty, average complexity, plan sensitivity, route diversity, hazard usefulness, material affordance, top rejection reasons, and generator-tuning recommendations per theme
 - pack diversity reports that check unique themes, tree/material coverage, rolling-hazard coverage, split-route coverage, and curve monotonicity
+- visual theme bindings that map generated mission themes to SpriteGen style profiles
+- high-oblique mission visual previews rendered from generated/effective SpriteGen terrain pieces
+- per-candidate visual exports for preview, route overlay, debug grid, and sprite asset reports
+- visual contact sheets for generated batches and mission packs
 - a Mission Lab file loader for opening generated `mission.ron` candidates directly from disk
 - assault summary and debrief exports for debugging why the plan worked or failed
 - per-cell influence summaries for crossed cells, delayed cells, damaging cells, defender pressure, breach cells, effective obstacles, and unused defenses
@@ -120,16 +124,16 @@ Run the GamePivot 7 mission balance pass:
 cargo run -p ground_cli -- mission-balance exports/gamepivot_07
 ```
 
-Generate a batch of ProcGen 5 all-theme mission candidates:
+Generate a batch of ProcGen 6 all-theme mission candidates:
 
 ```bash
-cargo run -p ground_cli -- generate-missions exports/procgen_05_batch --theme all --count 20 --seed 99418113
+cargo run -p ground_cli -- generate-missions exports/procgen_06_batch --theme all --count 20 --seed 99418113 --render-visuals
 ```
 
 ProcGen output includes:
 
 ```txt
-exports/procgen_05_batch/
+exports/procgen_06_batch/
   browser_index.json
   theme_summary.json
   all_ranked_candidates.json
@@ -142,29 +146,54 @@ exports/procgen_05_batch/
     split_approach/
   contact_sheets/
     accepted_by_theme.png
+    accepted_by_theme_visual.png
     rejected_by_reason.png
+    rejected_by_reason_visual.png
     top_ranked_all_themes.png
+    top_ranked_all_themes_visual.png
+  per_theme/*/candidates/*/
+    mission_visual_preview.png
+    mission_visual_routes.png
+    mission_visual_debug.png
+    visual_asset_report.json
 ```
 
 Build a generated mission pack from the accepted candidates:
 
 ```bash
-cargo run -p ground_cli -- generate-mission-pack exports/procgen_05_pack --seed 99418113 --missions 6 --candidates-per-theme 20 --curve tutorial
+cargo run -p ground_cli -- generate-mission-pack exports/procgen_06_pack --seed 99418113 --missions 6 --candidates-per-theme 20 --curve tutorial --render-visuals
 ```
 
 Mission pack output includes:
 
 ```txt
-exports/procgen_05_pack/
+exports/procgen_06_pack/
   mission_pack.ron
   mission_pack_summary.json
   mission_pack_contact_sheet.png
+  mission_pack_visual_sheet.png
   difficulty_curve.json
   complexity_curve.json
   pack_diversity_report.json
   source_candidates/
     browser_index.json
     per_theme/
+```
+
+Render one mission directly as a high-oblique visual preview:
+
+```bash
+cargo run -p ground_cli -- render-mission exports/procgen_06_visual path/to/mission.ron
+```
+
+Visual output includes:
+
+```txt
+exports/procgen_06_visual/
+  mission_visual_preview.png
+  mission_visual_routes.png
+  mission_visual_debug.png
+  visual_asset_report.json
 ```
 
 Calibrate every theme with the same evaluator:
@@ -198,8 +227,15 @@ cargo run -p ground_app
 ```
 
 The full-scene terrain renderer and ArtGen outputs remain downstream infrastructure for terrain
-data, pathing, LOS, and future art-kit composition, but the active gameplay roadmap now emphasizes
+data, pathing, LOS, and art-kit composition. ProcGen 6 reconnects that asset pipeline to generated
+missions through deterministic visual previews while the active gameplay roadmap still emphasizes
 seeded mission generation, automatic evaluation, ranking, and playable candidate export.
+
+## Previous status: ProcGen 5 — theme calibration and difficulty curves
+
+ProcGen 5 added theme calibration reports, per-theme acceptance target bands, difficulty and
+complexity scoring, tutorial/balanced pack curves, pack diversity reports, and candidate-card
+difficulty/complexity metadata.
 
 ## Previous status: ProcGen 4 — generated mission browser and mission packs
 

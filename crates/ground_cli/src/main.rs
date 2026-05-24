@@ -7,10 +7,10 @@ use ground_core::{
 use ground_game::{
     export_assault_run, export_generated_mission_batch, export_generated_mission_pack_with_curve,
     export_generated_mission_theme_batch, export_hazard_sandbox_run, export_mission_balance_run,
-    export_order_script_run, export_road_below_seed, export_theme_calibration_report,
-    load_mission_spec, load_work_order_script, road_below_basic_prep_script,
-    road_below_hazard_prep_script, road_below_spec, MissionGeneratorSpec, MissionPackCurve,
-    MissionTheme, DEFAULT_MISSION_EXPORT_DIR,
+    export_mission_visuals, export_order_script_run, export_road_below_seed,
+    export_theme_calibration_report, load_mission_spec, load_work_order_script,
+    road_below_basic_prep_script, road_below_hazard_prep_script, road_below_spec,
+    MissionGeneratorSpec, MissionPackCurve, MissionTheme, DEFAULT_MISSION_EXPORT_DIR,
 };
 
 fn main() -> Result<()> {
@@ -223,12 +223,13 @@ fn main() -> Result<()> {
         "generate-missions" => {
             let out_dir = args
                 .next()
-                .unwrap_or_else(|| "exports/procgen_01".to_string());
+                .unwrap_or_else(|| "exports/procgen_06".to_string());
             let mut count = 10;
             let mut seed = 0x5eed_0001;
             let mut theme = Some(MissionTheme::RidgeTrap);
             while let Some(arg) = args.next() {
                 match arg.as_str() {
+                    "--render-visuals" => {}
                     "--count" => {
                         let Some(value) = args.next() else {
                             bail!("--count requires a value");
@@ -258,7 +259,7 @@ fn main() -> Result<()> {
             if let Some(theme) = theme {
                 generator.theme = theme;
                 let report = export_generated_mission_batch(&out_dir, generator, count)?;
-                println!("Exported ProcGen 5 mission batch to {out_dir}.");
+                println!("Exported ProcGen 6 mission batch to {out_dir}.");
                 println!(
                     "Generated {} candidate(s): {} accepted, {} rejected.",
                     report.generated_count, report.accepted_count, report.rejected_count
@@ -276,7 +277,7 @@ fn main() -> Result<()> {
                     count,
                     &MissionTheme::GENERATABLE,
                 )?;
-                println!("Exported ProcGen 5 all-theme mission batch to {out_dir}.");
+                println!("Exported ProcGen 6 all-theme mission batch to {out_dir}.");
                 println!(
                     "Generated {} candidate(s): {} accepted, {} rejected across {} theme(s).",
                     report.total_generated_count,
@@ -296,19 +297,20 @@ fn main() -> Result<()> {
                 }
             }
             println!(
-                "ProcGen files: generator_summary.json or theme_summary.json, ranked candidate JSON, accepted/rejected/top contact sheets, candidates/*/mission.ron"
+                "ProcGen files: generator_summary.json or theme_summary.json, ranked candidate JSON, accepted/rejected/top contact sheets, visual contact sheets, candidates/*/mission.ron, candidates/*/mission_visual_*.png"
             );
         }
         "generate-mission-pack" => {
             let out_dir = args
                 .next()
-                .unwrap_or_else(|| "exports/procgen_05_pack".to_string());
+                .unwrap_or_else(|| "exports/procgen_06_pack".to_string());
             let mut seed = 0x5eed_0001;
             let mut missions = 6;
             let mut candidates_per_theme = 20;
             let mut curve = MissionPackCurve::Balanced;
             while let Some(arg) = args.next() {
                 match arg.as_str() {
+                    "--render-visuals" => {}
                     "--seed" => {
                         let Some(value) = args.next() else {
                             bail!("--seed requires a value");
@@ -344,7 +346,7 @@ fn main() -> Result<()> {
                 candidates_per_theme,
                 curve,
             )?;
-            println!("Exported ProcGen 5 mission pack to {out_dir}.");
+            println!("Exported ProcGen 6 mission pack to {out_dir}.");
             println!(
                 "Selected {} {}-curve mission(s) from {} generated candidate(s), {} accepted.",
                 summary.pack.missions.len(),
@@ -365,7 +367,31 @@ fn main() -> Result<()> {
                 );
             }
             println!(
-                "Pack files: mission_pack.ron, mission_pack_summary.json, mission_pack_contact_sheet.png, difficulty_curve.json, complexity_curve.json, pack_diversity_report.json, source_candidates/browser_index.json"
+                "Pack files: mission_pack.ron, mission_pack_summary.json, mission_pack_contact_sheet.png, mission_pack_visual_sheet.png, difficulty_curve.json, complexity_curve.json, pack_diversity_report.json, source_candidates/browser_index.json"
+            );
+        }
+        "render-mission" => {
+            let out_dir = args
+                .next()
+                .unwrap_or_else(|| "exports/procgen_06".to_string());
+            let spec = match args.next() {
+                Some(path) => load_mission_spec(path)?,
+                None => road_below_spec(),
+            };
+            let report = export_mission_visuals(&out_dir, spec)?;
+            println!("Exported ProcGen 6 mission visual preview to {out_dir}.");
+            println!(
+                "Visual profile: {} · {} effective sprite(s) · {} override(s) · {} issue(s).",
+                report.sprite_style_profile,
+                report.effective_sprite_count,
+                report.overridden_sprite_count,
+                report.override_issue_count
+            );
+            if !report.warnings.is_empty() {
+                println!("Visual warnings: {}", report.warnings.join(" | "));
+            }
+            println!(
+                "Visual files: mission_visual_preview.png, mission_visual_routes.png, mission_visual_debug.png, visual_asset_report.json"
             );
         }
         "calibrate-themes" => {
@@ -434,8 +460,9 @@ fn print_help() {
     eprintln!("  cargo run -p ground_cli -- mission-assault [out_dir] [mission_spec.ron|json] [order_script.ron|json]");
     eprintln!("  cargo run -p ground_cli -- mission-hazards [out_dir] [mission_spec.ron|json] [order_script.ron|json]");
     eprintln!("  cargo run -p ground_cli -- mission-balance [out_dir] [mission_spec.ron|json]");
-    eprintln!("  cargo run -p ground_cli -- generate-missions [out_dir] [--theme dry_road_below|ridge_trap|orchard_approach|dry_wash|old_wall|split_approach|all] [--count 10] [--seed 99418113]");
-    eprintln!("  cargo run -p ground_cli -- generate-mission-pack [out_dir] [--seed 99418113] [--missions 6] [--candidates-per-theme 20] [--curve balanced|tutorial]");
+    eprintln!("  cargo run -p ground_cli -- generate-missions [out_dir] [--theme dry_road_below|ridge_trap|orchard_approach|dry_wash|old_wall|split_approach|all] [--count 10] [--seed 99418113] [--render-visuals]");
+    eprintln!("  cargo run -p ground_cli -- generate-mission-pack [out_dir] [--seed 99418113] [--missions 6] [--candidates-per-theme 20] [--curve balanced|tutorial] [--render-visuals]");
+    eprintln!("  cargo run -p ground_cli -- render-mission [out_dir] [mission_spec.ron|json]");
     eprintln!(
         "  cargo run -p ground_cli -- calibrate-themes [out_dir] [--count 200] [--seed 99418113]"
     );

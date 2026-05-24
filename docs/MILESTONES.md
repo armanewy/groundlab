@@ -309,6 +309,35 @@ This milestone does not add new mechanics or themes. It makes generated content 
 showing which themes are over/under-accepting, why candidates fail, and whether a generated mission
 pack has a sane difficulty and complexity progression.
 
+## ProcGen 6 — Generated mission visual integration
+
+Implemented in this drop.
+
+- added `MissionVisualTheme` to mission specs with a SpriteGen style-profile path and
+  high-oblique projection contract
+- bound generated themes to visual profiles: dry road below, old wall, and split approach use
+  `cozy_upland`; orchard uses `cozy_upland_lush`; dry wash and ridge trap use
+  `cozy_upland_sparse`
+- added a high-oblique mission visual renderer in `ground_game` that projects mission cells as
+  diamond top surfaces using effective generated/override SpriteGen pieces
+- visual rendering now maps roads/paths, trenches, berms, stone/rock, grass/dirt, mission markers,
+  trees, logs, stakes, wire, walls, rocks, fighting positions, and route overlays into one preview
+- added `visual_asset_report.json` with sprite profile, projection, effective/generated/override
+  counts, override issue counts, missing piece kinds, fallback sprite kinds, and warnings
+- generated candidates now export `mission_visual_preview.png`, `mission_visual_routes.png`,
+  `mission_visual_debug.png`, and `visual_asset_report.json`
+- generated candidate batches now write visual contact sheets beside the schematic contact sheets
+- all-theme batches now write `top_ranked_all_themes_visual.png`,
+  `accepted_by_theme_visual.png`, and `rejected_by_reason_visual.png`
+- mission packs now export `mission_pack_visual_sheet.png`
+- added `cargo run -p ground_cli -- render-mission [out_dir] [mission_spec.ron|json]`
+- Mission Lab now includes a `visual` map mode beside terrain, height, cover, resources, delay,
+  pressure, actual, and hazards
+
+This milestone does not add mechanics, themes, campaign progression, or a GPU renderer. It connects
+the generated mission pipeline back to the effective SpriteGen asset pipeline so generated missions
+can be scanned as high-oblique 2.5D tactical previews instead of only schematic grids.
+
 ## Milestone 0 — Project seed
 
 Implemented.

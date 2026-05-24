@@ -9,7 +9,9 @@ environment-object states, doctrine route preview, deterministic assault sandbox
 readability/debrief artifacts, the first deterministic rolling hazard sandbox, mission balance
 scenario comparison, seeded mission generation/ranking with structured rejection diagnostics across
 multiple mission theme grammars, generated mission browsing, theme calibration, and automatic
-mission pack selection with difficulty/complexity curves.
+mission pack selection with difficulty/complexity curves. Generated missions now also carry visual
+theme bindings and can be rendered through effective SpriteGen assets as high-oblique mission
+previews.
 `ground_app` now treats Mission Lab as the primary tactical prep surface rather than a generic
 terrain editor panel, and Road Below starts as a playable briefing-to-debrief slice. The same
 mission loop now evaluates generated Road-Below-like candidates so GroundLab can batch-generate,
@@ -38,6 +40,8 @@ score, reject, and export compact terrain-defense problems.
   tuning recommendations
 - Automatic mission pack selection, difficulty/complexity curves, pack diversity reports, and pack
   contact sheets
+- Mission visual theme bindings, high-oblique generated mission previews, visual route/debug
+  overlays, and visual asset reports
 - Terrain editing brushes
 - Pixel tile recipes
 - Palette ramps and palette file format
@@ -111,6 +115,8 @@ MissionGeneratorSpec + MissionTheme
   -> generated mission browser filters
   -> theme calibration report + rejection/actionability diagnostics
   -> mission pack selection + difficulty/complexity curves
+  -> theme-to-sprite-profile visual binding
+  -> high-oblique mission visual previews + visual asset reports
   -> Mission Lab inspection / playable retry
 ```
 
@@ -125,6 +131,19 @@ recipe.ron + palette.ron
   -> validation report + seam test sheet
   -> export bundle
   -> future runtime renderer/importer
+```
+
+Generated mission visual flow:
+
+```txt
+MissionSpec + MissionVisualTheme
+  -> MissionState
+  -> TerrainSpriteRecipe::from_style_profile_path
+  -> generated/effective SpriteGen terrain sprites
+  -> high-oblique software mission renderer
+  -> mission_visual_preview.png / mission_visual_routes.png / mission_visual_debug.png
+  -> visual_asset_report.json
+  -> generated mission browser and mission-pack visual sheets
 ```
 
 The important design rule is that generated art remains deterministic and metadata-rich. Tiles are
@@ -158,6 +177,8 @@ Visual/software-rendered systems:
 - terrain preview is CPU-rasterized into an egui texture
 - height and slope are shown as overlays
 - 2.5D terrain is previewed by lifting cell tops and drawing generated exposed-face art
+- generated missions can be rendered as high-oblique previews using effective SpriteGen art,
+  tactical markers, and route overlays
 
 Hazard systems:
 
