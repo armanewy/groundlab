@@ -2,9 +2,9 @@
 
 GroundLab's active visual milestone is now a dedicated terrain sprite generator, not the large
 editable scene renderer. The generator first produces cozy top-surface terrain primitives: grass,
-dirt, grass-to-dirt transitions, and connected dirt path masks. ArtGen 2.1b then extends that
-foundation with polished connected oblique trench masks for the desired high-oblique 2.5D terrain
-grammar.
+dirt, grass-to-dirt transitions, and connected dirt path masks. ArtGen 2.1b extends that foundation
+with polished connected oblique trench masks; ArtGen 3.0 adds the first raised-terrain counterpart:
+an oblique berm/mound sprite kit for the desired high-oblique 2.5D terrain grammar.
 
 The generator does not require reference images. It uses:
 
@@ -13,7 +13,7 @@ The generator does not require reference images. It uses:
 - swappable `TerrainSpriteStyleProfile` files in `assets/sprite_styles/`
 - external `motifs.ron` pixel-cluster motif libraries
 - cozy palette ramps
-- grass, dirt, transition, path, trench, and pixel-cluster rules
+- grass, dirt, transition, path, trench, berm, and pixel-cluster rules
 - a high-oblique 2.5D projection profile
 - per-piece sprite role, anchor, footprint, z-bias, and occlusion metadata
 - deterministic seeds
@@ -21,13 +21,12 @@ The generator does not require reference images. It uses:
 - seam/noise validation
 - art-kit-compatible PNG piece export
 
-ArtGen 2.1b keeps the ArtGen 1.2b path topology, ArtGen 1.3 style profiles, ArtGen 1.4
-projection-aware sprite contract, and ArtGen 2.0b trench polish. Grass/dirt/path pieces are still
-top-surface material primitives, and trench pieces now include both the base role pieces and
-`trench_mask_00` through `trench_mask_15` for connected straights, ends, corners, T-junctions, and
-crosses. The 2.1b polish pass suppresses shared internal lips/walls, resolves junction centers,
-blends endpoint caps into the trench body, exports focused topology previews, and writes worst
-neighbor-pair diagnostics:
+ArtGen 3.0 keeps the ArtGen 1.2b path topology, ArtGen 1.3 style profiles, ArtGen 1.4
+projection-aware sprite contract, ArtGen 2.0b trench polish, and ArtGen 2.1b connected trench
+topology. Grass/dirt/path pieces are still top-surface material primitives, trench pieces include
+both the base role pieces and `trench_mask_00` through `trench_mask_15`, and berm pieces now test
+the raised-earth side of the same 2.5D contract with top, front face, lips, caps, corners, contact
+shadow, spoil, and grass fringe:
 
 ```txt
 sprite role
@@ -44,7 +43,7 @@ projection:
   shadow_offset_px
 ```
 
-The generator still loads palette ramps, grass/dirt/transition/path/trench rules, projection
+The generator still loads palette ramps, grass/dirt/transition/path/trench/berm rules, projection
 settings, and motif libraries from profile folders:
 
 ```txt
@@ -72,19 +71,25 @@ cargo run -p ground_sprite_app
 Export the deterministic bundle:
 
 ```bash
-cargo run -p ground_sprite_cli -- export exports/artgen_02_1b assets/sprite_styles/cozy_upland/style.ron
+cargo run -p ground_sprite_cli -- export exports/artgen_03_0 assets/sprite_styles/cozy_upland/style.ron
 ```
 
 Export output:
 
 ```txt
-exports/artgen_02_1b/
+exports/artgen_03_0/
   manifest.ron
   sprite_manifest.ron
   sprite_manifest.json
   recipe.ron
   contact_sheet.png
   oblique_material_preview.png
+  berm_contact_sheet.png
+  berm_preview_oblique_straight.png
+  berm_preview_oblique_caps.png
+  berm_preview_oblique_corner.png
+  berm_preview_oblique_shadow.png
+  berm_mask_debug.png
   trench_contact_sheet.png
   trench_preview_oblique_straight.png
   trench_preview_oblique_caps.png
@@ -156,6 +161,19 @@ exports/artgen_02_1b/
     trench_mask_00.png
     ...
     trench_mask_15.png
+    berm_top_01.png
+    berm_top_02.png
+    berm_face_front_01.png
+    berm_face_front_02.png
+    berm_lip_front_01.png
+    berm_lip_back_01.png
+    berm_end_cap_left_01.png
+    berm_end_cap_right_01.png
+    berm_corner_inner_01.png
+    berm_corner_outer_01.png
+    berm_contact_shadow_01.png
+    berm_spoil_pile_01.png
+    berm_grass_fringe_01.png
 ```
 
 The full-scene GroundLab renderer remains in the repository as downstream infrastructure for terrain

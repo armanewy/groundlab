@@ -83,6 +83,36 @@ pub fn generate_terrain_sprites(recipe: &TerrainSpriteRecipe) -> Vec<GeneratedTe
             image: generate_trench_piece(&recipe, kind, 1),
         });
     }
+    for variant in 1..=2 {
+        for kind in [TerrainSpriteKind::BermTop, TerrainSpriteKind::BermFaceFront] {
+            sprites.push(GeneratedTerrainSprite {
+                id: format!("{}_{variant:02}", kind.id()),
+                kind,
+                variant,
+                metadata: kind.default_piece_metadata(),
+                image: generate_berm_piece(&recipe, kind, variant),
+            });
+        }
+    }
+    for kind in [
+        TerrainSpriteKind::BermLipFront,
+        TerrainSpriteKind::BermLipBack,
+        TerrainSpriteKind::BermEndCapLeft,
+        TerrainSpriteKind::BermEndCapRight,
+        TerrainSpriteKind::BermCornerInner,
+        TerrainSpriteKind::BermCornerOuter,
+        TerrainSpriteKind::BermContactShadow,
+        TerrainSpriteKind::BermSpoilPile,
+        TerrainSpriteKind::BermGrassFringe,
+    ] {
+        sprites.push(GeneratedTerrainSprite {
+            id: format!("{}_01", kind.id()),
+            kind,
+            variant: 1,
+            metadata: kind.default_piece_metadata(),
+            image: generate_berm_piece(&recipe, kind, 1),
+        });
+    }
     for mask in 0..16 {
         let kind = TerrainSpriteKind::from_trench_mask(mask).expect("valid trench mask");
         sprites.push(GeneratedTerrainSprite {
@@ -356,6 +386,28 @@ pub fn generate_trench_piece(
         TerrainSpriteKind::TrenchCornerOuter => generate_trench_corner(recipe, variant, false),
         TerrainSpriteKind::TrenchContactShadow => generate_trench_contact_shadow(recipe, variant),
         TerrainSpriteKind::TrenchSpoilPile => generate_trench_spoil_pile(recipe, variant),
+        _ => PixelImage::transparent(1, 1),
+    }
+}
+
+pub fn generate_berm_piece(
+    recipe: &TerrainSpriteRecipe,
+    kind: TerrainSpriteKind,
+    variant: u32,
+) -> PixelImage {
+    debug_assert!(kind.is_berm());
+    match kind {
+        TerrainSpriteKind::BermTop => generate_berm_top(recipe, variant),
+        TerrainSpriteKind::BermFaceFront => generate_berm_face_front(recipe, variant),
+        TerrainSpriteKind::BermLipFront => generate_berm_lip(recipe, variant, true),
+        TerrainSpriteKind::BermLipBack => generate_berm_lip(recipe, variant, false),
+        TerrainSpriteKind::BermEndCapLeft => generate_berm_end_cap(recipe, variant, true),
+        TerrainSpriteKind::BermEndCapRight => generate_berm_end_cap(recipe, variant, false),
+        TerrainSpriteKind::BermCornerInner => generate_berm_corner(recipe, variant, true),
+        TerrainSpriteKind::BermCornerOuter => generate_berm_corner(recipe, variant, false),
+        TerrainSpriteKind::BermContactShadow => generate_berm_contact_shadow(recipe, variant),
+        TerrainSpriteKind::BermSpoilPile => generate_berm_spoil_pile(recipe, variant),
+        TerrainSpriteKind::BermGrassFringe => generate_berm_grass_fringe(recipe, variant),
         _ => PixelImage::transparent(1, 1),
     }
 }
@@ -1461,6 +1513,405 @@ fn generate_trench_spoil_pile(recipe: &TerrainSpriteRecipe, variant: u32) -> Pix
     image
 }
 
+fn generate_berm_top(recipe: &TerrainSpriteRecipe, variant: u32) -> PixelImage {
+    let projection = &recipe.style.projection;
+    let rules = &recipe.style.berm;
+    let palette = &recipe.style.palette;
+    let width = projection.cell_width_px * 2;
+    let height = (projection.cell_height_px * 7 / 16).max(34);
+    let seed = sprite_seed(recipe.seed, variant, 0x3b01);
+    let mut image = PixelImage::transparent(width, height);
+    let dirt = palette
+        .dirt_mid
+        .lighten(0.04)
+        .blend(palette.grass_mid, rules.top_grass_blend * 0.34);
+    let crown = palette
+        .dirt_light
+        .lighten(0.05)
+        .blend(palette.grass_light, rules.top_grass_blend * 0.45);
+
+    for y in 0..height {
+        let yf = y as f32 / height.max(1) as f32;
+        for x in 0..width {
+            let xf = (x as f32 / width.max(1) as f32 - 0.5).abs();
+            let n = trench_noise(seed ^ 0x3b02, x / 4, y / 3);
+            let upper = 0.18 + xf * 0.18 + n * 0.08;
+            let lower = 0.88 - xf * 0.14 + n * 0.06;
+            if yf < upper || yf > lower {
+                continue;
+            }
+            let ridge = (1.0 - (yf - 0.40).abs() * 2.4).clamp(0.0, 1.0);
+            let side_shadow = (xf * 0.30 + yf * 0.10).clamp(0.0, 0.32);
+            let color = dirt
+                .blend(crown, ridge * rules.mound_height_strength)
+                .darken(side_shadow);
+            let edge_alpha = ((yf - upper).min(lower - yf) * 12.0).clamp(0.50, 1.0);
+            image.set(x, y, color.with_alpha((edge_alpha * 245.0) as u8));
+        }
+    }
+
+    let clumps = ((width * height) as f32 * rules.spoil_density / 48.0)
+        .round()
+        .max(5.0) as u32;
+    for i in 0..clumps {
+        let x = (hash(seed ^ 0x3b03 ^ i as u64) % width as u64) as u32;
+        let y = (hash(seed ^ 0x3b04 ^ (i as u64 * 13)) % height as u64) as u32;
+        draw_motif_from_set(
+            &mut image,
+            x,
+            y,
+            &recipe.motifs.berm_soil_clump,
+            seed ^ i as u64,
+            &berm_dirt_color_picker(recipe),
+        );
+    }
+    let grass = ((width * height) as f32 * rules.grass_intrusion_density / 64.0)
+        .round()
+        .max(2.0) as u32;
+    for i in 0..grass {
+        let x = (hash(seed ^ 0x3b05 ^ i as u64) % width as u64) as u32;
+        let y = (hash(seed ^ 0x3b06 ^ (i as u64 * 7)) % height as u64) as u32;
+        draw_motif_from_set(
+            &mut image,
+            x,
+            y,
+            &recipe.motifs.berm_grass_overhang,
+            seed ^ 0x3b07 ^ i as u64,
+            &trench_grass_color_picker(recipe),
+        );
+    }
+    image
+}
+
+fn generate_berm_face_front(recipe: &TerrainSpriteRecipe, variant: u32) -> PixelImage {
+    let projection = &recipe.style.projection;
+    let rules = &recipe.style.berm;
+    let palette = &recipe.style.palette;
+    let width = projection.cell_width_px * 2;
+    let height = (projection.face_height_px + 22).max(36);
+    let seed = sprite_seed(recipe.seed, variant, 0x3b21);
+    let mut image = PixelImage::transparent(width, height);
+    let top = palette
+        .dirt_mid
+        .darken(0.04 + rules.face_shadow_strength * 0.10);
+    let mid = palette
+        .dirt_dark
+        .darken(0.04 + rules.face_shadow_strength * 0.18);
+    let bottom = palette
+        .dirt_shadow
+        .darken(0.14 + rules.face_shadow_strength * 0.34);
+
+    for y in 0..height {
+        let t = y as f32 / height.max(1) as f32;
+        for x in 0..width {
+            let top_edge = trench_noise(seed ^ 0x3b22, x / 5, 0);
+            let bottom_edge = trench_noise(seed ^ 0x3b26, x / 6, 1);
+            let top_jitter = (top_edge * rules.edge_irregularity_px as f32).round() as i32;
+            let bottom_cut = height as i32
+                - 2
+                - (bottom_edge * (rules.edge_irregularity_px + 2) as f32).round() as i32;
+            if y as i32 + top_jitter < 1 || y as i32 > bottom_cut {
+                continue;
+            }
+            let side = (x as f32 / width.max(1) as f32 - 0.5).abs();
+            let color = if t < 0.18 {
+                top
+            } else if t > 0.68 {
+                bottom
+            } else {
+                mid.darken(side * 0.12)
+            };
+            let alpha = if y as i32 > bottom_cut - 3 { 205 } else { 240 };
+            image.set(x, y, color.with_alpha(alpha));
+        }
+    }
+    blend_rect(
+        &mut image,
+        0,
+        height * 2 / 3,
+        width,
+        height / 3,
+        Rgba8::BLACK,
+        0.24,
+    );
+
+    let count = ((width * height) as f32 * rules.spoil_density / 44.0)
+        .round()
+        .max(4.0) as u32;
+    for i in 0..count {
+        let x = (hash(seed ^ 0x3b23 ^ i as u64) % width as u64) as u32;
+        let y = (hash(seed ^ 0x3b24 ^ (i as u64 * 17)) % height as u64) as u32;
+        draw_motif_from_set(
+            &mut image,
+            x,
+            y,
+            &recipe.motifs.berm_face_shadow,
+            seed ^ 0x3b25 ^ i as u64,
+            &berm_dirt_color_picker(recipe),
+        );
+    }
+    image
+}
+
+fn generate_berm_lip(recipe: &TerrainSpriteRecipe, variant: u32, front: bool) -> PixelImage {
+    let projection = &recipe.style.projection;
+    let rules = &recipe.style.berm;
+    let palette = &recipe.style.palette;
+    let width = projection.cell_width_px * 2;
+    let height = (projection.face_height_px / 2).max(16);
+    let seed = sprite_seed(recipe.seed, variant, if front { 0x3b31 } else { 0x3b32 });
+    let mut image = PixelImage::transparent(width, height);
+    let band_y = if front { height / 3 } else { height / 4 };
+    let lip = palette
+        .dirt_light
+        .blend(palette.grass_light, rules.top_grass_blend * 0.30)
+        .lighten(rules.lip_highlight_strength * 0.16);
+    let shadow = palette.dirt_dark.darken(0.10);
+
+    let mut x = 0;
+    while x < width {
+        let seg = 8 + (hash(seed ^ x as u64 ^ 0x3b33) % 20) as u32;
+        let gap = 1 + (hash(seed ^ x as u64 ^ 0x3b34) % 4) as u32;
+        let jitter = (hash(seed ^ x as u64 ^ 0x3b35)
+            % (rules.edge_irregularity_px.max(1) * 2 + 1) as u64) as i32
+            - rules.edge_irregularity_px as i32;
+        let y0 = (band_y as i32 + jitter).clamp(0, height as i32 - 1) as u32;
+        let h = 3 + (hash(seed ^ x as u64 ^ 0x3b36) % 4) as u32;
+        for xx in x..(x + seg).min(width) {
+            for yy in y0..(y0 + h).min(height) {
+                let color = if yy == y0 {
+                    lip
+                } else if yy > y0 + h / 2 {
+                    shadow
+                } else {
+                    palette.dirt_mid
+                };
+                image.set(xx, yy, color.with_alpha(242));
+            }
+        }
+        x = x.saturating_add(seg + gap);
+    }
+
+    let highlights = ((width * height) as f32 * rules.spoil_density / 50.0)
+        .round()
+        .max(2.0) as u32;
+    for i in 0..highlights {
+        let x = (hash(seed ^ 0x3b37 ^ i as u64) % width as u64) as u32;
+        let y = (band_y + (hash(seed ^ 0x3b38 ^ i as u64) % height.max(1) as u64) as u32 / 2)
+            .min(height - 1);
+        draw_motif_from_set(
+            &mut image,
+            x,
+            y,
+            &recipe.motifs.berm_edge_highlight,
+            seed ^ i as u64,
+            &berm_dirt_color_picker(recipe),
+        );
+    }
+    image
+}
+
+fn generate_berm_end_cap(recipe: &TerrainSpriteRecipe, variant: u32, left: bool) -> PixelImage {
+    let projection = &recipe.style.projection;
+    let rules = &recipe.style.berm;
+    let width = (projection.cell_width_px / 2).max(38);
+    let height = (projection.cell_height_px / 2 + projection.face_height_px / 2).max(48);
+    let seed = sprite_seed(recipe.seed, variant, if left { 0x3b41 } else { 0x3b42 });
+    let mut image = PixelImage::transparent(width, height);
+    let palette = &recipe.style.palette;
+    let top = palette
+        .dirt_light
+        .blend(palette.grass_light, rules.top_grass_blend * 0.36);
+    let body = palette.dirt_mid;
+    let shadow = palette.dirt_dark.darken(0.16);
+
+    for y in 0..height {
+        let yf = y as f32 / height.max(1) as f32;
+        for x in 0..width {
+            let xf = if left {
+                x as f32 / width.max(1) as f32
+            } else {
+                1.0 - x as f32 / width.max(1) as f32
+            };
+            let n = trench_noise(seed ^ 0x3b43, y / 4, x / 4);
+            let center = 0.48 + n * 0.06;
+            let half = 0.12 + xf * 0.32;
+            if (yf - center).abs() > half {
+                continue;
+            }
+            let color = if yf < center - half * 0.25 {
+                top
+            } else if yf > center + half * 0.35 {
+                shadow
+            } else {
+                body
+            };
+            image.set(x, y, color.with_alpha(((0.45 + xf * 0.55) * 245.0) as u8));
+        }
+    }
+    for i in 0..8 {
+        let x = (hash(seed ^ 0x3b44 ^ i as u64) % width as u64) as u32;
+        let y = (hash(seed ^ 0x3b45 ^ i as u64) % height as u64) as u32;
+        draw_motif_from_set(
+            &mut image,
+            x,
+            y,
+            &recipe.motifs.berm_soil_clump,
+            seed ^ 0x3b46 ^ i as u64,
+            &berm_dirt_color_picker(recipe),
+        );
+    }
+    image
+}
+
+fn generate_berm_corner(recipe: &TerrainSpriteRecipe, variant: u32, inner: bool) -> PixelImage {
+    let projection = &recipe.style.projection;
+    let rules = &recipe.style.berm;
+    let size = (projection.cell_width_px / 2).max(46);
+    let seed = sprite_seed(recipe.seed, variant, if inner { 0x3b51 } else { 0x3b52 });
+    let mut image = PixelImage::transparent(size, size);
+    let palette = &recipe.style.palette;
+    let top = palette
+        .dirt_light
+        .blend(palette.grass_light, rules.top_grass_blend * 0.34);
+    let body = palette.dirt_mid;
+    let shadow = palette.dirt_dark.darken(0.12);
+    let arm = (size / 3).max(14);
+    let center = size / 2;
+    for y in 0..size {
+        for x in 0..size {
+            let horizontal =
+                y >= center.saturating_sub(arm / 2) && y <= center + arm / 2 && x <= center + arm;
+            let vertical =
+                x >= center.saturating_sub(arm / 2) && x <= center + arm / 2 && y <= center + arm;
+            let l_shape = if inner {
+                horizontal || vertical
+            } else {
+                (horizontal || vertical) && !(x > center && y > center)
+            };
+            if !l_shape {
+                continue;
+            }
+            let n = trench_noise(seed ^ 0x3b53, x / 3, y / 3);
+            let color = if y < center.saturating_sub(arm / 2) + 4
+                || x < center.saturating_sub(arm / 2) + 4
+            {
+                top
+            } else if y > center + arm / 3 || x > center + arm / 3 {
+                shadow
+            } else {
+                body
+            };
+            image.set(
+                x,
+                y,
+                color.with_alpha(((0.82 + n * 0.10).clamp(0.58, 1.0) * 255.0) as u8),
+            );
+        }
+    }
+    image
+}
+
+fn generate_berm_contact_shadow(recipe: &TerrainSpriteRecipe, variant: u32) -> PixelImage {
+    let projection = &recipe.style.projection;
+    let width = projection.cell_width_px * 2;
+    let height = (projection.face_height_px + 18).max(38);
+    let seed = sprite_seed(recipe.seed, variant, 0x3b61);
+    let mut image = PixelImage::transparent(width, height);
+    let strength = recipe.style.berm.contact_shadow_strength;
+    for y in 0..height {
+        let yf = y as f32 / height.max(1) as f32;
+        for x in 0..width {
+            let xf = (x as f32 / width.max(1) as f32 - 0.5).abs();
+            let organic = trench_noise(seed ^ 0x3b62, x / 4, y / 3) * 0.07;
+            let alpha = ((1.0 - xf * 1.45).max(0.0) * (1.0 - yf * 0.82).powf(1.35) + organic)
+                * strength
+                * 0.70;
+            if alpha > 0.016 {
+                image.set(
+                    x,
+                    y,
+                    Rgba8::BLACK.with_alpha((alpha.clamp(0.0, 0.48) * 255.0) as u8),
+                );
+            }
+        }
+    }
+    image
+}
+
+fn generate_berm_spoil_pile(recipe: &TerrainSpriteRecipe, variant: u32) -> PixelImage {
+    let projection = &recipe.style.projection;
+    let rules = &recipe.style.berm;
+    let width = projection.cell_width_px.max(54);
+    let height = (projection.cell_height_px / 3).max(26);
+    let seed = sprite_seed(recipe.seed, variant, 0x3b71);
+    let mut image = PixelImage::transparent(width, height);
+    let palette = &recipe.style.palette;
+    for y in 0..height {
+        let yf = y as f32 / height.max(1) as f32;
+        for x in 0..width {
+            let xf = (x as f32 / width.max(1) as f32 - 0.5).abs();
+            let n = trench_noise(seed ^ 0x3b72, x / 3, y / 3);
+            if yf < 0.22 + n * 0.08 || yf > 0.80 - xf * 0.12 + n * 0.06 {
+                continue;
+            }
+            let color = if yf < 0.42 {
+                palette
+                    .dirt_light
+                    .blend(palette.grass_light, rules.top_grass_blend * 0.18)
+            } else {
+                palette.dirt_mid.darken(0.06)
+            };
+            image.set(
+                x,
+                y,
+                color.with_alpha(((0.68 + n * 0.12).clamp(0.42, 0.88) * 255.0) as u8),
+            );
+        }
+    }
+    let count = ((width * height) as f32 * rules.spoil_density / 24.0)
+        .round()
+        .max(5.0) as u32;
+    for i in 0..count {
+        let x = (hash(seed ^ 0x3b73 ^ i as u64) % width as u64) as u32;
+        let y = (hash(seed ^ 0x3b74 ^ (i as u64 * 13)) % height as u64) as u32;
+        draw_motif_from_set(
+            &mut image,
+            x,
+            y,
+            &recipe.motifs.berm_spoil,
+            seed ^ 0x3b75 ^ i as u64,
+            &berm_dirt_color_picker(recipe),
+        );
+    }
+    image
+}
+
+fn generate_berm_grass_fringe(recipe: &TerrainSpriteRecipe, variant: u32) -> PixelImage {
+    let projection = &recipe.style.projection;
+    let rules = &recipe.style.berm;
+    let width = projection.cell_width_px * 2;
+    let height = (projection.face_height_px / 2).max(16);
+    let seed = sprite_seed(recipe.seed, variant, 0x3b81);
+    let mut image = PixelImage::transparent(width, height);
+    let count = ((width * height) as f32 * rules.grass_intrusion_density / 18.0)
+        .round()
+        .max(8.0) as u32;
+    for i in 0..count {
+        let x = (hash(seed ^ 0x3b82 ^ i as u64) % width as u64) as u32;
+        let y = (hash(seed ^ 0x3b83 ^ (i as u64 * 9)) % height as u64) as u32;
+        draw_motif_from_set(
+            &mut image,
+            x,
+            y,
+            &recipe.motifs.berm_grass_overhang,
+            seed ^ 0x3b84 ^ i as u64,
+            &trench_grass_color_picker(recipe),
+        );
+    }
+    image
+}
+
 fn trench_noise(seed: u64, x: u32, y: u32) -> f32 {
     hash01(seed ^ ((x as u64) << 18) ^ (y as u64 * 0x9e37)) * 2.0 - 1.0
 }
@@ -1726,6 +2177,22 @@ fn trench_grass_color_picker(recipe: &TerrainSpriteRecipe) -> impl Fn(i8) -> Rgb
             1 => palette.grass_light,
             2 => palette.grass_flower,
             _ => palette.grass_mid,
+        }
+    }
+}
+
+fn berm_dirt_color_picker(recipe: &TerrainSpriteRecipe) -> impl Fn(i8) -> Rgba8 + '_ {
+    move |shade| {
+        let palette = &recipe.style.palette;
+        match shade {
+            -2 => palette.dirt_shadow.darken(0.18),
+            -1 => palette.dirt_dark.darken(0.06),
+            1 => palette.dirt_light.blend(
+                palette.grass_light,
+                recipe.style.berm.top_grass_blend * 0.20,
+            ),
+            2 => palette.pebble,
+            _ => palette.dirt_mid,
         }
     }
 }

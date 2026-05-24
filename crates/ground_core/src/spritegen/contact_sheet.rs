@@ -448,6 +448,59 @@ pub fn build_trench_contact_sheet(
     sheet
 }
 
+pub fn build_berm_contact_sheet(
+    sprites: &[GeneratedTerrainSprite],
+    _recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    let berm = sprites
+        .iter()
+        .filter(|sprite| sprite.kind.is_berm())
+        .collect::<Vec<_>>();
+    let columns = 3;
+    let padding = 12;
+    let cell_w = berm
+        .iter()
+        .map(|sprite| sprite.image.width)
+        .max()
+        .unwrap_or(64)
+        + padding * 2;
+    let cell_h = berm
+        .iter()
+        .map(|sprite| sprite.image.height)
+        .max()
+        .unwrap_or(32)
+        + padding * 2;
+    let rows = (berm.len() as u32).div_ceil(columns).max(1);
+    let mut sheet = PixelImage::new(
+        cell_w * columns + padding,
+        cell_h * rows + padding,
+        Rgba8::opaque(13, 15, 17),
+    );
+
+    for (i, sprite) in berm.iter().enumerate() {
+        let col = i as u32 % columns;
+        let row = i as u32 / columns;
+        let x = padding + col * cell_w;
+        let y = padding + row * cell_h;
+        sheet.fill_rect(
+            x,
+            y,
+            cell_w - padding,
+            cell_h - padding,
+            Rgba8::opaque(28, 31, 28),
+        );
+        sheet.outline_rect(
+            x,
+            y,
+            cell_w - padding,
+            cell_h - padding,
+            Rgba8::opaque(55, 60, 54),
+        );
+        sheet.blit(&sprite.image, x + padding / 2, y + padding / 2);
+    }
+    sheet
+}
+
 pub fn build_trench_oblique_straight_preview(
     sprites: &[GeneratedTerrainSprite],
     recipe: &TerrainSpriteRecipe,
@@ -514,6 +567,104 @@ pub fn build_trench_oblique_shadow_preview(
         blit_scaled_i32(&mut preview, spoil, 238, 152, 120, 34);
     }
     preview
+}
+
+pub fn build_berm_oblique_straight_preview(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    let mut preview = trench_preview_base(sprites, recipe, 5, 3);
+    draw_straight_berm(&mut preview, sprites, 128, 102, 1.0);
+    preview
+}
+
+pub fn build_berm_oblique_caps_preview(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    let mut preview = trench_preview_base(sprites, recipe, 5, 3);
+    draw_straight_berm(&mut preview, sprites, 138, 102, 0.78);
+    if let Some(cap) = sprite_image(sprites, TerrainSpriteKind::BermEndCapLeft, 1) {
+        blit_scaled_i32(&mut preview, cap, 98, 101, 58, 56);
+    }
+    if let Some(cap) = sprite_image(sprites, TerrainSpriteKind::BermEndCapRight, 1) {
+        blit_scaled_i32(&mut preview, cap, 332, 101, 58, 56);
+    }
+    preview
+}
+
+pub fn build_berm_oblique_corner_preview(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    let mut preview = trench_preview_base(sprites, recipe, 5, 4);
+    draw_straight_berm(&mut preview, sprites, 102, 148, 0.66);
+    if let Some(shadow) = sprite_image(sprites, TerrainSpriteKind::BermContactShadow, 1) {
+        blit_scaled_i32(&mut preview, shadow, 213, 108, 78, 76);
+    }
+    if let Some(face) = sprite_image(sprites, TerrainSpriteKind::BermFaceFront, 1) {
+        blit_scaled_i32(&mut preview, face, 218, 73, 52, 168);
+    }
+    if let Some(top) = sprite_image(sprites, TerrainSpriteKind::BermTop, 1) {
+        blit_scaled_i32(&mut preview, top, 194, 73, 88, 116);
+    }
+    if let Some(corner) = sprite_image(sprites, TerrainSpriteKind::BermCornerInner, 1) {
+        preview.blit(corner, 205, 130);
+    }
+    if let Some(corner) = sprite_image(sprites, TerrainSpriteKind::BermCornerOuter, 1) {
+        preview.blit(corner, 250, 168);
+    }
+    preview
+}
+
+pub fn build_berm_oblique_shadow_preview(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    let mut preview = trench_preview_base(sprites, recipe, 5, 3);
+    if let Some(shadow) = sprite_image(sprites, TerrainSpriteKind::BermContactShadow, 1) {
+        blit_scaled_i32(&mut preview, shadow, 104, 148, 286, 72);
+    }
+    if let Some(spoil) = sprite_image(sprites, TerrainSpriteKind::BermSpoilPile, 1) {
+        blit_scaled_i32(&mut preview, spoil, 138, 92, 120, 34);
+        blit_scaled_i32(&mut preview, spoil, 248, 174, 110, 32);
+    }
+    if let Some(fringe) = sprite_image(sprites, TerrainSpriteKind::BermGrassFringe, 1) {
+        blit_scaled_i32(&mut preview, fringe, 118, 84, 270, 28);
+    }
+    draw_straight_berm(&mut preview, sprites, 128, 102, 1.0);
+    preview
+}
+
+pub fn build_berm_mask_debug_preview(recipe: &TerrainSpriteRecipe) -> PixelImage {
+    let scale = recipe.style.display_scale.max(1);
+    let projection = &recipe.style.projection;
+    let cell_w = projection.cell_width_px;
+    let cell_h = projection.cell_height_px;
+    let face_h = projection.face_height_px.max(8);
+    let mut preview = PixelImage::new(cell_w * 3, cell_h * 2, Rgba8::opaque(36, 43, 31));
+    let top = Rgba8::opaque(150, 112, 65);
+    let face = Rgba8::opaque(104, 70, 43);
+    let lip = Rgba8::opaque(202, 151, 87);
+    let shadow = Rgba8::opaque(20, 22, 18);
+    preview.fill_rect(cell_w / 2, cell_h / 2, cell_w * 2, face_h / 2, shadow);
+    preview.fill_rect(
+        cell_w / 2,
+        cell_h / 2 - face_h / 2,
+        cell_w * 2,
+        face_h,
+        face,
+    );
+    preview.fill_rect(cell_w / 2, cell_h / 2 - face_h, cell_w * 2, face_h / 2, top);
+    preview.fill_rect(cell_w / 2, cell_h / 2 - face_h - 3, cell_w * 2, 4, lip);
+    preview.outline_rect(
+        cell_w / 2,
+        cell_h / 2 - face_h,
+        cell_w * 2,
+        face_h,
+        Rgba8::WHITE,
+    );
+    scale_nearest(&preview, scale)
 }
 
 pub fn build_trench_mask_debug_preview(recipe: &TerrainSpriteRecipe) -> PixelImage {
@@ -1109,6 +1260,38 @@ fn draw_straight_trench(
     }
     if let Some(lip) = sprite_image(sprites, TerrainSpriteKind::TrenchLipFront, 1) {
         blit_scaled_i32(target, lip, x - 8, y + 79, trench_w + 16, 24);
+    }
+}
+
+fn draw_straight_berm(
+    target: &mut PixelImage,
+    sprites: &[GeneratedTerrainSprite],
+    x: i32,
+    y: i32,
+    width_factor: f32,
+) {
+    let berm_w = (260.0 * width_factor).round() as u32;
+    if let Some(shadow) = sprite_image(sprites, TerrainSpriteKind::BermContactShadow, 1) {
+        blit_scaled_i32(target, shadow, x - 16, y + 76, berm_w + 36, 58);
+    }
+    if let Some(spoil) = sprite_image(sprites, TerrainSpriteKind::BermSpoilPile, 1) {
+        blit_scaled_i32(target, spoil, x + 6, y + 96, berm_w / 2, 34);
+        blit_scaled_i32(target, spoil, x + berm_w as i32 / 2, y - 12, berm_w / 2, 32);
+    }
+    if let Some(fringe) = sprite_image(sprites, TerrainSpriteKind::BermGrassFringe, 1) {
+        blit_scaled_i32(target, fringe, x - 6, y - 8, berm_w + 16, 22);
+    }
+    if let Some(lip) = sprite_image(sprites, TerrainSpriteKind::BermLipBack, 1) {
+        blit_scaled_i32(target, lip, x - 8, y + 8, berm_w + 16, 22);
+    }
+    if let Some(top) = sprite_image(sprites, TerrainSpriteKind::BermTop, 1) {
+        blit_scaled_i32(target, top, x, y + 22, berm_w, 64);
+    }
+    if let Some(face) = sprite_image(sprites, TerrainSpriteKind::BermFaceFront, 1) {
+        blit_scaled_i32(target, face, x + 8, y + 70, berm_w - 16, 48);
+    }
+    if let Some(lip) = sprite_image(sprites, TerrainSpriteKind::BermLipFront, 1) {
+        blit_scaled_i32(target, lip, x - 6, y + 60, berm_w + 12, 24);
     }
 }
 

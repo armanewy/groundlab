@@ -15,6 +15,7 @@ pub struct TerrainSpriteValidationReport {
     pub variant_similarity_score: f32,
     pub edge_mask_continuity_score: f32,
     pub trench: TrenchSpriteValidationSummary,
+    pub berm: BermSpriteValidationSummary,
     pub issues: Vec<TerrainSpriteValidationIssue>,
     pub sprites: Vec<TerrainSpriteValidationSummary>,
 }
@@ -47,6 +48,16 @@ pub struct TrenchNeighborPairScore {
     pub edge: String,
     pub mask_b: u8,
     pub score: f32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct BermSpriteValidationSummary {
+    pub berm_piece_coverage: usize,
+    pub berm_role_coverage: usize,
+    pub berm_face_top_contrast: f32,
+    pub berm_shadow_continuity: f32,
+    pub berm_cap_presence: bool,
+    pub berm_oblique_anchor_validity: f32,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -91,7 +102,7 @@ pub fn validate_terrain_sprites(
 
     for sprite in sprites {
         let summary = summarize(sprite);
-        if !sprite.kind.is_trench() && !sprite.kind.is_trench_mask() {
+        if !sprite.kind.is_trench() && !sprite.kind.is_trench_mask() && !sprite.kind.is_berm() {
             seam_total += summary.seam_score;
             noise_total += summary.single_pixel_noise_count as f32;
             motif_total += summary.motif_repetition_score;
@@ -115,6 +126,7 @@ pub fn validate_terrain_sprites(
         }
         if !sprite.kind.is_trench()
             && !sprite.kind.is_trench_mask()
+            && !sprite.kind.is_berm()
             && summary.single_pixel_noise_count > 6
         {
             issues.push(TerrainSpriteValidationIssue {
@@ -123,7 +135,11 @@ pub fn validate_terrain_sprites(
                 message: "sprite contains several isolated single-pixel color changes".to_string(),
             });
         }
-        if !sprite.kind.is_trench() && !sprite.kind.is_trench_mask() && summary.unique_colors > 10 {
+        if !sprite.kind.is_trench()
+            && !sprite.kind.is_trench_mask()
+            && !sprite.kind.is_berm()
+            && summary.unique_colors > 10
+        {
             issues.push(TerrainSpriteValidationIssue {
                 severity: TerrainSpriteValidationSeverity::Info,
                 sprite_id: Some(sprite.id.clone()),
@@ -225,6 +241,7 @@ pub fn validate_terrain_sprites(
         });
     }
     let trench = validate_trench_sprites(sprites, &mut issues);
+    let berm = validate_berm_sprites(sprites, &mut issues);
     TerrainSpriteValidationReport {
         sprite_count: sprites.len(),
         path_mask_coverage: 16 - missing_path_masks.len(),
@@ -241,6 +258,7 @@ pub fn validate_terrain_sprites(
             0.0
         },
         trench,
+        berm,
         issues,
         sprites: summaries,
     }
@@ -501,6 +519,149 @@ fn validate_trench_sprites(
     }
 }
 
+fn validate_berm_sprites(
+    sprites: &[GeneratedTerrainSprite],
+    issues: &mut Vec<TerrainSpriteValidationIssue>,
+) -> BermSpriteValidationSummary {
+    let required = [
+        TerrainSpriteKind::BermTop,
+        TerrainSpriteKind::BermFaceFront,
+        TerrainSpriteKind::BermLipFront,
+        TerrainSpriteKind::BermLipBack,
+        TerrainSpriteKind::BermEndCapLeft,
+        TerrainSpriteKind::BermEndCapRight,
+        TerrainSpriteKind::BermCornerInner,
+        TerrainSpriteKind::BermCornerOuter,
+        TerrainSpriteKind::BermContactShadow,
+        TerrainSpriteKind::BermSpoilPile,
+        TerrainSpriteKind::BermGrassFringe,
+    ];
+    let required_roles = [
+        SpriteRole::TopSurface,
+        SpriteRole::FrontFace,
+        SpriteRole::Lip,
+        SpriteRole::CornerCap,
+        SpriteRole::ContactShadow,
+        SpriteRole::Decal,
+    ];
+    let berm_sprites = sprites
+        .iter()
+        .filter(|sprite| sprite.kind.is_berm())
+        .collect::<Vec<_>>();
+    let berm_piece_coverage = required
+        .iter()
+        .filter(|kind| berm_sprites.iter().any(|sprite| sprite.kind == **kind))
+        .count();
+    let berm_role_coverage = required_roles
+        .iter()
+        .filter(|role| {
+            berm_sprites
+                .iter()
+                .any(|sprite| sprite.metadata.role == **role)
+        })
+        .count();
+
+    for kind in required {
+        if !berm_sprites.iter().any(|sprite| sprite.kind == kind) {
+            issues.push(TerrainSpriteValidationIssue {
+                severity: TerrainSpriteValidationSeverity::Error,
+                sprite_id: None,
+                message: format!("missing berm sprite {}", kind.id()),
+            });
+        }
+    }
+    for role in required_roles {
+        if !berm_sprites
+            .iter()
+            .any(|sprite| sprite.metadata.role == role)
+        {
+            issues.push(TerrainSpriteValidationIssue {
+                severity: TerrainSpriteValidationSeverity::Error,
+                sprite_id: None,
+                message: format!("missing berm sprite role {}", role.id()),
+            });
+        }
+    }
+    for sprite in &berm_sprites {
+        let expected = expected_berm_role(sprite.kind);
+        if sprite.metadata.role != expected {
+            issues.push(TerrainSpriteValidationIssue {
+                severity: TerrainSpriteValidationSeverity::Warning,
+                sprite_id: Some(sprite.id.clone()),
+                message: format!(
+                    "berm sprite has role {}, expected {}",
+                    sprite.metadata.role.id(),
+                    expected.id()
+                ),
+            });
+        }
+        if sprite.metadata.footprint_cells.0 == 0 || sprite.metadata.footprint_cells.1 == 0 {
+            issues.push(TerrainSpriteValidationIssue {
+                severity: TerrainSpriteValidationSeverity::Error,
+                sprite_id: Some(sprite.id.clone()),
+                message: "berm sprite has invalid zero-cell footprint".to_string(),
+            });
+        }
+    }
+
+    let top = first_kind(sprites, TerrainSpriteKind::BermTop);
+    let face = first_kind(sprites, TerrainSpriteKind::BermFaceFront);
+    let shadow = first_kind(sprites, TerrainSpriteKind::BermContactShadow);
+    let top_luma = top.map(average_luma).unwrap_or(0.0);
+    let face_luma = face.map(average_luma).unwrap_or(0.0);
+    let berm_face_top_contrast = ((top_luma - face_luma).abs() / 255.0).min(1.0);
+    let berm_shadow_continuity = shadow.map(alpha_coverage).unwrap_or(0.0);
+    let berm_cap_presence = first_kind(sprites, TerrainSpriteKind::BermEndCapLeft).is_some()
+        && first_kind(sprites, TerrainSpriteKind::BermEndCapRight).is_some()
+        && first_kind(sprites, TerrainSpriteKind::BermCornerInner).is_some()
+        && first_kind(sprites, TerrainSpriteKind::BermCornerOuter).is_some();
+    let valid_anchors = berm_sprites
+        .iter()
+        .filter(|sprite| {
+            sprite.metadata.anchor_px.0.abs() <= sprite.image.width as i32
+                && sprite.metadata.anchor_px.1.abs() <= sprite.image.height as i32
+        })
+        .count() as f32;
+    let berm_oblique_anchor_validity = if berm_sprites.is_empty() {
+        0.0
+    } else {
+        valid_anchors / berm_sprites.len() as f32
+    };
+
+    if berm_face_top_contrast < 0.05 {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Warning,
+            sprite_id: first_kind(sprites, TerrainSpriteKind::BermFaceFront)
+                .map(|sprite| sprite.id.clone()),
+            message: "berm face and top have low contrast".to_string(),
+        });
+    }
+    if berm_shadow_continuity < 0.10 {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Warning,
+            sprite_id: first_kind(sprites, TerrainSpriteKind::BermContactShadow)
+                .map(|sprite| sprite.id.clone()),
+            message: "berm contact shadow has low alpha coverage".to_string(),
+        });
+    }
+    if !berm_cap_presence {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Error,
+            sprite_id: None,
+            message: "berm end/corner cap coverage is incomplete".to_string(),
+        });
+    }
+
+    BermSpriteValidationSummary {
+        berm_piece_coverage,
+        berm_role_coverage,
+        berm_face_top_contrast,
+        berm_shadow_continuity,
+        berm_cap_presence,
+        berm_oblique_anchor_validity,
+    }
+}
+
 fn expected_trench_role(kind: TerrainSpriteKind) -> SpriteRole {
     match kind {
         TerrainSpriteKind::TrenchFloorTop => SpriteRole::TopSurface,
@@ -512,6 +673,21 @@ fn expected_trench_role(kind: TerrainSpriteKind) -> SpriteRole {
         | TerrainSpriteKind::TrenchCornerOuter => SpriteRole::CornerCap,
         TerrainSpriteKind::TrenchContactShadow => SpriteRole::ContactShadow,
         TerrainSpriteKind::TrenchSpoilPile => SpriteRole::Decal,
+        _ => SpriteRole::TopSurface,
+    }
+}
+
+fn expected_berm_role(kind: TerrainSpriteKind) -> SpriteRole {
+    match kind {
+        TerrainSpriteKind::BermTop => SpriteRole::TopSurface,
+        TerrainSpriteKind::BermFaceFront => SpriteRole::FrontFace,
+        TerrainSpriteKind::BermLipFront | TerrainSpriteKind::BermLipBack => SpriteRole::Lip,
+        TerrainSpriteKind::BermEndCapLeft
+        | TerrainSpriteKind::BermEndCapRight
+        | TerrainSpriteKind::BermCornerInner
+        | TerrainSpriteKind::BermCornerOuter => SpriteRole::CornerCap,
+        TerrainSpriteKind::BermContactShadow => SpriteRole::ContactShadow,
+        TerrainSpriteKind::BermSpoilPile | TerrainSpriteKind::BermGrassFringe => SpriteRole::Decal,
         _ => SpriteRole::TopSurface,
     }
 }

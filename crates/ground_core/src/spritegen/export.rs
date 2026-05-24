@@ -6,12 +6,15 @@ use ron::ser::PrettyConfig;
 
 use crate::recipe::{GroundMaterial, TransitionEdge};
 use crate::spritegen::{
-    build_motif_heatmap, build_oblique_material_preview, build_palette_preview,
-    build_path_autotile_sheet, build_path_mask_debug_preview, build_path_neighbor_seam_heatmap,
-    build_path_preview_dense, build_path_preview_junctions, build_path_preview_loop,
-    build_path_preview_random, build_path_preview_sparse, build_repeat_preview, build_seam_heatmap,
-    build_single_repeat_preview, build_sprite_contact_sheet, build_transition_edges_preview,
-    build_transition_repeat_preview, build_trench_autotile_sheet, build_trench_contact_sheet,
+    build_berm_contact_sheet, build_berm_mask_debug_preview, build_berm_oblique_caps_preview,
+    build_berm_oblique_corner_preview, build_berm_oblique_shadow_preview,
+    build_berm_oblique_straight_preview, build_motif_heatmap, build_oblique_material_preview,
+    build_palette_preview, build_path_autotile_sheet, build_path_mask_debug_preview,
+    build_path_neighbor_seam_heatmap, build_path_preview_dense, build_path_preview_junctions,
+    build_path_preview_loop, build_path_preview_random, build_path_preview_sparse,
+    build_repeat_preview, build_seam_heatmap, build_single_repeat_preview,
+    build_sprite_contact_sheet, build_transition_edges_preview, build_transition_repeat_preview,
+    build_trench_autotile_sheet, build_trench_contact_sheet,
     build_trench_floor_continuity_edge_heatmap, build_trench_floor_continuity_heatmap,
     build_trench_lip_continuity_edge_heatmap, build_trench_lip_continuity_heatmap,
     build_trench_mask_debug_preview, build_trench_neighbor_seam_edge_heatmap,
@@ -135,6 +138,16 @@ pub fn export_terrain_sprite_bundle(
         .save_png(out_dir.join("trench_preview_oblique_corner.png"))?;
     build_trench_oblique_shadow_preview(&sprites, &recipe)
         .save_png(out_dir.join("trench_preview_oblique_shadow.png"))?;
+    build_berm_contact_sheet(&sprites, &recipe).save_png(out_dir.join("berm_contact_sheet.png"))?;
+    build_berm_oblique_straight_preview(&sprites, &recipe)
+        .save_png(out_dir.join("berm_preview_oblique_straight.png"))?;
+    build_berm_oblique_caps_preview(&sprites, &recipe)
+        .save_png(out_dir.join("berm_preview_oblique_caps.png"))?;
+    build_berm_oblique_corner_preview(&sprites, &recipe)
+        .save_png(out_dir.join("berm_preview_oblique_corner.png"))?;
+    build_berm_oblique_shadow_preview(&sprites, &recipe)
+        .save_png(out_dir.join("berm_preview_oblique_shadow.png"))?;
+    build_berm_mask_debug_preview(&recipe).save_png(out_dir.join("berm_mask_debug.png"))?;
     build_trench_mask_debug_preview(&recipe).save_png(out_dir.join("trench_mask_debug.png"))?;
     build_trench_autotile_sheet(&sprites, &recipe)
         .save_png(out_dir.join("trench_autotile_sheet.png"))?;
@@ -313,6 +326,60 @@ fn art_piece_for_sprite(sprite: &GeneratedTerrainSprite) -> TerrainArtPiece {
             Some(GroundMaterial::TrenchWall),
             TerrainArtRepeatMode::Stamp,
             vec!["spritegen", "cozy", "trench", "spoil"],
+        ),
+        TerrainSpriteKind::BermTop => (
+            TerrainArtPieceKind::BermTop,
+            Some(GroundMaterial::BermTop),
+            TerrainArtRepeatMode::StretchMiddle,
+            vec!["spritegen", "cozy", "berm", "top"],
+        ),
+        TerrainSpriteKind::BermFaceFront => (
+            TerrainArtPieceKind::BermFaceFront,
+            Some(GroundMaterial::BermFace),
+            TerrainArtRepeatMode::StretchMiddle,
+            vec!["spritegen", "cozy", "berm", "front-face"],
+        ),
+        TerrainSpriteKind::BermLipFront | TerrainSpriteKind::BermLipBack => (
+            TerrainArtPieceKind::BrokenBermEdge,
+            Some(GroundMaterial::BermFace),
+            TerrainArtRepeatMode::StretchMiddle,
+            vec!["spritegen", "cozy", "berm", "lip"],
+        ),
+        TerrainSpriteKind::BermEndCapLeft => (
+            TerrainArtPieceKind::BermCornerLeft,
+            Some(GroundMaterial::BermFace),
+            TerrainArtRepeatMode::Stamp,
+            vec!["spritegen", "cozy", "berm", "end-cap"],
+        ),
+        TerrainSpriteKind::BermEndCapRight => (
+            TerrainArtPieceKind::BermCornerRight,
+            Some(GroundMaterial::BermFace),
+            TerrainArtRepeatMode::Stamp,
+            vec!["spritegen", "cozy", "berm", "end-cap"],
+        ),
+        TerrainSpriteKind::BermCornerInner | TerrainSpriteKind::BermCornerOuter => (
+            TerrainArtPieceKind::CornerCap,
+            Some(GroundMaterial::BermFace),
+            TerrainArtRepeatMode::Stamp,
+            vec!["spritegen", "cozy", "berm", "corner"],
+        ),
+        TerrainSpriteKind::BermContactShadow => (
+            TerrainArtPieceKind::SoftShadow,
+            None,
+            TerrainArtRepeatMode::StretchMiddle,
+            vec!["spritegen", "cozy", "berm", "contact-shadow"],
+        ),
+        TerrainSpriteKind::BermSpoilPile => (
+            TerrainArtPieceKind::BrokenBermEdge,
+            Some(GroundMaterial::BermFace),
+            TerrainArtRepeatMode::Stamp,
+            vec!["spritegen", "cozy", "berm", "spoil"],
+        ),
+        TerrainSpriteKind::BermGrassFringe => (
+            TerrainArtPieceKind::GrassFloorEdge,
+            Some(GroundMaterial::Grass),
+            TerrainArtRepeatMode::StretchMiddle,
+            vec!["spritegen", "cozy", "berm", "grass-fringe"],
         ),
     };
     TerrainArtPiece {

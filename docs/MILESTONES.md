@@ -297,6 +297,24 @@ Implemented in this drop.
 This is a narrow topology pass. It does not add berms, stone, props, scene rendering, or terrain
 editor integration.
 
+## ArtGen 3.0 — Oblique berm / mound sprite kit
+
+Implemented in this drop.
+
+- active visual work remains in Pixel Terrain Forge instead of the full-scene renderer
+- berm rules are data-driven through the swappable sprite style profiles
+- generated berm pieces include top, front face, front/back lips, end caps, inner/outer corners, contact shadow, spoil pile, and grass fringe
+- berm pieces export with sprite role, anchor, footprint, z-bias, occlusion intent, and projection metadata
+- `berm_contact_sheet.png` collects the generated raised-earth kit
+- `berm_preview_oblique_straight.png` stages top, face, lip, shadow, spoil, and fringe as a raised mound
+- `berm_preview_oblique_caps.png`, `berm_preview_oblique_corner.png`, and `berm_preview_oblique_shadow.png` provide focused visual checks
+- `berm_mask_debug.png` documents the basic straight/cap/corner/shadow preview grammar
+- berm validation reports piece coverage, role coverage, face/top contrast, shadow continuity, cap presence, and anchor validity
+- sprite CLI/app default export target is `exports/artgen_03_0`
+
+This is the raised-terrain counterpart to the trench work. It does not add full berm topology,
+stone, props, scene rendering, or terrain editor integration.
+
 ## Milestone 5 — Custom renderer/runtime
 
 - introduce `ground_render`

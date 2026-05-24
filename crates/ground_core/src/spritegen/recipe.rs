@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::pixel_image::PixelImage;
 use crate::spritegen::{ObliqueProjectionProfile, TerrainMotifLibrary, TerrainSpriteStyle};
 
-pub const DEFAULT_SPRITEGEN_EXPORT_DIR: &str = "exports/artgen_02_1b";
+pub const DEFAULT_SPRITEGEN_EXPORT_DIR: &str = "exports/artgen_03_0";
 pub const DEFAULT_SPRITE_STYLE_PATH: &str = "assets/sprite_styles/cozy_upland/style.ron";
 
 pub const BUILTIN_SPRITE_STYLE_PROFILES: [(&str, &str); 3] = [
@@ -125,6 +125,18 @@ impl TerrainSpriteRecipe {
             self.style.trench.inner_shadow_strength.clamp(0.0, 1.0);
         self.style.trench.contact_shadow_strength =
             self.style.trench.contact_shadow_strength.clamp(0.0, 1.0);
+        self.style.berm.mound_height_strength =
+            self.style.berm.mound_height_strength.clamp(0.0, 1.0);
+        self.style.berm.face_shadow_strength = self.style.berm.face_shadow_strength.clamp(0.0, 1.0);
+        self.style.berm.top_grass_blend = self.style.berm.top_grass_blend.clamp(0.0, 1.0);
+        self.style.berm.lip_highlight_strength =
+            self.style.berm.lip_highlight_strength.clamp(0.0, 1.0);
+        self.style.berm.edge_irregularity_px = self.style.berm.edge_irregularity_px.clamp(0, 12);
+        self.style.berm.spoil_density = self.style.berm.spoil_density.clamp(0.0, 1.0);
+        self.style.berm.grass_intrusion_density =
+            self.style.berm.grass_intrusion_density.clamp(0.0, 1.0);
+        self.style.berm.contact_shadow_strength =
+            self.style.berm.contact_shadow_strength.clamp(0.0, 1.0);
         self.motifs.sanitize();
     }
 
@@ -200,6 +212,15 @@ impl TerrainMotifLibrary {
         self.trench_spoil.retain(|motif| !motif.pixels.is_empty());
         self.trench_grass_overhang
             .retain(|motif| !motif.pixels.is_empty());
+        self.berm_soil_clump
+            .retain(|motif| !motif.pixels.is_empty());
+        self.berm_grass_overhang
+            .retain(|motif| !motif.pixels.is_empty());
+        self.berm_face_shadow
+            .retain(|motif| !motif.pixels.is_empty());
+        self.berm_edge_highlight
+            .retain(|motif| !motif.pixels.is_empty());
+        self.berm_spoil.retain(|motif| !motif.pixels.is_empty());
         let fallback = TerrainMotifLibrary::default();
         self.grass_dark = with_fallback(std::mem::take(&mut self.grass_dark), fallback.grass_dark);
         self.grass_light =
@@ -234,6 +255,23 @@ impl TerrainMotifLibrary {
             std::mem::take(&mut self.trench_grass_overhang),
             fallback.trench_grass_overhang,
         );
+        self.berm_soil_clump = with_fallback(
+            std::mem::take(&mut self.berm_soil_clump),
+            fallback.berm_soil_clump,
+        );
+        self.berm_grass_overhang = with_fallback(
+            std::mem::take(&mut self.berm_grass_overhang),
+            fallback.berm_grass_overhang,
+        );
+        self.berm_face_shadow = with_fallback(
+            std::mem::take(&mut self.berm_face_shadow),
+            fallback.berm_face_shadow,
+        );
+        self.berm_edge_highlight = with_fallback(
+            std::mem::take(&mut self.berm_edge_highlight),
+            fallback.berm_edge_highlight,
+        );
+        self.berm_spoil = with_fallback(std::mem::take(&mut self.berm_spoil), fallback.berm_spoil);
     }
 }
 
@@ -377,6 +415,17 @@ pub enum TerrainSpriteKind {
     TrenchCornerOuter,
     TrenchContactShadow,
     TrenchSpoilPile,
+    BermTop,
+    BermFaceFront,
+    BermLipFront,
+    BermLipBack,
+    BermEndCapLeft,
+    BermEndCapRight,
+    BermCornerInner,
+    BermCornerOuter,
+    BermContactShadow,
+    BermSpoilPile,
+    BermGrassFringe,
     TrenchMask00,
     TrenchMask01,
     TrenchMask02,
@@ -396,7 +445,7 @@ pub enum TerrainSpriteKind {
 }
 
 impl TerrainSpriteKind {
-    pub const ALL: [TerrainSpriteKind; 48] = [
+    pub const ALL: [TerrainSpriteKind; 59] = [
         TerrainSpriteKind::GrassTile,
         TerrainSpriteKind::DirtTile,
         TerrainSpriteKind::GrassToDirtEdgeNorth,
@@ -429,6 +478,17 @@ impl TerrainSpriteKind {
         TerrainSpriteKind::TrenchCornerOuter,
         TerrainSpriteKind::TrenchContactShadow,
         TerrainSpriteKind::TrenchSpoilPile,
+        TerrainSpriteKind::BermTop,
+        TerrainSpriteKind::BermFaceFront,
+        TerrainSpriteKind::BermLipFront,
+        TerrainSpriteKind::BermLipBack,
+        TerrainSpriteKind::BermEndCapLeft,
+        TerrainSpriteKind::BermEndCapRight,
+        TerrainSpriteKind::BermCornerInner,
+        TerrainSpriteKind::BermCornerOuter,
+        TerrainSpriteKind::BermContactShadow,
+        TerrainSpriteKind::BermSpoilPile,
+        TerrainSpriteKind::BermGrassFringe,
         TerrainSpriteKind::TrenchMask00,
         TerrainSpriteKind::TrenchMask01,
         TerrainSpriteKind::TrenchMask02,
@@ -481,6 +541,17 @@ impl TerrainSpriteKind {
             TerrainSpriteKind::TrenchCornerOuter => "trench_corner_outer",
             TerrainSpriteKind::TrenchContactShadow => "trench_contact_shadow",
             TerrainSpriteKind::TrenchSpoilPile => "trench_spoil_pile",
+            TerrainSpriteKind::BermTop => "berm_top",
+            TerrainSpriteKind::BermFaceFront => "berm_face_front",
+            TerrainSpriteKind::BermLipFront => "berm_lip_front",
+            TerrainSpriteKind::BermLipBack => "berm_lip_back",
+            TerrainSpriteKind::BermEndCapLeft => "berm_end_cap_left",
+            TerrainSpriteKind::BermEndCapRight => "berm_end_cap_right",
+            TerrainSpriteKind::BermCornerInner => "berm_corner_inner",
+            TerrainSpriteKind::BermCornerOuter => "berm_corner_outer",
+            TerrainSpriteKind::BermContactShadow => "berm_contact_shadow",
+            TerrainSpriteKind::BermSpoilPile => "berm_spoil_pile",
+            TerrainSpriteKind::BermGrassFringe => "berm_grass_fringe",
             TerrainSpriteKind::TrenchMask00 => "trench_mask_00",
             TerrainSpriteKind::TrenchMask01 => "trench_mask_01",
             TerrainSpriteKind::TrenchMask02 => "trench_mask_02",
@@ -534,6 +605,17 @@ impl TerrainSpriteKind {
             TerrainSpriteKind::TrenchCornerOuter => "Trench outer corner",
             TerrainSpriteKind::TrenchContactShadow => "Trench contact shadow",
             TerrainSpriteKind::TrenchSpoilPile => "Trench spoil pile",
+            TerrainSpriteKind::BermTop => "Berm top",
+            TerrainSpriteKind::BermFaceFront => "Berm front face",
+            TerrainSpriteKind::BermLipFront => "Berm lip front",
+            TerrainSpriteKind::BermLipBack => "Berm lip back",
+            TerrainSpriteKind::BermEndCapLeft => "Berm end cap left",
+            TerrainSpriteKind::BermEndCapRight => "Berm end cap right",
+            TerrainSpriteKind::BermCornerInner => "Berm inner corner",
+            TerrainSpriteKind::BermCornerOuter => "Berm outer corner",
+            TerrainSpriteKind::BermContactShadow => "Berm contact shadow",
+            TerrainSpriteKind::BermSpoilPile => "Berm spoil pile",
+            TerrainSpriteKind::BermGrassFringe => "Berm grass fringe",
             TerrainSpriteKind::TrenchMask00 => "Trench mask 00",
             TerrainSpriteKind::TrenchMask01 => "Trench mask 01",
             TerrainSpriteKind::TrenchMask02 => "Trench mask 02",
@@ -675,6 +757,23 @@ impl TerrainSpriteKind {
         )
     }
 
+    pub fn is_berm(self) -> bool {
+        matches!(
+            self,
+            TerrainSpriteKind::BermTop
+                | TerrainSpriteKind::BermFaceFront
+                | TerrainSpriteKind::BermLipFront
+                | TerrainSpriteKind::BermLipBack
+                | TerrainSpriteKind::BermEndCapLeft
+                | TerrainSpriteKind::BermEndCapRight
+                | TerrainSpriteKind::BermCornerInner
+                | TerrainSpriteKind::BermCornerOuter
+                | TerrainSpriteKind::BermContactShadow
+                | TerrainSpriteKind::BermSpoilPile
+                | TerrainSpriteKind::BermGrassFringe
+        )
+    }
+
     pub fn default_piece_metadata(self) -> SpritePieceMetadata {
         match self {
             TerrainSpriteKind::GrassTile
@@ -731,6 +830,36 @@ impl TerrainSpriteKind {
             TerrainSpriteKind::TrenchSpoilPile => SpritePieceMetadata::new(SpriteRole::Decal)
                 .footprint((1, 1))
                 .z_bias(18),
+            TerrainSpriteKind::BermTop => SpritePieceMetadata::new(SpriteRole::TopSurface)
+                .footprint((2, 1))
+                .z_bias(18),
+            TerrainSpriteKind::BermFaceFront => SpritePieceMetadata::new(SpriteRole::FrontFace)
+                .anchor((0, -8))
+                .footprint((2, 1))
+                .z_bias(32)
+                .occludes(true),
+            TerrainSpriteKind::BermLipFront | TerrainSpriteKind::BermLipBack => {
+                SpritePieceMetadata::new(SpriteRole::Lip)
+                    .footprint((2, 1))
+                    .z_bias(36)
+            }
+            TerrainSpriteKind::BermEndCapLeft
+            | TerrainSpriteKind::BermEndCapRight
+            | TerrainSpriteKind::BermCornerInner
+            | TerrainSpriteKind::BermCornerOuter => SpritePieceMetadata::new(SpriteRole::CornerCap)
+                .footprint((1, 1))
+                .z_bias(38)
+                .occludes(true),
+            TerrainSpriteKind::BermContactShadow => {
+                SpritePieceMetadata::new(SpriteRole::ContactShadow)
+                    .footprint((2, 1))
+                    .z_bias(-2)
+            }
+            TerrainSpriteKind::BermSpoilPile | TerrainSpriteKind::BermGrassFringe => {
+                SpritePieceMetadata::new(SpriteRole::Decal)
+                    .footprint((1, 1))
+                    .z_bias(22)
+            }
             TerrainSpriteKind::TrenchMask00
             | TerrainSpriteKind::TrenchMask01
             | TerrainSpriteKind::TrenchMask02

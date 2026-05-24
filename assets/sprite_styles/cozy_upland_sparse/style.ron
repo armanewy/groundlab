@@ -73,5 +73,15 @@
             inner_shadow_strength: 0.52,
             contact_shadow_strength: 0.36,
         ),
+        berm: (
+            mound_height_strength: 0.36,
+            face_shadow_strength: 0.26,
+            top_grass_blend: 0.30,
+            lip_highlight_strength: 0.12,
+            edge_irregularity_px: 2,
+            spoil_density: 0.10,
+            grass_intrusion_density: 0.12,
+            contact_shadow_strength: 0.28,
+        ),
     ),
 )

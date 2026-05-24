@@ -1,19 +1,22 @@
 use eframe::egui;
 use ground_core::{
-    build_motif_heatmap, build_oblique_material_preview, build_palette_preview,
-    build_path_autotile_sheet, build_path_mask_debug_preview, build_path_neighbor_seam_heatmap,
-    build_path_preview_dense, build_path_preview_junctions, build_path_preview_loop,
-    build_path_preview_random, build_path_preview_sparse, build_seam_heatmap,
-    build_single_repeat_preview, build_sprite_contact_sheet, build_transition_edges_preview,
-    build_transition_repeat_preview, build_trench_autotile_sheet, build_trench_contact_sheet,
-    build_trench_floor_continuity_heatmap, build_trench_lip_continuity_heatmap,
-    build_trench_mask_debug_preview, build_trench_neighbor_seam_heatmap,
-    build_trench_oblique_caps_preview, build_trench_oblique_corner_preview,
-    build_trench_oblique_shadow_preview, build_trench_oblique_straight_preview,
-    build_trench_preview_dense, build_trench_preview_junctions, build_trench_preview_loop,
-    build_trench_preview_sparse, build_variant_repeat_preview, export_terrain_sprite_bundle,
-    generate_terrain_sprites, scale_nearest, GeneratedTerrainSprite, PixelImage, TerrainSpriteKind,
-    TerrainSpriteRecipe, BUILTIN_SPRITE_STYLE_PROFILES, DEFAULT_SPRITEGEN_EXPORT_DIR,
+    build_berm_contact_sheet, build_berm_mask_debug_preview, build_berm_oblique_caps_preview,
+    build_berm_oblique_corner_preview, build_berm_oblique_shadow_preview,
+    build_berm_oblique_straight_preview, build_motif_heatmap, build_oblique_material_preview,
+    build_palette_preview, build_path_autotile_sheet, build_path_mask_debug_preview,
+    build_path_neighbor_seam_heatmap, build_path_preview_dense, build_path_preview_junctions,
+    build_path_preview_loop, build_path_preview_random, build_path_preview_sparse,
+    build_seam_heatmap, build_single_repeat_preview, build_sprite_contact_sheet,
+    build_transition_edges_preview, build_transition_repeat_preview, build_trench_autotile_sheet,
+    build_trench_contact_sheet, build_trench_floor_continuity_heatmap,
+    build_trench_lip_continuity_heatmap, build_trench_mask_debug_preview,
+    build_trench_neighbor_seam_heatmap, build_trench_oblique_caps_preview,
+    build_trench_oblique_corner_preview, build_trench_oblique_shadow_preview,
+    build_trench_oblique_straight_preview, build_trench_preview_dense,
+    build_trench_preview_junctions, build_trench_preview_loop, build_trench_preview_sparse,
+    build_variant_repeat_preview, export_terrain_sprite_bundle, generate_terrain_sprites,
+    scale_nearest, GeneratedTerrainSprite, PixelImage, TerrainSpriteKind, TerrainSpriteRecipe,
+    BUILTIN_SPRITE_STYLE_PROFILES, DEFAULT_SPRITEGEN_EXPORT_DIR,
 };
 
 const MAX_UI_TEXTURE_SIDE: usize = 2048;
@@ -50,6 +53,12 @@ enum PreviewPanel {
     PathLoopPreview,
     PathJunctionPreview,
     ObliqueMaterialPreview,
+    BermContactSheet,
+    BermStraightPreview,
+    BermCapsPreview,
+    BermCornerPreview,
+    BermShadowPreview,
+    BermMaskDebug,
     TrenchContactSheet,
     TrenchStraightPreview,
     TrenchCapsPreview,
@@ -72,7 +81,7 @@ enum PreviewPanel {
 }
 
 impl PreviewPanel {
-    const ALL: [PreviewPanel; 34] = [
+    const ALL: [PreviewPanel; 40] = [
         PreviewPanel::Selected,
         PreviewPanel::ContactSheet,
         PreviewPanel::GrassSingleRepeat,
@@ -88,6 +97,12 @@ impl PreviewPanel {
         PreviewPanel::PathLoopPreview,
         PreviewPanel::PathJunctionPreview,
         PreviewPanel::ObliqueMaterialPreview,
+        PreviewPanel::BermContactSheet,
+        PreviewPanel::BermStraightPreview,
+        PreviewPanel::BermCapsPreview,
+        PreviewPanel::BermCornerPreview,
+        PreviewPanel::BermShadowPreview,
+        PreviewPanel::BermMaskDebug,
         PreviewPanel::TrenchContactSheet,
         PreviewPanel::TrenchStraightPreview,
         PreviewPanel::TrenchCapsPreview,
@@ -126,6 +141,12 @@ impl PreviewPanel {
             PreviewPanel::PathLoopPreview => "Loop path preview",
             PreviewPanel::PathJunctionPreview => "Junction path preview",
             PreviewPanel::ObliqueMaterialPreview => "Oblique material preview",
+            PreviewPanel::BermContactSheet => "Berm contact sheet",
+            PreviewPanel::BermStraightPreview => "Berm straight preview",
+            PreviewPanel::BermCapsPreview => "Berm caps preview",
+            PreviewPanel::BermCornerPreview => "Berm corner preview",
+            PreviewPanel::BermShadowPreview => "Berm shadow preview",
+            PreviewPanel::BermMaskDebug => "Berm mask debug",
             PreviewPanel::TrenchContactSheet => "Trench contact sheet",
             PreviewPanel::TrenchStraightPreview => "Trench straight preview",
             PreviewPanel::TrenchCapsPreview => "Trench caps preview",
@@ -173,6 +194,12 @@ struct SpriteForgeApp {
     path_loop_texture: Option<egui::TextureHandle>,
     path_junction_texture: Option<egui::TextureHandle>,
     oblique_material_texture: Option<egui::TextureHandle>,
+    berm_contact_texture: Option<egui::TextureHandle>,
+    berm_straight_texture: Option<egui::TextureHandle>,
+    berm_caps_texture: Option<egui::TextureHandle>,
+    berm_corner_texture: Option<egui::TextureHandle>,
+    berm_shadow_texture: Option<egui::TextureHandle>,
+    berm_mask_debug_texture: Option<egui::TextureHandle>,
     trench_contact_texture: Option<egui::TextureHandle>,
     trench_straight_texture: Option<egui::TextureHandle>,
     trench_caps_texture: Option<egui::TextureHandle>,
@@ -222,6 +249,12 @@ impl SpriteForgeApp {
             path_loop_texture: None,
             path_junction_texture: None,
             oblique_material_texture: None,
+            berm_contact_texture: None,
+            berm_straight_texture: None,
+            berm_caps_texture: None,
+            berm_corner_texture: None,
+            berm_shadow_texture: None,
+            berm_mask_debug_texture: None,
             trench_contact_texture: None,
             trench_straight_texture: None,
             trench_caps_texture: None,
@@ -386,6 +419,48 @@ impl SpriteForgeApp {
             "oblique_material_preview",
             &oblique_material,
         );
+        let berm_contact = build_berm_contact_sheet(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.berm_contact_texture,
+            "berm_contact_sheet",
+            &berm_contact,
+        );
+        let berm_straight = build_berm_oblique_straight_preview(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.berm_straight_texture,
+            "berm_straight_preview",
+            &berm_straight,
+        );
+        let berm_caps = build_berm_oblique_caps_preview(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.berm_caps_texture,
+            "berm_caps_preview",
+            &berm_caps,
+        );
+        let berm_corner = build_berm_oblique_corner_preview(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.berm_corner_texture,
+            "berm_corner_preview",
+            &berm_corner,
+        );
+        let berm_shadow = build_berm_oblique_shadow_preview(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.berm_shadow_texture,
+            "berm_shadow_preview",
+            &berm_shadow,
+        );
+        let berm_mask_debug = build_berm_mask_debug_preview(&self.recipe);
+        put_texture(
+            ctx,
+            &mut self.berm_mask_debug_texture,
+            "berm_mask_debug",
+            &berm_mask_debug,
+        );
         let trench_contact = build_trench_contact_sheet(&self.sprites, &self.recipe);
         put_texture(
             ctx,
@@ -520,7 +595,7 @@ impl SpriteForgeApp {
 
     fn show_controls(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.heading("Pixel Terrain Forge");
-        ui.label("ArtGen 2.1: trench autotile topology.");
+        ui.label("ArtGen 3.0: oblique berm sprite kit.");
         ui.separator();
         let selected_profile = BUILTIN_SPRITE_STYLE_PROFILES
             .get(self.selected_profile_index)
@@ -707,6 +782,41 @@ impl SpriteForgeApp {
                 .text("contact shadow"),
             )
             .changed();
+        ui.separator();
+        ui.label("Berm rules");
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.recipe.style.berm.mound_height_strength, 0.0..=1.0)
+                    .text("mound height"),
+            )
+            .changed();
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.recipe.style.berm.face_shadow_strength, 0.0..=1.0)
+                    .text("face shadow"),
+            )
+            .changed();
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.recipe.style.berm.top_grass_blend, 0.0..=1.0)
+                    .text("top grass blend"),
+            )
+            .changed();
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.recipe.style.berm.spoil_density, 0.0..=1.0)
+                    .text("berm spoil"),
+            )
+            .changed();
+        changed |= ui
+            .add(
+                egui::Slider::new(
+                    &mut self.recipe.style.berm.contact_shadow_strength,
+                    0.0..=1.0,
+                )
+                .text("berm contact shadow"),
+            )
+            .changed();
         if changed {
             self.dirty = true;
         }
@@ -853,6 +963,54 @@ impl SpriteForgeApp {
                     self.oblique_material_texture.as_ref(),
                     1.0,
                     "No oblique material preview",
+                );
+            }
+            PreviewPanel::BermContactSheet => {
+                show_texture(
+                    ui,
+                    self.berm_contact_texture.as_ref(),
+                    1.0,
+                    "No berm contact sheet",
+                );
+            }
+            PreviewPanel::BermStraightPreview => {
+                show_texture(
+                    ui,
+                    self.berm_straight_texture.as_ref(),
+                    1.0,
+                    "No berm straight preview",
+                );
+            }
+            PreviewPanel::BermCapsPreview => {
+                show_texture(
+                    ui,
+                    self.berm_caps_texture.as_ref(),
+                    1.0,
+                    "No berm caps preview",
+                );
+            }
+            PreviewPanel::BermCornerPreview => {
+                show_texture(
+                    ui,
+                    self.berm_corner_texture.as_ref(),
+                    1.0,
+                    "No berm corner preview",
+                );
+            }
+            PreviewPanel::BermShadowPreview => {
+                show_texture(
+                    ui,
+                    self.berm_shadow_texture.as_ref(),
+                    1.0,
+                    "No berm shadow preview",
+                );
+            }
+            PreviewPanel::BermMaskDebug => {
+                show_texture(
+                    ui,
+                    self.berm_mask_debug_texture.as_ref(),
+                    1.0,
+                    "No berm mask debug",
                 );
             }
             PreviewPanel::TrenchContactSheet => {

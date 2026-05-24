@@ -15,6 +15,7 @@ pub struct TerrainSpriteStyle {
     pub transition: TransitionRules,
     pub path: PathRules,
     pub trench: TrenchRules,
+    pub berm: BermRules,
 }
 
 impl Default for TerrainSpriteStyle {
@@ -30,6 +31,7 @@ impl Default for TerrainSpriteStyle {
             transition: TransitionRules::default(),
             path: PathRules::default(),
             trench: TrenchRules::default(),
+            berm: BermRules::default(),
         }
     }
 }
@@ -280,6 +282,34 @@ impl Default for TrenchRules {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
+pub struct BermRules {
+    pub mound_height_strength: f32,
+    pub face_shadow_strength: f32,
+    pub top_grass_blend: f32,
+    pub lip_highlight_strength: f32,
+    pub edge_irregularity_px: u32,
+    pub spoil_density: f32,
+    pub grass_intrusion_density: f32,
+    pub contact_shadow_strength: f32,
+}
+
+impl Default for BermRules {
+    fn default() -> Self {
+        Self {
+            mound_height_strength: 0.42,
+            face_shadow_strength: 0.30,
+            top_grass_blend: 0.36,
+            lip_highlight_strength: 0.16,
+            edge_irregularity_px: 3,
+            spoil_density: 0.16,
+            grass_intrusion_density: 0.22,
+            contact_shadow_strength: 0.34,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TerrainMotifLibrary {
     pub id: String,
     pub grass_dark: Vec<TerrainMotif>,
@@ -295,6 +325,11 @@ pub struct TerrainMotifLibrary {
     pub trench_lip: Vec<TerrainMotif>,
     pub trench_spoil: Vec<TerrainMotif>,
     pub trench_grass_overhang: Vec<TerrainMotif>,
+    pub berm_soil_clump: Vec<TerrainMotif>,
+    pub berm_grass_overhang: Vec<TerrainMotif>,
+    pub berm_face_shadow: Vec<TerrainMotif>,
+    pub berm_edge_highlight: Vec<TerrainMotif>,
+    pub berm_spoil: Vec<TerrainMotif>,
 }
 
 impl Default for TerrainMotifLibrary {
@@ -375,6 +410,35 @@ impl Default for TerrainMotifLibrary {
             trench_grass_overhang: vec![
                 TerrainMotif::new("grass_overhang", &[(0, 0, 1), (1, -1, 1), (2, -1, -1)]),
                 TerrainMotif::new("lip_blade", &[(0, 0, -1), (1, 0, 1), (1, -1, 1)]),
+            ],
+            berm_soil_clump: vec![
+                TerrainMotif::new(
+                    "berm_soil_clump_a",
+                    &[(-1, 0, -1), (0, 0, 0), (1, 0, 1), (0, 1, -1)],
+                ),
+                TerrainMotif::new("berm_soil_clump_b", &[(0, 0, 1), (1, 0, 0), (1, 1, -1)]),
+            ],
+            berm_grass_overhang: vec![
+                TerrainMotif::new(
+                    "berm_grass_overhang_a",
+                    &[(0, 0, 1), (1, -1, 1), (2, -1, 0), (1, 0, -1)],
+                ),
+                TerrainMotif::new(
+                    "berm_grass_overhang_b",
+                    &[(0, 0, -1), (1, 0, 1), (1, -1, 1)],
+                ),
+            ],
+            berm_face_shadow: vec![
+                TerrainMotif::new("berm_face_shadow_a", &[(0, 0, -2), (1, 0, -1), (2, 1, -1)]),
+                TerrainMotif::new("berm_face_shadow_b", &[(0, 0, -1), (1, 1, -2)]),
+            ],
+            berm_edge_highlight: vec![
+                TerrainMotif::new("berm_edge_highlight_a", &[(0, 0, 1), (1, 0, 1), (2, 0, 0)]),
+                TerrainMotif::new("berm_edge_highlight_b", &[(-1, 0, 0), (0, 0, 1), (1, 1, 1)]),
+            ],
+            berm_spoil: vec![
+                TerrainMotif::new("berm_spoil_a", &[(0, 0, 0), (1, 0, -1), (0, 1, 1)]),
+                TerrainMotif::new("berm_spoil_b", &[(0, 0, 1), (1, 0, 0), (2, 1, -1)]),
             ],
         }
     }

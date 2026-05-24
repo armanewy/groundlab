@@ -74,4 +74,24 @@
         (id: "grass_overhang", pixels: [(dx: 0, dy: 0, shade: 1), (dx: 1, dy: -1, shade: 1), (dx: 2, dy: -1, shade: -1)]),
         (id: "lip_blade", pixels: [(dx: 0, dy: 0, shade: -1), (dx: 1, dy: 0, shade: 1), (dx: 1, dy: -1, shade: 1)]),
     ],
+    berm_soil_clump: [
+        (id: "berm_soil_clump_a", pixels: [(dx: -1, dy: 0, shade: -1), (dx: 0, dy: 0, shade: 0), (dx: 1, dy: 0, shade: 1), (dx: 0, dy: 1, shade: -1)]),
+        (id: "berm_soil_clump_b", pixels: [(dx: 0, dy: 0, shade: 1), (dx: 1, dy: 0, shade: 0), (dx: 1, dy: 1, shade: -1)]),
+    ],
+    berm_grass_overhang: [
+        (id: "berm_grass_overhang_a", pixels: [(dx: 0, dy: 0, shade: 1), (dx: 1, dy: -1, shade: 1), (dx: 2, dy: -1, shade: 0), (dx: 1, dy: 0, shade: -1)]),
+        (id: "berm_grass_overhang_b", pixels: [(dx: 0, dy: 0, shade: -1), (dx: 1, dy: 0, shade: 1), (dx: 1, dy: -1, shade: 1)]),
+    ],
+    berm_face_shadow: [
+        (id: "berm_face_shadow_a", pixels: [(dx: 0, dy: 0, shade: -2), (dx: 1, dy: 0, shade: -1), (dx: 2, dy: 1, shade: -1)]),
+        (id: "berm_face_shadow_b", pixels: [(dx: 0, dy: 0, shade: -1), (dx: 1, dy: 1, shade: -2)]),
+    ],
+    berm_edge_highlight: [
+        (id: "berm_edge_highlight_a", pixels: [(dx: 0, dy: 0, shade: 1), (dx: 1, dy: 0, shade: 1), (dx: 2, dy: 0, shade: 0)]),
+        (id: "berm_edge_highlight_b", pixels: [(dx: -1, dy: 0, shade: 0), (dx: 0, dy: 0, shade: 1), (dx: 1, dy: 1, shade: 1)]),
+    ],
+    berm_spoil: [
+        (id: "berm_spoil_a", pixels: [(dx: 0, dy: 0, shade: 0), (dx: 1, dy: 0, shade: -1), (dx: 0, dy: 1, shade: 1)]),
+        (id: "berm_spoil_b", pixels: [(dx: 0, dy: 0, shade: 1), (dx: 1, dy: 0, shade: 0), (dx: 2, dy: 1, shade: -1)]),
+    ],
 )
