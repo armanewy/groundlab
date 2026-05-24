@@ -11,10 +11,12 @@ use crate::spritegen::{
     build_path_preview_dense, build_path_preview_junctions, build_path_preview_loop,
     build_path_preview_random, build_path_preview_sparse, build_repeat_preview, build_seam_heatmap,
     build_single_repeat_preview, build_sprite_contact_sheet, build_transition_edges_preview,
-    build_transition_repeat_preview, build_variant_repeat_preview, generate_terrain_sprites,
-    validate_terrain_sprites, GeneratedTerrainSprite, TerrainSpriteBundleManifest,
-    TerrainSpriteKind, TerrainSpritePieceManifest, TerrainSpriteRecipe,
-    DEFAULT_SPRITEGEN_EXPORT_DIR,
+    build_transition_repeat_preview, build_trench_contact_sheet, build_trench_mask_debug_preview,
+    build_trench_oblique_caps_preview, build_trench_oblique_corner_preview,
+    build_trench_oblique_shadow_preview, build_trench_oblique_straight_preview,
+    build_variant_repeat_preview, generate_terrain_sprites, validate_terrain_sprites,
+    GeneratedTerrainSprite, TerrainSpriteBundleManifest, TerrainSpriteKind,
+    TerrainSpritePieceManifest, TerrainSpriteRecipe, DEFAULT_SPRITEGEN_EXPORT_DIR,
 };
 use crate::terrain_artkit::{
     TerrainArtKitFile, TerrainArtOcclusion, TerrainArtOrientationSupport, TerrainArtPiece,
@@ -116,6 +118,17 @@ pub fn export_terrain_sprite_bundle(
         .save_png(out_dir.join("path_preview_junctions.png"))?;
     build_oblique_material_preview(&sprites, &recipe)
         .save_png(out_dir.join("oblique_material_preview.png"))?;
+    build_trench_contact_sheet(&sprites, &recipe)
+        .save_png(out_dir.join("trench_contact_sheet.png"))?;
+    build_trench_oblique_straight_preview(&sprites, &recipe)
+        .save_png(out_dir.join("trench_preview_oblique_straight.png"))?;
+    build_trench_oblique_caps_preview(&sprites, &recipe)
+        .save_png(out_dir.join("trench_preview_oblique_caps.png"))?;
+    build_trench_oblique_corner_preview(&sprites, &recipe)
+        .save_png(out_dir.join("trench_preview_oblique_corner.png"))?;
+    build_trench_oblique_shadow_preview(&sprites, &recipe)
+        .save_png(out_dir.join("trench_preview_oblique_shadow.png"))?;
+    build_trench_mask_debug_preview(&recipe).save_png(out_dir.join("trench_mask_debug.png"))?;
     build_path_mask_debug_preview(&recipe).save_png(out_dir.join("path_preview_mask_debug.png"))?;
     build_path_neighbor_seam_heatmap(&sprites, &recipe)
         .save_png(out_dir.join("path_neighbor_seam_heatmap.png"))?;
@@ -190,6 +203,54 @@ fn art_piece_for_sprite(sprite: &GeneratedTerrainSprite) -> TerrainArtPiece {
             Some(GroundMaterial::Dirt),
             TerrainArtRepeatMode::Tile,
             vec!["spritegen", "cozy", "path-mask"],
+        ),
+        TerrainSpriteKind::TrenchFloorTop => (
+            TerrainArtPieceKind::TrenchFloor,
+            Some(GroundMaterial::TrenchFloor),
+            TerrainArtRepeatMode::StretchMiddle,
+            vec!["spritegen", "cozy", "trench", "floor"],
+        ),
+        TerrainSpriteKind::TrenchWallFront => (
+            TerrainArtPieceKind::TrenchWallFront,
+            Some(GroundMaterial::TrenchWall),
+            TerrainArtRepeatMode::StretchMiddle,
+            vec!["spritegen", "cozy", "trench", "front-face"],
+        ),
+        TerrainSpriteKind::TrenchLipFront | TerrainSpriteKind::TrenchLipBack => (
+            TerrainArtPieceKind::TrenchLip,
+            Some(GroundMaterial::TrenchWall),
+            TerrainArtRepeatMode::StretchMiddle,
+            vec!["spritegen", "cozy", "trench", "lip"],
+        ),
+        TerrainSpriteKind::TrenchEndCapLeft => (
+            TerrainArtPieceKind::TrenchEndCapLeft,
+            Some(GroundMaterial::TrenchWall),
+            TerrainArtRepeatMode::Stamp,
+            vec!["spritegen", "cozy", "trench", "end-cap"],
+        ),
+        TerrainSpriteKind::TrenchEndCapRight => (
+            TerrainArtPieceKind::TrenchEndCapRight,
+            Some(GroundMaterial::TrenchWall),
+            TerrainArtRepeatMode::Stamp,
+            vec!["spritegen", "cozy", "trench", "end-cap"],
+        ),
+        TerrainSpriteKind::TrenchCornerInner | TerrainSpriteKind::TrenchCornerOuter => (
+            TerrainArtPieceKind::CornerCap,
+            Some(GroundMaterial::TrenchWall),
+            TerrainArtRepeatMode::Stamp,
+            vec!["spritegen", "cozy", "trench", "corner"],
+        ),
+        TerrainSpriteKind::TrenchContactShadow => (
+            TerrainArtPieceKind::SoftShadow,
+            None,
+            TerrainArtRepeatMode::StretchMiddle,
+            vec!["spritegen", "cozy", "trench", "contact-shadow"],
+        ),
+        TerrainSpriteKind::TrenchSpoilPile => (
+            TerrainArtPieceKind::TrenchSpoilPile,
+            Some(GroundMaterial::TrenchWall),
+            TerrainArtRepeatMode::Stamp,
+            vec!["spritegen", "cozy", "trench", "spoil"],
         ),
     };
     TerrainArtPiece {

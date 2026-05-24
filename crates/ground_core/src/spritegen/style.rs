@@ -14,6 +14,7 @@ pub struct TerrainSpriteStyle {
     pub dirt: DirtRules,
     pub transition: TransitionRules,
     pub path: PathRules,
+    pub trench: TrenchRules,
 }
 
 impl Default for TerrainSpriteStyle {
@@ -28,6 +29,7 @@ impl Default for TerrainSpriteStyle {
             dirt: DirtRules::default(),
             transition: TransitionRules::default(),
             path: PathRules::default(),
+            trench: TrenchRules::default(),
         }
     }
 }
@@ -242,6 +244,42 @@ impl Default for PathRules {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
+pub struct TrenchRules {
+    pub floor_darkness: f32,
+    pub floor_detail_density: f32,
+    pub wall_shadow_strength: f32,
+    pub wall_detail_density: f32,
+    pub lip_highlight_strength: f32,
+    pub lip_irregularity_px: u32,
+    pub wood_plank_density: f32,
+    pub wood_knot_density: f32,
+    pub spoil_density: f32,
+    pub grass_intrusion_density: f32,
+    pub inner_shadow_strength: f32,
+    pub contact_shadow_strength: f32,
+}
+
+impl Default for TrenchRules {
+    fn default() -> Self {
+        Self {
+            floor_darkness: 0.42,
+            floor_detail_density: 0.18,
+            wall_shadow_strength: 0.34,
+            wall_detail_density: 0.24,
+            lip_highlight_strength: 0.18,
+            lip_irregularity_px: 3,
+            wood_plank_density: 0.26,
+            wood_knot_density: 0.06,
+            spoil_density: 0.18,
+            grass_intrusion_density: 0.16,
+            inner_shadow_strength: 0.58,
+            contact_shadow_strength: 0.42,
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TerrainMotifLibrary {
     pub id: String,
     pub grass_dark: Vec<TerrainMotif>,
@@ -252,6 +290,11 @@ pub struct TerrainMotifLibrary {
     pub dirt_dents: Vec<TerrainMotif>,
     pub dirt_ruts: Vec<TerrainMotif>,
     pub transition_intrusion: Vec<TerrainMotif>,
+    pub trench_wood: Vec<TerrainMotif>,
+    pub trench_wall_shadow: Vec<TerrainMotif>,
+    pub trench_lip: Vec<TerrainMotif>,
+    pub trench_spoil: Vec<TerrainMotif>,
+    pub trench_grass_overhang: Vec<TerrainMotif>,
 }
 
 impl Default for TerrainMotifLibrary {
@@ -308,6 +351,30 @@ impl Default for TerrainMotifLibrary {
                 TerrainMotif::new("edge_blade_d", &[(0, 0, -1), (-1, 1, 1)]),
                 TerrainMotif::new("edge_leaf_c", &[(0, 0, 1), (-1, 0, 1), (-1, 1, 0)]),
                 TerrainMotif::new("edge_shadow_a", &[(0, 0, -1), (1, 1, -1)]),
+            ],
+            trench_wood: vec![
+                TerrainMotif::new("wood_plank_short", &[(0, 0, -1), (1, 0, 0), (2, 0, -1)]),
+                TerrainMotif::new(
+                    "wood_plank_long",
+                    &[(-2, 0, -1), (-1, 0, 0), (0, 0, 0), (1, 0, -1), (2, 0, -1)],
+                ),
+                TerrainMotif::new("wood_knot", &[(0, 0, -2), (1, 0, -1), (0, 1, -1)]),
+            ],
+            trench_wall_shadow: vec![
+                TerrainMotif::new("wall_shadow_cluster", &[(0, 0, -2), (1, 0, -1), (1, 1, -2)]),
+                TerrainMotif::new("root_speck", &[(0, 0, -1), (1, 1, -1)]),
+            ],
+            trench_lip: vec![
+                TerrainMotif::new("dirt_lip_clump", &[(-1, 0, -1), (0, 0, 1), (1, 0, 0)]),
+                TerrainMotif::new("dirt_lip_highlight", &[(0, 0, 1), (1, 0, 1), (1, 1, 0)]),
+            ],
+            trench_spoil: vec![
+                TerrainMotif::new("spoil_cluster", &[(0, 0, 0), (1, 0, -1), (0, 1, 1)]),
+                TerrainMotif::new("spoil_pebbles", &[(0, 0, 1), (2, 0, -1), (1, 1, 0)]),
+            ],
+            trench_grass_overhang: vec![
+                TerrainMotif::new("grass_overhang", &[(0, 0, 1), (1, -1, 1), (2, -1, -1)]),
+                TerrainMotif::new("lip_blade", &[(0, 0, -1), (1, 0, 1), (1, -1, 1)]),
             ],
         }
     }

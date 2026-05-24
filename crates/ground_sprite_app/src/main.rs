@@ -5,9 +5,12 @@ use ground_core::{
     build_path_preview_dense, build_path_preview_junctions, build_path_preview_loop,
     build_path_preview_random, build_path_preview_sparse, build_seam_heatmap,
     build_single_repeat_preview, build_sprite_contact_sheet, build_transition_edges_preview,
-    build_transition_repeat_preview, build_variant_repeat_preview, export_terrain_sprite_bundle,
-    generate_terrain_sprites, scale_nearest, GeneratedTerrainSprite, PixelImage, TerrainSpriteKind,
-    TerrainSpriteRecipe, BUILTIN_SPRITE_STYLE_PROFILES, DEFAULT_SPRITEGEN_EXPORT_DIR,
+    build_transition_repeat_preview, build_trench_contact_sheet, build_trench_mask_debug_preview,
+    build_trench_oblique_caps_preview, build_trench_oblique_corner_preview,
+    build_trench_oblique_shadow_preview, build_trench_oblique_straight_preview,
+    build_variant_repeat_preview, export_terrain_sprite_bundle, generate_terrain_sprites,
+    scale_nearest, GeneratedTerrainSprite, PixelImage, TerrainSpriteKind, TerrainSpriteRecipe,
+    BUILTIN_SPRITE_STYLE_PROFILES, DEFAULT_SPRITEGEN_EXPORT_DIR,
 };
 
 fn main() -> eframe::Result {
@@ -42,6 +45,12 @@ enum PreviewPanel {
     PathLoopPreview,
     PathJunctionPreview,
     ObliqueMaterialPreview,
+    TrenchContactSheet,
+    TrenchStraightPreview,
+    TrenchCapsPreview,
+    TrenchCornerPreview,
+    TrenchShadowPreview,
+    TrenchMaskDebug,
     PathMaskDebug,
     PathNeighborSeam,
     SeamHeatmap,
@@ -50,7 +59,7 @@ enum PreviewPanel {
 }
 
 impl PreviewPanel {
-    const ALL: [PreviewPanel; 20] = [
+    const ALL: [PreviewPanel; 26] = [
         PreviewPanel::Selected,
         PreviewPanel::ContactSheet,
         PreviewPanel::GrassSingleRepeat,
@@ -66,6 +75,12 @@ impl PreviewPanel {
         PreviewPanel::PathLoopPreview,
         PreviewPanel::PathJunctionPreview,
         PreviewPanel::ObliqueMaterialPreview,
+        PreviewPanel::TrenchContactSheet,
+        PreviewPanel::TrenchStraightPreview,
+        PreviewPanel::TrenchCapsPreview,
+        PreviewPanel::TrenchCornerPreview,
+        PreviewPanel::TrenchShadowPreview,
+        PreviewPanel::TrenchMaskDebug,
         PreviewPanel::PathMaskDebug,
         PreviewPanel::PathNeighborSeam,
         PreviewPanel::SeamHeatmap,
@@ -90,6 +105,12 @@ impl PreviewPanel {
             PreviewPanel::PathLoopPreview => "Loop path preview",
             PreviewPanel::PathJunctionPreview => "Junction path preview",
             PreviewPanel::ObliqueMaterialPreview => "Oblique material preview",
+            PreviewPanel::TrenchContactSheet => "Trench contact sheet",
+            PreviewPanel::TrenchStraightPreview => "Trench straight preview",
+            PreviewPanel::TrenchCapsPreview => "Trench caps preview",
+            PreviewPanel::TrenchCornerPreview => "Trench corner preview",
+            PreviewPanel::TrenchShadowPreview => "Trench shadow preview",
+            PreviewPanel::TrenchMaskDebug => "Trench mask debug",
             PreviewPanel::PathMaskDebug => "Path mask debug",
             PreviewPanel::PathNeighborSeam => "Path neighbor seams",
             PreviewPanel::SeamHeatmap => "Seam heatmap",
@@ -123,6 +144,12 @@ struct SpriteForgeApp {
     path_loop_texture: Option<egui::TextureHandle>,
     path_junction_texture: Option<egui::TextureHandle>,
     oblique_material_texture: Option<egui::TextureHandle>,
+    trench_contact_texture: Option<egui::TextureHandle>,
+    trench_straight_texture: Option<egui::TextureHandle>,
+    trench_caps_texture: Option<egui::TextureHandle>,
+    trench_corner_texture: Option<egui::TextureHandle>,
+    trench_shadow_texture: Option<egui::TextureHandle>,
+    trench_mask_debug_texture: Option<egui::TextureHandle>,
     path_mask_debug_texture: Option<egui::TextureHandle>,
     path_neighbor_seam_texture: Option<egui::TextureHandle>,
     seam_heatmap_texture: Option<egui::TextureHandle>,
@@ -158,6 +185,12 @@ impl SpriteForgeApp {
             path_loop_texture: None,
             path_junction_texture: None,
             oblique_material_texture: None,
+            trench_contact_texture: None,
+            trench_straight_texture: None,
+            trench_caps_texture: None,
+            trench_corner_texture: None,
+            trench_shadow_texture: None,
+            trench_mask_debug_texture: None,
             path_mask_debug_texture: None,
             path_neighbor_seam_texture: None,
             seam_heatmap_texture: None,
@@ -308,6 +341,48 @@ impl SpriteForgeApp {
             "oblique_material_preview",
             &oblique_material,
         );
+        let trench_contact = build_trench_contact_sheet(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.trench_contact_texture,
+            "trench_contact_sheet",
+            &trench_contact,
+        );
+        let trench_straight = build_trench_oblique_straight_preview(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.trench_straight_texture,
+            "trench_straight_preview",
+            &trench_straight,
+        );
+        let trench_caps = build_trench_oblique_caps_preview(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.trench_caps_texture,
+            "trench_caps_preview",
+            &trench_caps,
+        );
+        let trench_corner = build_trench_oblique_corner_preview(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.trench_corner_texture,
+            "trench_corner_preview",
+            &trench_corner,
+        );
+        let trench_shadow = build_trench_oblique_shadow_preview(&self.sprites, &self.recipe);
+        put_texture(
+            ctx,
+            &mut self.trench_shadow_texture,
+            "trench_shadow_preview",
+            &trench_shadow,
+        );
+        let trench_mask_debug = build_trench_mask_debug_preview(&self.recipe);
+        put_texture(
+            ctx,
+            &mut self.trench_mask_debug_texture,
+            "trench_mask_debug",
+            &trench_mask_debug,
+        );
         let path_mask_debug = build_path_mask_debug_preview(&self.recipe);
         put_texture(
             ctx,
@@ -342,7 +417,7 @@ impl SpriteForgeApp {
 
     fn show_controls(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.heading("Pixel Terrain Forge");
-        ui.label("ArtGen 1.4: 2.5D sprite contract and oblique material preview.");
+        ui.label("ArtGen 2.0: oblique trench sprite kit.");
         ui.separator();
         let selected_profile = BUILTIN_SPRITE_STYLE_PROFILES
             .get(self.selected_profile_index)
@@ -494,6 +569,41 @@ impl SpriteForgeApp {
                     .text("face height"),
             )
             .changed();
+        ui.separator();
+        ui.label("Trench rules");
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.recipe.style.trench.floor_darkness, 0.0..=1.0)
+                    .text("floor darkness"),
+            )
+            .changed();
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.recipe.style.trench.wall_detail_density, 0.0..=1.0)
+                    .text("wall detail"),
+            )
+            .changed();
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.recipe.style.trench.wood_plank_density, 0.0..=1.0)
+                    .text("wood planks"),
+            )
+            .changed();
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut self.recipe.style.trench.spoil_density, 0.0..=1.0)
+                    .text("spoil"),
+            )
+            .changed();
+        changed |= ui
+            .add(
+                egui::Slider::new(
+                    &mut self.recipe.style.trench.contact_shadow_strength,
+                    0.0..=1.0,
+                )
+                .text("contact shadow"),
+            )
+            .changed();
         if changed {
             self.dirty = true;
         }
@@ -640,6 +750,54 @@ impl SpriteForgeApp {
                     self.oblique_material_texture.as_ref(),
                     1.0,
                     "No oblique material preview",
+                );
+            }
+            PreviewPanel::TrenchContactSheet => {
+                show_texture(
+                    ui,
+                    self.trench_contact_texture.as_ref(),
+                    1.0,
+                    "No trench contact sheet",
+                );
+            }
+            PreviewPanel::TrenchStraightPreview => {
+                show_texture(
+                    ui,
+                    self.trench_straight_texture.as_ref(),
+                    1.0,
+                    "No trench straight preview",
+                );
+            }
+            PreviewPanel::TrenchCapsPreview => {
+                show_texture(
+                    ui,
+                    self.trench_caps_texture.as_ref(),
+                    1.0,
+                    "No trench caps preview",
+                );
+            }
+            PreviewPanel::TrenchCornerPreview => {
+                show_texture(
+                    ui,
+                    self.trench_corner_texture.as_ref(),
+                    1.0,
+                    "No trench corner preview",
+                );
+            }
+            PreviewPanel::TrenchShadowPreview => {
+                show_texture(
+                    ui,
+                    self.trench_shadow_texture.as_ref(),
+                    1.0,
+                    "No trench shadow preview",
+                );
+            }
+            PreviewPanel::TrenchMaskDebug => {
+                show_texture(
+                    ui,
+                    self.trench_mask_debug_texture.as_ref(),
+                    1.0,
+                    "No trench mask debug",
                 );
             }
             PreviewPanel::PathMaskDebug => {

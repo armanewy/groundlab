@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::pixel_image::PixelImage;
 use crate::spritegen::{ObliqueProjectionProfile, TerrainMotifLibrary, TerrainSpriteStyle};
 
-pub const DEFAULT_SPRITEGEN_EXPORT_DIR: &str = "exports/artgen_01_4";
+pub const DEFAULT_SPRITEGEN_EXPORT_DIR: &str = "exports/artgen_02_0";
 pub const DEFAULT_SPRITE_STYLE_PATH: &str = "assets/sprite_styles/cozy_upland/style.ron";
 
 pub const BUILTIN_SPRITE_STYLE_PROFILES: [(&str, &str); 3] = [
@@ -106,6 +106,25 @@ impl TerrainSpriteRecipe {
             .clamp(2.0, self.tile_size as f32);
         self.style.path.corner_rounding = self.style.path.corner_rounding.clamp(0.0, 1.0);
         self.style.path.edge_noise = self.style.path.edge_noise.clamp(0.0, 3.0);
+        self.style.trench.floor_darkness = self.style.trench.floor_darkness.clamp(0.0, 1.0);
+        self.style.trench.floor_detail_density =
+            self.style.trench.floor_detail_density.clamp(0.0, 1.0);
+        self.style.trench.wall_shadow_strength =
+            self.style.trench.wall_shadow_strength.clamp(0.0, 1.0);
+        self.style.trench.wall_detail_density =
+            self.style.trench.wall_detail_density.clamp(0.0, 1.0);
+        self.style.trench.lip_highlight_strength =
+            self.style.trench.lip_highlight_strength.clamp(0.0, 1.0);
+        self.style.trench.lip_irregularity_px = self.style.trench.lip_irregularity_px.clamp(0, 12);
+        self.style.trench.wood_plank_density = self.style.trench.wood_plank_density.clamp(0.0, 1.0);
+        self.style.trench.wood_knot_density = self.style.trench.wood_knot_density.clamp(0.0, 1.0);
+        self.style.trench.spoil_density = self.style.trench.spoil_density.clamp(0.0, 1.0);
+        self.style.trench.grass_intrusion_density =
+            self.style.trench.grass_intrusion_density.clamp(0.0, 1.0);
+        self.style.trench.inner_shadow_strength =
+            self.style.trench.inner_shadow_strength.clamp(0.0, 1.0);
+        self.style.trench.contact_shadow_strength =
+            self.style.trench.contact_shadow_strength.clamp(0.0, 1.0);
         self.motifs.sanitize();
     }
 
@@ -174,6 +193,13 @@ impl TerrainMotifLibrary {
         self.dirt_ruts.retain(|motif| !motif.pixels.is_empty());
         self.transition_intrusion
             .retain(|motif| !motif.pixels.is_empty());
+        self.trench_wood.retain(|motif| !motif.pixels.is_empty());
+        self.trench_wall_shadow
+            .retain(|motif| !motif.pixels.is_empty());
+        self.trench_lip.retain(|motif| !motif.pixels.is_empty());
+        self.trench_spoil.retain(|motif| !motif.pixels.is_empty());
+        self.trench_grass_overhang
+            .retain(|motif| !motif.pixels.is_empty());
         let fallback = TerrainMotifLibrary::default();
         self.grass_dark = with_fallback(std::mem::take(&mut self.grass_dark), fallback.grass_dark);
         self.grass_light =
@@ -192,6 +218,21 @@ impl TerrainMotifLibrary {
         self.transition_intrusion = with_fallback(
             std::mem::take(&mut self.transition_intrusion),
             fallback.transition_intrusion,
+        );
+        self.trench_wood =
+            with_fallback(std::mem::take(&mut self.trench_wood), fallback.trench_wood);
+        self.trench_wall_shadow = with_fallback(
+            std::mem::take(&mut self.trench_wall_shadow),
+            fallback.trench_wall_shadow,
+        );
+        self.trench_lip = with_fallback(std::mem::take(&mut self.trench_lip), fallback.trench_lip);
+        self.trench_spoil = with_fallback(
+            std::mem::take(&mut self.trench_spoil),
+            fallback.trench_spoil,
+        );
+        self.trench_grass_overhang = with_fallback(
+            std::mem::take(&mut self.trench_grass_overhang),
+            fallback.trench_grass_overhang,
         );
     }
 }
@@ -285,6 +326,21 @@ impl SpritePieceMetadata {
         self.z_bias = z_bias;
         self
     }
+
+    pub fn anchor(mut self, anchor_px: (i32, i32)) -> Self {
+        self.anchor_px = anchor_px;
+        self
+    }
+
+    pub fn footprint(mut self, footprint_cells: (u32, u32)) -> Self {
+        self.footprint_cells = footprint_cells;
+        self
+    }
+
+    pub fn occludes(mut self, occludes: bool) -> Self {
+        self.occludes = occludes;
+        self
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -311,10 +367,20 @@ pub enum TerrainSpriteKind {
     PathMask13,
     PathMask14,
     PathMask15,
+    TrenchFloorTop,
+    TrenchWallFront,
+    TrenchLipFront,
+    TrenchLipBack,
+    TrenchEndCapLeft,
+    TrenchEndCapRight,
+    TrenchCornerInner,
+    TrenchCornerOuter,
+    TrenchContactShadow,
+    TrenchSpoilPile,
 }
 
 impl TerrainSpriteKind {
-    pub const ALL: [TerrainSpriteKind; 22] = [
+    pub const ALL: [TerrainSpriteKind; 32] = [
         TerrainSpriteKind::GrassTile,
         TerrainSpriteKind::DirtTile,
         TerrainSpriteKind::GrassToDirtEdgeNorth,
@@ -337,6 +403,16 @@ impl TerrainSpriteKind {
         TerrainSpriteKind::PathMask13,
         TerrainSpriteKind::PathMask14,
         TerrainSpriteKind::PathMask15,
+        TerrainSpriteKind::TrenchFloorTop,
+        TerrainSpriteKind::TrenchWallFront,
+        TerrainSpriteKind::TrenchLipFront,
+        TerrainSpriteKind::TrenchLipBack,
+        TerrainSpriteKind::TrenchEndCapLeft,
+        TerrainSpriteKind::TrenchEndCapRight,
+        TerrainSpriteKind::TrenchCornerInner,
+        TerrainSpriteKind::TrenchCornerOuter,
+        TerrainSpriteKind::TrenchContactShadow,
+        TerrainSpriteKind::TrenchSpoilPile,
     ];
 
     pub fn id(self) -> &'static str {
@@ -363,6 +439,16 @@ impl TerrainSpriteKind {
             TerrainSpriteKind::PathMask13 => "path_mask_13",
             TerrainSpriteKind::PathMask14 => "path_mask_14",
             TerrainSpriteKind::PathMask15 => "path_mask_15",
+            TerrainSpriteKind::TrenchFloorTop => "trench_floor_top",
+            TerrainSpriteKind::TrenchWallFront => "trench_wall_front",
+            TerrainSpriteKind::TrenchLipFront => "trench_lip_front",
+            TerrainSpriteKind::TrenchLipBack => "trench_lip_back",
+            TerrainSpriteKind::TrenchEndCapLeft => "trench_end_cap_left",
+            TerrainSpriteKind::TrenchEndCapRight => "trench_end_cap_right",
+            TerrainSpriteKind::TrenchCornerInner => "trench_corner_inner",
+            TerrainSpriteKind::TrenchCornerOuter => "trench_corner_outer",
+            TerrainSpriteKind::TrenchContactShadow => "trench_contact_shadow",
+            TerrainSpriteKind::TrenchSpoilPile => "trench_spoil_pile",
         }
     }
 
@@ -390,6 +476,16 @@ impl TerrainSpriteKind {
             TerrainSpriteKind::PathMask13 => "Path mask 13",
             TerrainSpriteKind::PathMask14 => "Path mask 14",
             TerrainSpriteKind::PathMask15 => "Path mask 15",
+            TerrainSpriteKind::TrenchFloorTop => "Trench floor top",
+            TerrainSpriteKind::TrenchWallFront => "Trench wall front",
+            TerrainSpriteKind::TrenchLipFront => "Trench lip front",
+            TerrainSpriteKind::TrenchLipBack => "Trench lip back",
+            TerrainSpriteKind::TrenchEndCapLeft => "Trench end cap left",
+            TerrainSpriteKind::TrenchEndCapRight => "Trench end cap right",
+            TerrainSpriteKind::TrenchCornerInner => "Trench inner corner",
+            TerrainSpriteKind::TrenchCornerOuter => "Trench outer corner",
+            TerrainSpriteKind::TrenchContactShadow => "Trench contact shadow",
+            TerrainSpriteKind::TrenchSpoilPile => "Trench spoil pile",
         }
     }
 
@@ -451,6 +547,22 @@ impl TerrainSpriteKind {
         self.path_mask().is_some()
     }
 
+    pub fn is_trench(self) -> bool {
+        matches!(
+            self,
+            TerrainSpriteKind::TrenchFloorTop
+                | TerrainSpriteKind::TrenchWallFront
+                | TerrainSpriteKind::TrenchLipFront
+                | TerrainSpriteKind::TrenchLipBack
+                | TerrainSpriteKind::TrenchEndCapLeft
+                | TerrainSpriteKind::TrenchEndCapRight
+                | TerrainSpriteKind::TrenchCornerInner
+                | TerrainSpriteKind::TrenchCornerOuter
+                | TerrainSpriteKind::TrenchContactShadow
+                | TerrainSpriteKind::TrenchSpoilPile
+        )
+    }
+
     pub fn default_piece_metadata(self) -> SpritePieceMetadata {
         match self {
             TerrainSpriteKind::GrassTile
@@ -477,6 +589,36 @@ impl TerrainSpriteKind {
             | TerrainSpriteKind::GrassToDirtEdgeWest => {
                 SpritePieceMetadata::new(SpriteRole::Decal).z_bias(2)
             }
+            TerrainSpriteKind::TrenchFloorTop => SpritePieceMetadata::new(SpriteRole::TopSurface)
+                .footprint((2, 1))
+                .z_bias(8),
+            TerrainSpriteKind::TrenchWallFront => SpritePieceMetadata::new(SpriteRole::FrontFace)
+                .anchor((0, -6))
+                .footprint((2, 1))
+                .z_bias(24)
+                .occludes(true),
+            TerrainSpriteKind::TrenchLipFront | TerrainSpriteKind::TrenchLipBack => {
+                SpritePieceMetadata::new(SpriteRole::Lip)
+                    .footprint((2, 1))
+                    .z_bias(28)
+            }
+            TerrainSpriteKind::TrenchEndCapLeft
+            | TerrainSpriteKind::TrenchEndCapRight
+            | TerrainSpriteKind::TrenchCornerInner
+            | TerrainSpriteKind::TrenchCornerOuter => {
+                SpritePieceMetadata::new(SpriteRole::CornerCap)
+                    .footprint((1, 1))
+                    .z_bias(30)
+                    .occludes(true)
+            }
+            TerrainSpriteKind::TrenchContactShadow => {
+                SpritePieceMetadata::new(SpriteRole::ContactShadow)
+                    .footprint((2, 1))
+                    .z_bias(-4)
+            }
+            TerrainSpriteKind::TrenchSpoilPile => SpritePieceMetadata::new(SpriteRole::Decal)
+                .footprint((1, 1))
+                .z_bias(18),
         }
     }
 }

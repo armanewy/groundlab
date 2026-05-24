@@ -53,4 +53,25 @@
         (id: "edge_leaf_c", pixels: [(dx: 0, dy: 0, shade: 1), (dx: -1, dy: 0, shade: 1), (dx: -1, dy: 1, shade: 0)]),
         (id: "edge_shadow_a", pixels: [(dx: 0, dy: 0, shade: -1), (dx: 1, dy: 1, shade: -1)]),
     ],
+    trench_wood: [
+        (id: "wood_plank_short", pixels: [(dx: 0, dy: 0, shade: -1), (dx: 1, dy: 0, shade: 0), (dx: 2, dy: 0, shade: -1)]),
+        (id: "wood_plank_long", pixels: [(dx: -2, dy: 0, shade: -1), (dx: -1, dy: 0, shade: 0), (dx: 0, dy: 0, shade: 0), (dx: 1, dy: 0, shade: -1), (dx: 2, dy: 0, shade: -1)]),
+        (id: "wood_knot", pixels: [(dx: 0, dy: 0, shade: -2), (dx: 1, dy: 0, shade: -1), (dx: 0, dy: 1, shade: -1)]),
+    ],
+    trench_wall_shadow: [
+        (id: "wall_shadow_cluster", pixels: [(dx: 0, dy: 0, shade: -2), (dx: 1, dy: 0, shade: -1), (dx: 1, dy: 1, shade: -2)]),
+        (id: "root_speck", pixels: [(dx: 0, dy: 0, shade: -1), (dx: 1, dy: 1, shade: -1)]),
+    ],
+    trench_lip: [
+        (id: "dirt_lip_clump", pixels: [(dx: -1, dy: 0, shade: -1), (dx: 0, dy: 0, shade: 1), (dx: 1, dy: 0, shade: 0)]),
+        (id: "dirt_lip_highlight", pixels: [(dx: 0, dy: 0, shade: 1), (dx: 1, dy: 0, shade: 1), (dx: 1, dy: 1, shade: 0)]),
+    ],
+    trench_spoil: [
+        (id: "spoil_cluster", pixels: [(dx: 0, dy: 0, shade: 0), (dx: 1, dy: 0, shade: -1), (dx: 0, dy: 1, shade: 1)]),
+        (id: "spoil_pebbles", pixels: [(dx: 0, dy: 0, shade: 1), (dx: 2, dy: 0, shade: -1), (dx: 1, dy: 1, shade: 0)]),
+    ],
+    trench_grass_overhang: [
+        (id: "grass_overhang", pixels: [(dx: 0, dy: 0, shade: 1), (dx: 1, dy: -1, shade: 1), (dx: 2, dy: -1, shade: -1)]),
+        (id: "lip_blade", pixels: [(dx: 0, dy: 0, shade: -1), (dx: 1, dy: 0, shade: 1), (dx: 1, dy: -1, shade: 1)]),
+    ],
 )

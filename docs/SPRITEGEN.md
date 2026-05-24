@@ -1,8 +1,9 @@
 # Pixel Terrain Forge
 
 GroundLab's active visual milestone is now a dedicated terrain sprite generator, not the large
-editable scene renderer. The goal is to make simple, cozy, top-down pixel terrain primitives first:
-grass, dirt, grass-to-dirt transitions, and connected dirt path masks.
+editable scene renderer. The generator first produces cozy top-surface terrain primitives: grass,
+dirt, grass-to-dirt transitions, and connected dirt path masks. ArtGen 2.0 then extends that
+foundation with oblique trench pieces for the desired high-oblique 2.5D terrain grammar.
 
 The generator does not require reference images. It uses:
 
@@ -11,7 +12,7 @@ The generator does not require reference images. It uses:
 - swappable `TerrainSpriteStyleProfile` files in `assets/sprite_styles/`
 - external `motifs.ron` pixel-cluster motif libraries
 - cozy palette ramps
-- grass, dirt, transition, path, and pixel-cluster rules
+- grass, dirt, transition, path, trench, and pixel-cluster rules
 - a high-oblique 2.5D projection profile
 - per-piece sprite role, anchor, footprint, z-bias, and occlusion metadata
 - deterministic seeds
@@ -19,9 +20,10 @@ The generator does not require reference images. It uses:
 - seam/noise validation
 - art-kit-compatible PNG piece export
 
-ArtGen 1.4 keeps the ArtGen 1.2b path topology and ArtGen 1.3 style profiles, then adds the first
+ArtGen 2.0 keeps the ArtGen 1.2b path topology, ArtGen 1.3 style profiles, and ArtGen 1.4
 projection-aware sprite contract. Grass/dirt/path pieces are still top-surface material primitives,
-but the bundle now declares how those pieces will sit in the later high-oblique 2.5D renderer:
+and trench pieces now introduce the first front faces, lips, caps, contact shadows, and recessed
+terrain metadata:
 
 ```txt
 sprite role
@@ -38,8 +40,8 @@ projection:
   shadow_offset_px
 ```
 
-The generator still loads palette ramps, grass/dirt/transition/path rules, projection settings, and
-motif libraries from profile folders:
+The generator still loads palette ramps, grass/dirt/transition/path/trench rules, projection
+settings, and motif libraries from profile folders:
 
 ```txt
 assets/sprite_styles/
@@ -66,19 +68,25 @@ cargo run -p ground_sprite_app
 Export the deterministic bundle:
 
 ```bash
-cargo run -p ground_sprite_cli -- export exports/artgen_01_4 assets/sprite_styles/cozy_upland/style.ron
+cargo run -p ground_sprite_cli -- export exports/artgen_02_0 assets/sprite_styles/cozy_upland/style.ron
 ```
 
 Export output:
 
 ```txt
-exports/artgen_01_4/
+exports/artgen_02_0/
   manifest.ron
   sprite_manifest.ron
   sprite_manifest.json
   recipe.ron
   contact_sheet.png
   oblique_material_preview.png
+  trench_contact_sheet.png
+  trench_preview_oblique_straight.png
+  trench_preview_oblique_caps.png
+  trench_preview_oblique_corner.png
+  trench_preview_oblique_shadow.png
+  trench_mask_debug.png
   path_autotile_sheet.png
   path_preview_random.png
   path_preview_random_sparse.png
@@ -113,6 +121,18 @@ exports/artgen_01_4/
     path_mask_00.png
     ...
     path_mask_15.png
+    trench_floor_top_01.png
+    trench_floor_top_02.png
+    trench_wall_front_01.png
+    trench_wall_front_02.png
+    trench_lip_front_01.png
+    trench_lip_back_01.png
+    trench_end_cap_left_01.png
+    trench_end_cap_right_01.png
+    trench_corner_inner_01.png
+    trench_corner_outer_01.png
+    trench_contact_shadow_01.png
+    trench_spoil_pile_01.png
 ```
 
 The full-scene GroundLab renderer remains in the repository as downstream infrastructure for terrain

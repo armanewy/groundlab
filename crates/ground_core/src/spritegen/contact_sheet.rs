@@ -395,6 +395,177 @@ pub fn build_oblique_material_preview(
     preview
 }
 
+pub fn build_trench_contact_sheet(
+    sprites: &[GeneratedTerrainSprite],
+    _recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    let trench = sprites
+        .iter()
+        .filter(|sprite| sprite.kind.is_trench())
+        .collect::<Vec<_>>();
+    let columns = 3;
+    let padding = 12;
+    let cell_w = trench
+        .iter()
+        .map(|sprite| sprite.image.width)
+        .max()
+        .unwrap_or(64)
+        + padding * 2;
+    let cell_h = trench
+        .iter()
+        .map(|sprite| sprite.image.height)
+        .max()
+        .unwrap_or(32)
+        + padding * 2;
+    let rows = (trench.len() as u32).div_ceil(columns).max(1);
+    let mut sheet = PixelImage::new(
+        cell_w * columns + padding,
+        cell_h * rows + padding,
+        Rgba8::opaque(13, 15, 17),
+    );
+
+    for (i, sprite) in trench.iter().enumerate() {
+        let col = i as u32 % columns;
+        let row = i as u32 / columns;
+        let x = padding + col * cell_w;
+        let y = padding + row * cell_h;
+        sheet.fill_rect(
+            x,
+            y,
+            cell_w - padding,
+            cell_h - padding,
+            Rgba8::opaque(28, 31, 28),
+        );
+        sheet.outline_rect(
+            x,
+            y,
+            cell_w - padding,
+            cell_h - padding,
+            Rgba8::opaque(55, 60, 54),
+        );
+        sheet.blit(&sprite.image, x + padding / 2, y + padding / 2);
+    }
+    sheet
+}
+
+pub fn build_trench_oblique_straight_preview(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    let mut preview = trench_preview_base(sprites, recipe, 5, 3);
+    draw_straight_trench(&mut preview, sprites, 138, 98, 1.0);
+    preview
+}
+
+pub fn build_trench_oblique_caps_preview(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    let mut preview = trench_preview_base(sprites, recipe, 5, 3);
+    draw_straight_trench(&mut preview, sprites, 138, 98, 0.78);
+    if let Some(cap) = sprite_image(sprites, TerrainSpriteKind::TrenchEndCapLeft, 1) {
+        blit_scaled_i32(&mut preview, cap, 122, 91, 54, 78);
+    }
+    if let Some(cap) = sprite_image(sprites, TerrainSpriteKind::TrenchEndCapRight, 1) {
+        blit_scaled_i32(&mut preview, cap, 324, 91, 54, 78);
+    }
+    preview
+}
+
+pub fn build_trench_oblique_corner_preview(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    let mut preview = trench_preview_base(sprites, recipe, 5, 4);
+    draw_straight_trench(&mut preview, sprites, 104, 126, 0.72);
+    if let Some(shadow) = sprite_image(sprites, TerrainSpriteKind::TrenchContactShadow, 1) {
+        blit_scaled_i32(&mut preview, shadow, 232, 80, 62, 150);
+    }
+    if let Some(floor) = sprite_image(sprites, TerrainSpriteKind::TrenchFloorTop, 1) {
+        blit_scaled_i32(&mut preview, floor, 234, 70, 58, 146);
+    }
+    if let Some(wall) = sprite_image(sprites, TerrainSpriteKind::TrenchWallFront, 1) {
+        blit_scaled_i32(&mut preview, wall, 280, 106, 46, 120);
+    }
+    if let Some(lip) = sprite_image(sprites, TerrainSpriteKind::TrenchLipFront, 1) {
+        blit_scaled_i32(&mut preview, lip, 224, 82, 76, 20);
+        blit_scaled_i32(&mut preview, lip, 246, 204, 70, 18);
+    }
+    if let Some(corner) = sprite_image(sprites, TerrainSpriteKind::TrenchCornerInner, 1) {
+        blit_scaled_i32(&mut preview, corner, 224, 118, 72, 72);
+    }
+    if let Some(corner) = sprite_image(sprites, TerrainSpriteKind::TrenchCornerOuter, 1) {
+        blit_scaled_i32(&mut preview, corner, 292, 118, 64, 64);
+    }
+    preview
+}
+
+pub fn build_trench_oblique_shadow_preview(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    let mut preview = trench_preview_base(sprites, recipe, 5, 3);
+    if let Some(shadow) = sprite_image(sprites, TerrainSpriteKind::TrenchContactShadow, 1) {
+        blit_scaled_i32(&mut preview, shadow, 110, 94, 270, 70);
+        blit_scaled_i32(&mut preview, shadow, 134, 130, 220, 48);
+    }
+    if let Some(spoil) = sprite_image(sprites, TerrainSpriteKind::TrenchSpoilPile, 1) {
+        blit_scaled_i32(&mut preview, spoil, 128, 62, 144, 38);
+        blit_scaled_i32(&mut preview, spoil, 238, 152, 120, 34);
+    }
+    preview
+}
+
+pub fn build_trench_mask_debug_preview(recipe: &TerrainSpriteRecipe) -> PixelImage {
+    let projection = &recipe.style.projection;
+    let width = projection.cell_width_px * 4;
+    let height = projection.cell_height_px * 2;
+    let mut preview = PixelImage::new(width, height, Rgba8::opaque(25, 34, 26));
+    let top = Rgba8::opaque(86, 106, 60);
+    let floor = Rgba8::opaque(45, 32, 26);
+    let wall = Rgba8::opaque(91, 57, 37);
+    let lip = Rgba8::opaque(174, 116, 69);
+    let x = projection.cell_width_px;
+    let y = projection.cell_height_px / 2;
+    preview.fill_rect(
+        x,
+        y,
+        projection.cell_width_px * 2,
+        projection.cell_height_px / 2,
+        top,
+    );
+    preview.fill_rect(
+        x + 16,
+        y + 20,
+        projection.cell_width_px * 2 - 32,
+        projection.cell_height_px / 3,
+        floor,
+    );
+    preview.fill_rect(
+        x + 16,
+        y + projection.cell_height_px / 2,
+        projection.cell_width_px * 2 - 32,
+        projection.face_height_px,
+        wall,
+    );
+    preview.fill_rect(x + 8, y + 12, projection.cell_width_px * 2 - 16, 6, lip);
+    preview.fill_rect(
+        x + 8,
+        y + projection.cell_height_px / 2 - 5,
+        projection.cell_width_px * 2 - 16,
+        6,
+        lip,
+    );
+    preview.outline_rect(
+        x,
+        y,
+        projection.cell_width_px * 2,
+        projection.cell_height_px,
+        Rgba8::WHITE,
+    );
+    preview
+}
+
 fn build_path_preview_for_pattern(
     sprites: &[GeneratedTerrainSprite],
     recipe: &TerrainSpriteRecipe,
@@ -597,6 +768,89 @@ fn blit_kind(
     if let Some(sprite) = sprites.iter().find(|sprite| sprite.kind == kind) {
         target.blit(&sprite.image, x, y);
     }
+}
+
+fn trench_preview_base(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+    width_cells: u32,
+    height_cells: u32,
+) -> PixelImage {
+    let projection = &recipe.style.projection;
+    let cell_w = projection.cell_width_px;
+    let cell_h = projection.cell_height_px;
+    let mut preview = PixelImage::new(
+        cell_w * width_cells,
+        cell_h * height_cells,
+        Rgba8::opaque(40, 48, 34),
+    );
+    let grass = sprites
+        .iter()
+        .filter(|sprite| sprite.kind == TerrainSpriteKind::GrassTile)
+        .collect::<Vec<_>>();
+    for y in 0..height_cells {
+        for x in 0..width_cells {
+            if let Some(sprite) = grass.get(variant_index(x, y, grass.len().max(1))) {
+                blit_scaled_i32(
+                    &mut preview,
+                    &sprite.image,
+                    (x * cell_w) as i32,
+                    (y * cell_h) as i32,
+                    cell_w,
+                    cell_h,
+                );
+            }
+        }
+    }
+    preview
+}
+
+fn draw_straight_trench(
+    target: &mut PixelImage,
+    sprites: &[GeneratedTerrainSprite],
+    x: i32,
+    y: i32,
+    width_factor: f32,
+) {
+    let trench_w = (250.0 * width_factor).round() as u32;
+    if let Some(shadow) = sprite_image(sprites, TerrainSpriteKind::TrenchContactShadow, 1) {
+        blit_scaled_i32(target, shadow, x - 10, y + 52, trench_w + 28, 54);
+    }
+    if let Some(spoil) = sprite_image(sprites, TerrainSpriteKind::TrenchSpoilPile, 1) {
+        blit_scaled_i32(target, spoil, x - 4, y - 28, trench_w / 2, 36);
+        blit_scaled_i32(
+            target,
+            spoil,
+            x + trench_w as i32 / 2,
+            y + 90,
+            trench_w / 2,
+            34,
+        );
+    }
+    if let Some(lip) = sprite_image(sprites, TerrainSpriteKind::TrenchLipBack, 1) {
+        blit_scaled_i32(target, lip, x - 6, y + 22, trench_w + 12, 20);
+    }
+    if let Some(floor) = sprite_image(sprites, TerrainSpriteKind::TrenchFloorTop, 1) {
+        blit_scaled_i32(target, floor, x + 8, y + 38, trench_w - 16, 54);
+    }
+    if let Some(wall) = sprite_image(sprites, TerrainSpriteKind::TrenchWallFront, 1) {
+        blit_scaled_i32(target, wall, x + 8, y + 88, trench_w - 16, 52);
+    }
+    if let Some(lip) = sprite_image(sprites, TerrainSpriteKind::TrenchLipFront, 1) {
+        blit_scaled_i32(target, lip, x - 6, y + 80, trench_w + 12, 22);
+    }
+}
+
+fn sprite_image(
+    sprites: &[GeneratedTerrainSprite],
+    kind: TerrainSpriteKind,
+    variant: u32,
+) -> Option<&PixelImage> {
+    sprites
+        .iter()
+        .find(|sprite| sprite.kind == kind && sprite.variant == variant)
+        .or_else(|| sprites.iter().find(|sprite| sprite.kind == kind))
+        .map(|sprite| &sprite.image)
 }
 
 fn path_mask_sprite(
