@@ -134,6 +134,24 @@ This milestone still avoids freeform physics, animation/VFX, demolition, many ha
 complex collision geometry. The purpose is to prove one deterministic, previewable chain-reaction
 terrain mechanic.
 
+## GamePivot 7 — First balanced mission pass
+
+Implemented in this drop.
+
+- added mission briefing metadata to `MissionSpec` for summary text, primary objective, optional objectives, and enemy intel
+- added `MissionRating` to score objective survival, stopped attackers, remaining objective health, prep-time efficiency, friendly-risk hazard paths, unused defenses, and rolling-hazard impact
+- assault debriefs now include the mission rating beside influence, route-accuracy, and rolling-hazard summaries
+- tuned Road Below into a first balance target where no-prep holds weakly, several plausible bad plans fail or score poorly, and a deliberate ridge chokepoint earns the top rating
+- added built-in balance scripts: no prep, basic trench line, berm and stakes, basic prep, rolling hazard prep, ridge chokepoint, and overbuilt bad plan
+- added `cargo run -p ground_cli -- mission-balance [out_dir] [mission_spec.ron|json]`
+- `mission-balance` exports top-level `mission_balance_summary.json`, `scenario_comparison.json`, `rating_breakdown.json`, `route_shift_summary.json`, and `hazard_effectiveness.json`
+- each balance scenario exports its prep state, work log, material ledger, order validation, route deltas, assault timeline, assault summary, assault debrief, rating, hazard summary, route accuracy, mission/route previews, and heatmaps
+- Mission Lab objective/debrief panels now show the mission briefing, optional objectives, enemy intel, and rating notes
+
+This milestone does not add new mechanics. It uses the existing work-order, route-preview, assault,
+debrief, and rolling-hazard systems to answer whether one small mission has meaningful strategic
+space.
+
 ## Milestone 0 — Project seed
 
 Implemented.

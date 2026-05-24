@@ -4,7 +4,7 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: GamePivot 6 — rolling hazard sandbox
+## Current status: GamePivot 7 — first balanced mission pass
 
 GroundLab has pivoted from art-generation milestones back toward the game workbench. The primary
 product direction is now a 2.5D tactical engineering defense game: the player is a commander /
@@ -15,7 +15,7 @@ SpriteGen remains in the repository as the terrain art forge. It still provides 
 profiles, override PNGs, sprite manifests, validation, and exportable grass/dirt/path/trench/berm/
 stone pieces. It is now supporting infrastructure rather than the main roadmap driver.
 
-GamePivot 6 builds on the `ground_game` crate with:
+GamePivot 7 builds on the `ground_game` crate with:
 
 - `MissionSpec`, `MissionMap`, and `MissionCell`
 - earth states such as normal, scraped, trench, deep trench, spoil pile, berm, unstable, and muddy
@@ -37,11 +37,16 @@ GamePivot 6 builds on the `ground_game` crate with:
 - slope/direction-based rolling path prediction over discrete height cells
 - typed rolling hazard timeline events for release, movement, enemy hits, obstacle destruction, blocking, and spent hazards
 - rolling hazard summaries in the assault debrief
+- mission briefing metadata with primary and optional objectives plus enemy intel
+- outcome ratings that score objective survival, stopped attackers, health remaining, prep efficiency, friendly-risk hazards, unused defenses, and hazard impact
+- built-in balance scenarios for no prep, trench line, berm/stakes, basic prep, rolling-log prep, ridge chokepoint, and an overbuilt bad plan
+- scenario comparison exports that show whether different prep plans produce meaningfully different assault outcomes
+- route-shift, hazard-effectiveness, and rating-breakdown summaries for the balance pass
 - assault summary and debrief exports for debugging why the plan worked or failed
 - per-cell influence summaries for crossed cells, delayed cells, damaging cells, defender pressure, breach cells, effective obstacles, and unused defenses
 - prediction-vs-actual route comparison for doctrine preview accuracy
 - assault delay, pressure, and prediction-vs-actual PNG exports
-- a seed mission, `The Road Below`, with a small road/ridge/tree terrain problem
+- a seed mission, `The Road Below`, with a small road/ridge/tree terrain problem, a briefing card, optional objectives, and balance scripts
 - CLI export of mission spec, order script, before/after mission state, work log, material ledger, validation, route previews, route delta, ASCII maps, PNG mission previews, and a summary
 - a `Mission Lab` tab in `ground_app` beside the older terrain forge controls, now organized as a tactical prep screen with mission status, order mode toolbar, selected-cell context actions, work-order queue, route overlay controls, assault controls, debrief panel, delay/pressure/actual/hazard map modes, enemy intel, objective panel, minimap, notifications, material ledger, and validation feedback
 
@@ -87,6 +92,12 @@ Run the deterministic GamePivot 6 rolling hazard sandbox:
 cargo run -p ground_cli -- mission-hazards exports/gamepivot_06
 ```
 
+Run the GamePivot 7 mission balance pass:
+
+```bash
+cargo run -p ground_cli -- mission-balance exports/gamepivot_07
+```
+
 Run the mission workbench:
 
 ```bash
@@ -96,6 +107,12 @@ cargo run -p ground_app
 The full-scene terrain renderer and ArtGen outputs remain downstream infrastructure for terrain
 data, pathing, LOS, and future art-kit composition, but the active gameplay roadmap now starts with
 mission prep, work orders, local materials, and predictable terrain consequences.
+
+## Previous status: GamePivot 6 — rolling hazard sandbox
+
+GamePivot 6 added prepared rolling-log states, deterministic path prediction, manual/scripted
+release, typed rolling-hazard timeline events, hazard impact summaries, friendly-risk reporting,
+hazard preview PNG exports, and Mission Lab hazard overlay/actions.
 
 ## Previous status: GamePivot 5.1 — assault readability and debrief
 

@@ -5,9 +5,10 @@ use ground_core::{
     DEFAULT_RECIPE_PATH,
 };
 use ground_game::{
-    export_assault_run, export_hazard_sandbox_run, export_order_script_run, export_road_below_seed,
-    load_mission_spec, load_work_order_script, road_below_basic_prep_script,
-    road_below_hazard_prep_script, road_below_spec, DEFAULT_MISSION_EXPORT_DIR,
+    export_assault_run, export_hazard_sandbox_run, export_mission_balance_run,
+    export_order_script_run, export_road_below_seed, load_mission_spec, load_work_order_script,
+    road_below_basic_prep_script, road_below_hazard_prep_script, road_below_spec,
+    DEFAULT_MISSION_EXPORT_DIR,
 };
 
 fn main() -> Result<()> {
@@ -198,6 +199,25 @@ fn main() -> Result<()> {
                 "Hazard files: rolling_hazards.json, rolling_hazard_preview.png, rolling_hazard_path_debug.png, assault_hazard_summary.json, assault_timeline.json, assault_debrief.json, assault_pressure_heatmap.png"
             );
         }
+        "mission-balance" => {
+            let out_dir = args
+                .next()
+                .unwrap_or_else(|| "exports/gamepivot_07".to_string());
+            let spec = match args.next() {
+                Some(path) => load_mission_spec(path)?,
+                None => road_below_spec(),
+            };
+            let report = export_mission_balance_run(&out_dir, spec)?;
+            println!("Exported GamePivot 7 mission balance run to {out_dir}.");
+            println!(
+                "{} scenario(s): {}",
+                report.scenarios.len(),
+                report.rating_breakdown.join(" | ")
+            );
+            println!(
+                "Balance files: mission_balance_summary.json, scenario_comparison.json, rating_breakdown.json, route_shift_summary.json, hazard_effectiveness.json, scenarios/*/assault_debrief.json"
+            );
+        }
         "help" | "--help" | "-h" => print_help(),
         other => bail!("unknown command: {other}"),
     }
@@ -217,4 +237,5 @@ fn print_help() {
     eprintln!("  cargo run -p ground_cli -- mission-routes [out_dir] [mission_spec.ron|json] [order_script.ron|json]");
     eprintln!("  cargo run -p ground_cli -- mission-assault [out_dir] [mission_spec.ron|json] [order_script.ron|json]");
     eprintln!("  cargo run -p ground_cli -- mission-hazards [out_dir] [mission_spec.ron|json] [order_script.ron|json]");
+    eprintln!("  cargo run -p ground_cli -- mission-balance [out_dir] [mission_spec.ron|json]");
 }

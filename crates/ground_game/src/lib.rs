@@ -59,6 +59,8 @@ impl CellRect {
 pub struct MissionSpec {
     pub id: String,
     pub title: String,
+    #[serde(default)]
+    pub briefing: MissionBriefing,
     pub objective: MissionObjective,
     pub prep_time_seconds: u32,
     pub map: MissionMap,
@@ -68,6 +70,14 @@ pub struct MissionSpec {
     #[serde(default)]
     pub defender_positions: Vec<DefenderPositionSpec>,
     pub constraints: MissionConstraints,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct MissionBriefing {
+    pub summary: String,
+    pub primary: String,
+    pub optional_objectives: Vec<String>,
+    pub intel: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -719,6 +729,45 @@ pub struct RollingHazardImpactSummary {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MissionRating {
+    pub stars: u8,
+    pub label: String,
+    pub objective_survived: bool,
+    pub stopped_ratio: f32,
+    pub objective_health_ratio: f32,
+    pub prep_time_used_seconds: u32,
+    pub prep_time_efficiency: f32,
+    pub friendly_risk_count: u32,
+    pub unused_defense_count: u32,
+    pub hazard_enemies_hit: u32,
+    pub score: i32,
+    pub notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MissionBalanceScenarioReport {
+    pub id: String,
+    pub label: String,
+    pub order_count: u32,
+    pub prep_time_used_seconds: u32,
+    pub summary: AssaultSummary,
+    pub rating: MissionRating,
+    pub route_prediction_accuracy: RoutePredictionAccuracyReport,
+    pub rolling_hazards: RollingHazardImpactSummary,
+    pub notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct MissionBalanceReport {
+    pub mission_id: String,
+    pub mission_title: String,
+    pub scenarios: Vec<MissionBalanceScenarioReport>,
+    pub route_shift_summary: Vec<String>,
+    pub hazard_effectiveness: Vec<String>,
+    pub rating_breakdown: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AssaultTimelineEvent {
     pub tick: u32,
     pub agent_id: Option<u32>,
@@ -797,6 +846,7 @@ pub struct AssaultDebrief {
     pub mission_id: String,
     pub outcome_label: String,
     pub summary: AssaultSummary,
+    pub rating: MissionRating,
     pub influence: AssaultInfluenceSummary,
     pub rolling_hazards: RollingHazardImpactSummary,
     pub route_prediction_accuracy: RoutePredictionAccuracyReport,
@@ -1229,7 +1279,7 @@ impl MissionState {
 
     pub fn start_assault(&mut self) {
         let routes = self.route_preview();
-        let rolling_hazards = planned_rolling_hazards_for_map(&self.map, 6);
+        let rolling_hazards = planned_rolling_hazards_for_map(&self.map, 7);
         let mut agents = Vec::new();
         let mut agent_id = 1;
         for group in &self.spec.enemy_groups {
@@ -1667,6 +1717,20 @@ pub fn road_below_spec() -> MissionSpec {
     MissionSpec {
         id: "road_below".to_string(),
         title: "The Road Below".to_string(),
+        briefing: MissionBriefing {
+            summary: "A southern road climbs toward a low ridge marker. Use limited prep time to shape the approach before the assault.".to_string(),
+            primary: "Keep the ridge marker intact until the attack breaks.".to_string(),
+            optional_objectives: vec![
+                "Stop at least 70% of attackers.".to_string(),
+                "Spend less than six minutes of prep time.".to_string(),
+                "Avoid friendly-risk hazard paths.".to_string(),
+            ],
+            intel: vec![
+                "Rushers favor the road and shortest climb.".to_string(),
+                "Skirmishers look for cover and concealment on the orchard side.".to_string(),
+                "The ridge log can punish bunching but crosses a friendly-risk cell.".to_string(),
+            ],
+        },
         objective: MissionObjective {
             label: "Hold the ridge marker".to_string(),
             defend_cell: CellCoord::new(10, 3),
@@ -1785,19 +1849,139 @@ pub fn road_below_basic_prep_script() -> WorkOrderScript {
 }
 
 pub fn road_below_hazard_prep_script() -> WorkOrderScript {
+    WorkOrderScript {
+        id: "road_below_hazard_prep".to_string(),
+        label: "Road Below rolling hazard prep".to_string(),
+        orders: vec![ScriptedWorkOrder {
+            kind: WorkOrderKind::PrepareRollingLog,
+            target: WorkTarget::Object("ridge_log_01".to_string()),
+        }],
+    }
+}
+
+pub fn road_below_no_prep_script() -> WorkOrderScript {
+    WorkOrderScript {
+        id: "baseline_no_prep".to_string(),
+        label: "Baseline: no prep".to_string(),
+        orders: Vec::new(),
+    }
+}
+
+pub fn road_below_trench_line_script() -> WorkOrderScript {
+    WorkOrderScript {
+        id: "basic_trench_line".to_string(),
+        label: "Basic trench line".to_string(),
+        orders: vec![ScriptedWorkOrder {
+            kind: WorkOrderKind::DigTrench,
+            target: WorkTarget::Rect(CellRect {
+                origin: CellCoord::new(5, 4),
+                width: 2,
+                height: 1,
+            }),
+        }],
+    }
+}
+
+pub fn road_below_berm_and_stakes_script() -> WorkOrderScript {
+    WorkOrderScript {
+        id: "berm_and_stakes".to_string(),
+        label: "Berm and stakes".to_string(),
+        orders: vec![
+            ScriptedWorkOrder {
+                kind: WorkOrderKind::DigTrench,
+                target: WorkTarget::Rect(CellRect {
+                    origin: CellCoord::new(5, 4),
+                    width: 2,
+                    height: 1,
+                }),
+            },
+            ScriptedWorkOrder {
+                kind: WorkOrderKind::RaiseBerm,
+                target: WorkTarget::Rect(CellRect {
+                    origin: CellCoord::new(5, 3),
+                    width: 2,
+                    height: 1,
+                }),
+            },
+            ScriptedWorkOrder {
+                kind: WorkOrderKind::FellTree,
+                target: WorkTarget::Object("tree_west_01".to_string()),
+            },
+            ScriptedWorkOrder {
+                kind: WorkOrderKind::CutIntoLogs,
+                target: WorkTarget::Object("tree_west_01".to_string()),
+            },
+            ScriptedWorkOrder {
+                kind: WorkOrderKind::PlaceStakes,
+                target: WorkTarget::Cell(CellCoord::new(3, 4)),
+            },
+        ],
+    }
+}
+
+pub fn road_below_ridge_chokepoint_script() -> WorkOrderScript {
+    WorkOrderScript {
+        id: "ridge_chokepoint".to_string(),
+        label: "Ridge chokepoint".to_string(),
+        orders: vec![
+            ScriptedWorkOrder {
+                kind: WorkOrderKind::FellTree,
+                target: WorkTarget::Object("tree_west_02".to_string()),
+            },
+            ScriptedWorkOrder {
+                kind: WorkOrderKind::CutIntoLogs,
+                target: WorkTarget::Object("tree_west_02".to_string()),
+            },
+            ScriptedWorkOrder {
+                kind: WorkOrderKind::DigTrench,
+                target: WorkTarget::Rect(CellRect {
+                    origin: CellCoord::new(2, 6),
+                    width: 2,
+                    height: 1,
+                }),
+            },
+            ScriptedWorkOrder {
+                kind: WorkOrderKind::RaiseBerm,
+                target: WorkTarget::Rect(CellRect {
+                    origin: CellCoord::new(2, 5),
+                    width: 2,
+                    height: 1,
+                }),
+            },
+            ScriptedWorkOrder {
+                kind: WorkOrderKind::PlaceStakes,
+                target: WorkTarget::Cell(CellCoord::new(4, 5)),
+            },
+        ],
+    }
+}
+
+pub fn road_below_overbuilt_bad_plan_script() -> WorkOrderScript {
     let mut orders = road_below_seed_orders()
         .into_iter()
         .map(|(kind, target)| ScriptedWorkOrder { kind, target })
         .collect::<Vec<_>>();
     orders.push(ScriptedWorkOrder {
-        kind: WorkOrderKind::PrepareRollingLog,
-        target: WorkTarget::Object("ridge_log_01".to_string()),
+        kind: WorkOrderKind::FellTree,
+        target: WorkTarget::Object("tree_east_01".to_string()),
     });
     WorkOrderScript {
-        id: "road_below_hazard_prep".to_string(),
-        label: "Road Below rolling hazard prep".to_string(),
+        id: "overbuilt_bad_plan".to_string(),
+        label: "Overbuilt bad plan".to_string(),
         orders,
     }
+}
+
+pub fn road_below_balance_scripts() -> Vec<WorkOrderScript> {
+    vec![
+        road_below_no_prep_script(),
+        road_below_trench_line_script(),
+        road_below_berm_and_stakes_script(),
+        road_below_basic_prep_script(),
+        road_below_hazard_prep_script(),
+        road_below_ridge_chokepoint_script(),
+        road_below_overbuilt_bad_plan_script(),
+    ]
 }
 
 pub fn run_work_order_script(spec: MissionSpec, script: &WorkOrderScript) -> MissionState {
@@ -2044,6 +2228,7 @@ pub fn export_assault_run(
     write_json(out_dir.join("assault_summary.json"), &summary)?;
     if let Some(debrief) = prep.assault_debrief() {
         write_json(out_dir.join("assault_debrief.json"), &debrief)?;
+        write_json(out_dir.join("rating_breakdown.json"), &debrief.rating)?;
         write_json(
             out_dir.join("route_prediction_accuracy.json"),
             &debrief.route_prediction_accuracy,
@@ -2104,6 +2289,7 @@ pub fn export_hazard_sandbox_run(
     write_json(out_dir.join("assault_summary.json"), &summary)?;
     if let Some(debrief) = prep.assault_debrief() {
         write_json(out_dir.join("assault_debrief.json"), &debrief)?;
+        write_json(out_dir.join("rating_breakdown.json"), &debrief.rating)?;
         write_json(
             out_dir.join("assault_hazard_summary.json"),
             &debrief.rolling_hazards,
@@ -2121,6 +2307,195 @@ pub fn export_hazard_sandbox_run(
     }
     save_mission_assault_preview_png(out_dir.join("assault_preview_end.png"), &prep)?;
     Ok(summary)
+}
+
+pub fn export_mission_balance_run(
+    out_dir: impl AsRef<Path>,
+    spec: MissionSpec,
+) -> Result<MissionBalanceReport> {
+    let out_dir = out_dir.as_ref();
+    fs::create_dir_all(out_dir)
+        .with_context(|| format!("failed to create {}", out_dir.display()))?;
+
+    let scripts = road_below_balance_scripts();
+    let initial = MissionState::from_spec(spec.clone());
+    let initial_routes = initial.route_preview();
+    let mut scenario_reports = Vec::new();
+    let mut route_shift_summary = Vec::new();
+    let mut hazard_effectiveness = Vec::new();
+    let mut rating_breakdown = Vec::new();
+
+    write_json(out_dir.join("mission_spec.json"), &spec)?;
+    write_ron(out_dir.join("mission_spec.ron"), &spec)?;
+    write_json(out_dir.join("enemy_routes_initial.json"), &initial_routes)?;
+
+    for script in scripts {
+        let scenario_dir = out_dir.join("scenarios").join(&script.id);
+        fs::create_dir_all(&scenario_dir)
+            .with_context(|| format!("failed to create {}", scenario_dir.display()))?;
+
+        let mut prep = run_work_order_script(spec.clone(), &script);
+        let after_routes = prep.route_preview();
+        let route_delta = route_delta_report(spec.id.clone(), &initial_routes, &after_routes);
+        let prep_time_used_seconds = spec
+            .prep_time_seconds
+            .saturating_sub(prep.remaining_prep_seconds);
+
+        write_json(scenario_dir.join("order_script.json"), &script)?;
+        write_ron(scenario_dir.join("order_script.ron"), &script)?;
+        write_json(scenario_dir.join("mission_prep_final.json"), &prep)?;
+        write_json(scenario_dir.join("work_log.json"), &prep.work_orders)?;
+        write_json(
+            scenario_dir.join("material_ledger.json"),
+            &prep.material_ledger,
+        )?;
+        write_json(
+            scenario_dir.join("order_validation.json"),
+            &prep.order_validation,
+        )?;
+        write_json(
+            scenario_dir.join("enemy_routes_after_orders.json"),
+            &after_routes,
+        )?;
+        write_json(scenario_dir.join("enemy_route_delta.json"), &route_delta)?;
+        fs::write(scenario_dir.join("mission_prep_map.txt"), ascii_map(&prep))?;
+        save_mission_preview_png(scenario_dir.join("mission_preview.png"), &prep)?;
+        save_mission_route_preview_png(
+            scenario_dir.join("mission_route_preview.png"),
+            &prep,
+            &initial_routes,
+            &after_routes,
+        )?;
+        save_mission_route_debug_png(
+            scenario_dir.join("mission_route_debug.png"),
+            &prep,
+            &after_routes,
+        )?;
+        save_rolling_hazard_preview_png(scenario_dir.join("rolling_hazard_preview.png"), &prep)?;
+
+        prep.start_assault();
+        save_mission_assault_preview_png(scenario_dir.join("assault_preview_start.png"), &prep)?;
+        let summary = prep.run_assault_to_completion(160);
+        save_mission_assault_preview_png(scenario_dir.join("assault_preview_end.png"), &prep)?;
+
+        if let Some(assault) = &prep.assault {
+            write_json(scenario_dir.join("assault_state_final.json"), assault)?;
+            write_json(
+                scenario_dir.join("assault_timeline.json"),
+                &assault.timeline,
+            )?;
+            write_json(
+                scenario_dir.join("rolling_hazards_final.json"),
+                &assault.rolling_hazards,
+            )?;
+        }
+        write_json(scenario_dir.join("assault_summary.json"), &summary)?;
+
+        let debrief = prep
+            .assault_debrief()
+            .context("assault completed without a debrief")?;
+        write_json(scenario_dir.join("assault_debrief.json"), &debrief)?;
+        write_json(scenario_dir.join("rating_breakdown.json"), &debrief.rating)?;
+        write_json(
+            scenario_dir.join("route_prediction_accuracy.json"),
+            &debrief.route_prediction_accuracy,
+        )?;
+        write_json(
+            scenario_dir.join("assault_hazard_summary.json"),
+            &debrief.rolling_hazards,
+        )?;
+        save_assault_delay_heatmap_png(scenario_dir.join("assault_delay_heatmap.png"), &prep)?;
+        save_assault_pressure_heatmap_png(
+            scenario_dir.join("assault_pressure_heatmap.png"),
+            &prep,
+        )?;
+        save_assault_prediction_vs_actual_png(
+            scenario_dir.join("assault_prediction_vs_actual.png"),
+            &prep,
+        )?;
+
+        let route_notes = route_delta
+            .groups
+            .iter()
+            .filter(|group| group.changed)
+            .map(|group| {
+                format!(
+                    "{} / {}: {}",
+                    script.label, group.group_label, group.explanation
+                )
+            })
+            .collect::<Vec<_>>();
+        if route_notes.is_empty() {
+            route_shift_summary.push(format!("{}: no major route shift.", script.label));
+        } else {
+            route_shift_summary.extend(route_notes);
+        }
+
+        if debrief.rolling_hazards.prepared_count > 0 {
+            hazard_effectiveness.push(format!(
+                "{}: {} prepared, {} released, {} enemy hit(s), {} friendly-risk cell(s).",
+                script.label,
+                debrief.rolling_hazards.prepared_count,
+                debrief.rolling_hazards.released_count,
+                debrief.rolling_hazards.enemies_hit,
+                debrief.rolling_hazards.friendly_risk_cells.len()
+            ));
+        } else {
+            hazard_effectiveness.push(format!("{}: no rolling hazard prepared.", script.label));
+        }
+
+        rating_breakdown.push(format!(
+            "{}: {} star(s), score {}, {}",
+            script.label, debrief.rating.stars, debrief.rating.score, debrief.rating.label
+        ));
+
+        let mut notes = vec![format!(
+            "{} completed order(s), {} validation issue(s).",
+            prep.work_orders
+                .iter()
+                .filter(|order| matches!(order.status, WorkOrderStatus::Completed))
+                .count(),
+            prep.order_validation.len()
+        )];
+        notes.extend(debrief.rating.notes.clone());
+
+        scenario_reports.push(MissionBalanceScenarioReport {
+            id: script.id,
+            label: script.label,
+            order_count: prep.work_orders.len() as u32,
+            prep_time_used_seconds,
+            summary,
+            rating: debrief.rating,
+            route_prediction_accuracy: debrief.route_prediction_accuracy,
+            rolling_hazards: debrief.rolling_hazards,
+            notes,
+        });
+    }
+
+    let report = MissionBalanceReport {
+        mission_id: spec.id,
+        mission_title: spec.title,
+        scenarios: scenario_reports,
+        route_shift_summary,
+        hazard_effectiveness,
+        rating_breakdown,
+    };
+
+    write_json(out_dir.join("mission_balance_summary.json"), &report)?;
+    write_json(out_dir.join("scenario_comparison.json"), &report.scenarios)?;
+    write_json(
+        out_dir.join("route_shift_summary.json"),
+        &report.route_shift_summary,
+    )?;
+    write_json(
+        out_dir.join("hazard_effectiveness.json"),
+        &report.hazard_effectiveness,
+    )?;
+    write_json(
+        out_dir.join("rating_breakdown.json"),
+        &report.rating_breakdown,
+    )?;
+    Ok(report)
 }
 
 pub fn load_mission_spec(path: impl AsRef<Path>) -> Result<MissionSpec> {
@@ -2940,12 +3315,12 @@ fn assault_cell_effect(
 
 fn enemy_hp_for_doctrine(doctrine: EnemyDoctrine) -> i32 {
     match doctrine {
-        EnemyDoctrine::RushShortest => 4,
-        EnemyDoctrine::PreferCover => 5,
-        EnemyDoctrine::FlankViaConcealment => 4,
-        EnemyDoctrine::AvoidObstacles => 5,
-        EnemyDoctrine::PushThroughLightObstacles => 7,
-        EnemyDoctrine::ClearObstacles => 5,
+        EnemyDoctrine::RushShortest => 18,
+        EnemyDoctrine::PreferCover => 19,
+        EnemyDoctrine::FlankViaConcealment => 18,
+        EnemyDoctrine::AvoidObstacles => 19,
+        EnemyDoctrine::PushThroughLightObstacles => 22,
+        EnemyDoctrine::ClearObstacles => 19,
     }
 }
 
@@ -2996,6 +3371,137 @@ fn summarize_assault(spec: &MissionSpec, assault: &AssaultState) -> AssaultSumma
     }
 }
 
+pub fn mission_rating_for_state(state: &MissionState) -> Option<MissionRating> {
+    let assault = state.assault.as_ref()?;
+    let summary = assault
+        .summary
+        .clone()
+        .unwrap_or_else(|| summarize_assault(&state.spec, assault));
+    let influence = build_assault_influence(state, assault);
+    let rolling_hazards = build_rolling_hazard_summary(state, assault);
+    Some(rate_mission_outcome(
+        state,
+        &summary,
+        &influence,
+        &rolling_hazards,
+    ))
+}
+
+fn rate_mission_outcome(
+    state: &MissionState,
+    summary: &AssaultSummary,
+    influence: &AssaultInfluenceSummary,
+    rolling_hazards: &RollingHazardImpactSummary,
+) -> MissionRating {
+    let objective_survived = summary.victory;
+    let stopped_ratio = if summary.enemies_spawned == 0 {
+        1.0
+    } else {
+        summary.enemies_eliminated as f32 / summary.enemies_spawned as f32
+    };
+    let objective_health_ratio = if state.spec.objective.objective_health == 0 {
+        0.0
+    } else {
+        summary.objective_health_remaining.max(0) as f32
+            / state.spec.objective.objective_health as f32
+    };
+    let prep_time_used_seconds = state
+        .spec
+        .prep_time_seconds
+        .saturating_sub(state.remaining_prep_seconds);
+    let prep_time_efficiency = if state.spec.prep_time_seconds == 0 {
+        0.0
+    } else {
+        state.remaining_prep_seconds as f32 / state.spec.prep_time_seconds as f32
+    };
+    let friendly_risk_count = rolling_hazards.friendly_risk_cells.len() as u32;
+    let unused_defense_count = influence.unused_defenses.len() as u32;
+    let hazard_enemies_hit = rolling_hazards.enemies_hit;
+
+    let mut score = 0;
+    if objective_survived {
+        score += 50;
+    }
+    score += (stopped_ratio * 25.0).round() as i32;
+    score += (objective_health_ratio * 15.0).round() as i32;
+    score += (prep_time_efficiency * 10.0).round() as i32;
+    score += hazard_enemies_hit.min(10) as i32;
+    score -= friendly_risk_count as i32 * 10;
+    score -= unused_defense_count.min(4) as i32 * 2;
+    score = score.max(0);
+
+    let stars = if !objective_survived {
+        0
+    } else if objective_health_ratio >= 0.90
+        && stopped_ratio >= 0.85
+        && prep_time_used_seconds <= 360
+        && friendly_risk_count == 0
+    {
+        3
+    } else if objective_health_ratio >= 0.70 && stopped_ratio >= 0.70 {
+        2
+    } else {
+        1
+    };
+    let label = match stars {
+        3 => "Decisive defense",
+        2 => "Solid defense",
+        1 => "Objective held",
+        _ => "Objective lost",
+    }
+    .to_string();
+
+    let mut notes = Vec::new();
+    notes.push(if objective_survived {
+        format!(
+            "Objective survived with {:.0}% health.",
+            objective_health_ratio * 100.0
+        )
+    } else {
+        "Objective was overrun.".to_string()
+    });
+    notes.push(format!(
+        "Stopped {:.0}% of attackers ({} of {}).",
+        stopped_ratio * 100.0,
+        summary.enemies_eliminated,
+        summary.enemies_spawned
+    ));
+    notes.push(format!(
+        "Prep used {}s of {}s.",
+        prep_time_used_seconds, state.spec.prep_time_seconds
+    ));
+    if friendly_risk_count > 0 {
+        notes.push(format!(
+            "{friendly_risk_count} friendly-risk hazard cell(s) were flagged."
+        ));
+    }
+    if unused_defense_count > 0 {
+        notes.push(format!(
+            "{unused_defense_count} prepared defense(s) did not affect enemy paths."
+        ));
+    }
+    if hazard_enemies_hit > 0 {
+        notes.push(format!(
+            "Rolling hazards hit {hazard_enemies_hit} enemy agent(s)."
+        ));
+    }
+
+    MissionRating {
+        stars,
+        label,
+        objective_survived,
+        stopped_ratio,
+        objective_health_ratio,
+        prep_time_used_seconds,
+        prep_time_efficiency,
+        friendly_risk_count,
+        unused_defense_count,
+        hazard_enemies_hit,
+        score,
+        notes,
+    }
+}
+
 fn build_assault_debrief(state: &MissionState) -> Option<AssaultDebrief> {
     let assault = state.assault.as_ref()?;
     let summary = assault
@@ -3005,6 +3511,7 @@ fn build_assault_debrief(state: &MissionState) -> Option<AssaultDebrief> {
     let influence = build_assault_influence(state, assault);
     let rolling_hazards = build_rolling_hazard_summary(state, assault);
     let route_prediction_accuracy = build_route_prediction_accuracy(assault);
+    let rating = rate_mission_outcome(state, &summary, &influence, &rolling_hazards);
     let mut notes = summary.notes.clone();
     if let Some(group) = &influence.most_delayed_group {
         notes.push(format!(
@@ -3034,6 +3541,7 @@ fn build_assault_debrief(state: &MissionState) -> Option<AssaultDebrief> {
         mission_id: state.spec.id.clone(),
         outcome_label: summary.outcome_label.clone(),
         summary,
+        rating,
         influence,
         rolling_hazards,
         route_prediction_accuracy,
@@ -4925,5 +5433,27 @@ mod tests {
             .timeline
             .iter()
             .any(|event| matches!(event.kind, AssaultEventKind::RollingHazardReleased)));
+    }
+
+    #[test]
+    fn balance_scripts_create_meaningful_rating_spread() {
+        let spec = road_below_spec();
+
+        let mut baseline = run_work_order_script(spec.clone(), &road_below_no_prep_script());
+        baseline.run_assault_to_completion(160);
+        let baseline_rating = mission_rating_for_state(&baseline).expect("baseline rating");
+
+        let mut chokepoint =
+            run_work_order_script(spec.clone(), &road_below_ridge_chokepoint_script());
+        chokepoint.run_assault_to_completion(160);
+        let chokepoint_rating = mission_rating_for_state(&chokepoint).expect("chokepoint rating");
+
+        let mut bad = run_work_order_script(spec, &road_below_overbuilt_bad_plan_script());
+        bad.run_assault_to_completion(160);
+        let bad_rating = mission_rating_for_state(&bad).expect("bad plan rating");
+
+        assert!(chokepoint_rating.score > baseline_rating.score);
+        assert_eq!(chokepoint_rating.stars, 3);
+        assert!(bad_rating.stars <= baseline_rating.stars);
     }
 }

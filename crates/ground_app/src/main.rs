@@ -594,6 +594,10 @@ impl GroundLabApp {
             if let Some(debrief) = self.mission_state.assault_debrief() {
                 ui.separator();
                 ui.strong("Debrief");
+                ui.small(format!(
+                    "Rating: {} star(s) · {} · score {}",
+                    debrief.rating.stars, debrief.rating.label, debrief.rating.score
+                ));
                 if let Some(group) = &debrief.influence.most_delayed_group {
                     ui.small(format!(
                         "Most delayed: {} · {} tick(s)",
@@ -710,18 +714,45 @@ impl GroundLabApp {
     }
 
     fn show_objective_panel(&self, ui: &mut egui::Ui) {
+        ui.strong(&self.mission_state.spec.title);
+        if !self.mission_state.spec.briefing.summary.is_empty() {
+            ui.label(&self.mission_state.spec.briefing.summary);
+        }
+        ui.separator();
         ui.strong("Objective");
-        ui.label(format!(
-            "Primary: {}",
-            self.mission_state.spec.objective.label
-        ));
+        let primary = if self.mission_state.spec.briefing.primary.is_empty() {
+            self.mission_state.spec.objective.label.as_str()
+        } else {
+            self.mission_state.spec.briefing.primary.as_str()
+        };
+        ui.label(format!("Primary: {primary}"));
         ui.small(format!(
             "Hold cell ({}, {}) · health {}",
             self.mission_state.spec.objective.defend_cell.x,
             self.mission_state.spec.objective.defend_cell.y,
             self.mission_state.spec.objective.objective_health
         ));
-        ui.small("Bonus constraints are not active yet.");
+        for optional in &self.mission_state.spec.briefing.optional_objectives {
+            ui.small(format!("Optional: {optional}"));
+        }
+        if !self.mission_state.spec.briefing.intel.is_empty() {
+            ui.separator();
+            ui.strong("Briefing intel");
+            for intel in &self.mission_state.spec.briefing.intel {
+                ui.small(intel);
+            }
+        }
+        if let Some(debrief) = self.mission_state.assault_debrief() {
+            ui.separator();
+            ui.strong("Mission rating");
+            ui.label(format!(
+                "{} star(s) · {} · score {}",
+                debrief.rating.stars, debrief.rating.label, debrief.rating.score
+            ));
+            for note in debrief.rating.notes.iter().take(4) {
+                ui.small(note);
+            }
+        }
     }
 
     fn show_mission_scenario_controls(&mut self, ui: &mut egui::Ui) {
@@ -781,6 +812,12 @@ impl GroundLabApp {
                 self.queue_mission_order(
                     WorkOrderKind::PlaceStakes,
                     WorkTarget::Cell(CellCoord::new(3, 4)),
+                );
+            }
+            if ui.button("Prepare ridge log").clicked() {
+                self.queue_mission_order(
+                    WorkOrderKind::PrepareRollingLog,
+                    WorkTarget::Object("ridge_log_01".to_string()),
                 );
             }
         });
