@@ -6,7 +6,8 @@ GroundLab's active roadmap is paused on new game/procgen/campaign expansion whil
 mission art direction is locked. SpriteGen remains the terrain art forge, and Mission Lab remains
 the 2.5D tactical engineering defense workbench, but the current priority is making one generated
 mission beauty render read as a coherent high-oblique pixel-art terrain scene rather than a
-schematic board.
+schematic board. Visual Lock 2 keeps the benchmark fixed and focuses on the prepared-work terrain
+layer: trenches, berms, path edges, prepared diff artifacts, and visual-impact audit data.
 
 ## GamePivot 1 — Mission workbench seed
 
@@ -488,6 +489,29 @@ Implemented in this drop.
 This milestone intentionally freezes new mechanics, themes, campaign packaging, UI shell work, and
 SpriteGen material-family expansion. Its purpose is to judge one generated mission in visual context
 and expose the highest-impact art/composition problems before more systems are added.
+
+## Visual Lock 2 — High-impact terrain piece polish
+
+Implemented in this drop.
+
+- keeps `visual-lock-benchmark` as the fixed art-direction export path, but uses it for the second
+  lock pass rather than more systems work
+- exports `benchmark_prepared_diff.png` to make the exact prepared-state visual change visible
+- exports `benchmark_prepared_feature_overlay.png` to show prepared terrain features without route
+  clutter
+- extends `benchmark_visual_audit.json` with estimated visible sprite impact by terrain piece and
+  estimated placeholder object impact
+- updates visual priority notes to identify the largest visible sprite, largest placeholder class,
+  and top prepared-feature sprite impacts
+- softens path accents with lower-contrast center passes and grass edge blending
+- adds warmer trench blending, broken exposed lips, grass intrusion, and soil speckles so trenches
+  read less like black rectangular stamps
+- adds berm top/face blending, softer exposed edges, grass intrusion, and soil speckles so berms
+  read less like continuous wall slabs
+
+This milestone still does not add mechanics, themes, campaign UI, campaign packaging, new
+SpriteGen material families, or a renderer rewrite. It only improves the high-impact prepared
+terrain layer and the benchmark artifacts used to judge that layer.
 
 ## Milestone 0 — Project seed
 

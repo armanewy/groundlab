@@ -639,7 +639,7 @@ fn main() -> Result<()> {
         "visual-lock-benchmark" => {
             let out_dir = args
                 .next()
-                .unwrap_or_else(|| "exports/visual_lock_01".to_string());
+                .unwrap_or_else(|| "exports/visual_lock_02".to_string());
             let mut seed = 99_418_113;
             let mut count = 8;
             let mut theme = MissionTheme::RidgeTrap;
@@ -669,7 +669,7 @@ fn main() -> Result<()> {
             let mut generator = MissionGeneratorSpec::road_below(seed);
             generator.theme = theme;
             let report = export_visual_lock_benchmark(&out_dir, generator, count)?;
-            println!("Exported Visual Lock 1 benchmark to {out_dir}.");
+            println!("Exported Visual Lock benchmark to {out_dir}.");
             println!(
                 "{} [{}] | seed {} | score {} | best plan {}.",
                 report.title,
@@ -679,7 +679,7 @@ fn main() -> Result<()> {
                 report.best_plan_label
             );
             println!(
-                "Visual lock files: benchmark_visual_beauty.png, benchmark_visual_routes.png, benchmark_visual_debug.png, benchmark_visual_audit.json, benchmark_visual_asset_report.json, benchmark_feature_map.json, benchmark_prepared_visual_beauty.png"
+                "Visual lock files: benchmark_visual_beauty.png, benchmark_visual_routes.png, benchmark_visual_debug.png, benchmark_visual_audit.json, benchmark_visual_asset_report.json, benchmark_feature_map.json, benchmark_prepared_visual_beauty.png, benchmark_prepared_diff.png, benchmark_prepared_feature_overlay.png"
             );
         }
         "render-mission" => {

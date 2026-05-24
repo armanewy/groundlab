@@ -3,7 +3,7 @@
 GroundLab is intentionally not a general engine. It is a custom terrain/art/simulation workbench
 for one future game family: terrain-first prepared-ground defense.
 
-The active roadmap has paused generated-campaign and game-system expansion for Visual Lock 1.
+The active roadmap has paused generated-campaign and game-system expansion for Visual Lock 2.
 SpriteGen remains the terrain art forge, while `ground_game` owns mission specs, prep-phase work
 orders, local materials,
 environment-object states, doctrine route preview, deterministic assault sandbox, assault
@@ -19,10 +19,10 @@ curve quality, visual QA, and weak-mission diagnostics. ProcGen 8 packages those
 mission sets with ordered lessons, capability unlock metadata, save templates, per-slot mission
 folders, campaign playtest exports, and Mission Lab mission-set navigation. ProcGen 8.1 runs
 campaign sets across seed matrices and aggregates lesson coverage, unlock usefulness, campaign
-difficulty/complexity curves, visual QA, and weak-campaign diagnostics. Visual Lock 1 uses that
+difficulty/complexity curves, visual QA, and weak-campaign diagnostics. Visual Lock uses that
 pipeline only as a source of fixed benchmark missions, then exports initial/prepared beauty,
-route-overlay, debug, asset-report, feature-map, and audit artifacts to guide art-direction work in
-gameplay context.
+route-overlay, debug, diff, feature-overlay, asset-report, feature-map, and audit artifacts to guide
+art-direction work in gameplay context.
 `ground_app` now treats Mission Lab as the primary tactical prep surface rather than a generic
 terrain editor panel, and Road Below starts as a playable briefing-to-debrief slice. The same
 mission loop now evaluates generated Road-Below-like candidates so GroundLab can batch-generate,
@@ -61,8 +61,9 @@ score, reject, and export compact terrain-defense problems.
   campaign-level curve reports, visual QA aggregation, and weak-campaign recommendation exports
 - Mission visual theme bindings, high-oblique generated mission beauty previews, visual route/debug
   overlays, generated feature maps, and visual asset reports
-- Visual Lock benchmark export, prepared-state benchmark rendering, dominant-feature audit, sprite
-  role summaries, and placeholder/fallback/override diagnostics
+- Visual Lock benchmark export, prepared-state benchmark rendering, prepared diff/feature overlay,
+  dominant-feature audit, visible sprite impact estimates, sprite role summaries, and
+  placeholder/fallback/override diagnostics
 - Terrain editing brushes
 - Pixel tile recipes
 - Palette ramps and palette file format
@@ -187,8 +188,9 @@ MissionGeneratorSpec + fixed seed/theme
   -> initial beauty/routes/debug visual exports
   -> best known prep script, when available
   -> prepared beauty/routes/debug visual exports
+  -> prepared diff and prepared feature-overlay exports
   -> visual asset reports + generated feature maps
-  -> benchmark_visual_audit.json
+  -> benchmark_visual_audit.json with visible-impact ranking
   -> targeted art/composition polish without adding new gameplay systems
 ```
 

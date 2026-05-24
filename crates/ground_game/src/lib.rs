@@ -1707,6 +1707,8 @@ pub struct VisualLockBenchmarkReport {
     pub benchmark_mission_path: String,
     pub initial: VisualLockStageAudit,
     pub prepared: Option<VisualLockStageAudit>,
+    pub prepared_diff_path: Option<String>,
+    pub prepared_feature_overlay_path: Option<String>,
     pub notes: Vec<String>,
 }
 
@@ -1722,6 +1724,8 @@ pub struct VisualLockStageAudit {
     pub feature_map: GeneratedMissionFeatureMap,
     pub dominant_features: Vec<VisualLockDominantFeature>,
     pub sprite_role_summary: Vec<VisualLockSpriteRoleSummary>,
+    pub visible_sprite_impacts: Vec<VisualLockVisibleSpriteImpact>,
+    pub placeholder_impacts: Vec<VisualLockPlaceholderImpact>,
     pub visual_priority_notes: Vec<String>,
 }
 
@@ -1737,6 +1741,22 @@ pub struct VisualLockSpriteRoleSummary {
     pub role: String,
     pub piece_count: u32,
     pub pieces: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VisualLockVisibleSpriteImpact {
+    pub piece: String,
+    pub role: String,
+    pub cell_count: u32,
+    pub estimated_screen_area_px: u32,
+    pub ratio_of_map_cells: f32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VisualLockPlaceholderImpact {
+    pub placeholder: String,
+    pub count: u32,
+    pub estimated_screen_area_px: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -3234,10 +3254,26 @@ pub fn export_visual_lock_benchmark(
         "The initial render judges the generated mission as authored; the prepared render shows the same mission after the best scripted prep plan when available."
             .to_string(),
     ];
+    let mut prepared_diff_path = None;
+    let mut prepared_feature_overlay_path = None;
     let prepared = if let Some(script) = visual_lock_best_script(&selected.best_plan_label) {
         let prepared_state = run_work_order_script(spec.clone(), &script);
         let prepared_audit =
             export_visual_lock_stage(out_dir, "benchmark_prepared", &prepared_state)?;
+        let diff_path = out_dir.join("benchmark_prepared_diff.png");
+        save_visual_lock_diff(
+            &initial.beauty_path,
+            &prepared_audit.beauty_path,
+            &diff_path,
+        )?;
+        let overlay_path = out_dir.join("benchmark_prepared_feature_overlay.png");
+        save_visual_lock_feature_overlay(
+            &prepared_audit.beauty_path,
+            &prepared_state,
+            &overlay_path,
+        )?;
+        prepared_diff_path = Some(diff_path.to_string_lossy().to_string());
+        prepared_feature_overlay_path = Some(overlay_path.to_string_lossy().to_string());
         write_json(
             out_dir.join("benchmark_prepared_order_script.json"),
             &script,
@@ -3276,6 +3312,8 @@ pub fn export_visual_lock_benchmark(
             .to_string(),
         initial,
         prepared,
+        prepared_diff_path,
+        prepared_feature_overlay_path,
         notes,
     };
     write_json(out_dir.join("benchmark_visual_audit.json"), &report)?;
@@ -10423,6 +10461,7 @@ fn export_visual_lock_stage(
 
     Ok(visual_lock_stage_audit(VisualLockStageAuditParts {
         stage: prefix,
+        state,
         beauty_path,
         routes_path,
         debug_path,
@@ -10433,8 +10472,105 @@ fn export_visual_lock_stage(
     }))
 }
 
+fn save_visual_lock_diff(
+    initial_path: impl AsRef<Path>,
+    prepared_path: impl AsRef<Path>,
+    out_path: impl AsRef<Path>,
+) -> Result<()> {
+    let initial_path = initial_path.as_ref();
+    let prepared_path = prepared_path.as_ref();
+    let out_path = out_path.as_ref();
+    if let Some(parent) = out_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let initial = image::open(initial_path)
+        .with_context(|| format!("failed to open {}", initial_path.display()))?
+        .to_rgba8();
+    let prepared = image::open(prepared_path)
+        .with_context(|| format!("failed to open {}", prepared_path.display()))?
+        .to_rgba8();
+    let width = initial.width().min(prepared.width());
+    let height = initial.height().min(prepared.height());
+    let mut diff = RgbaImage::from_pixel(width, height, Rgba([28, 30, 27, 255]));
+    for y in 0..height {
+        for x in 0..width {
+            let a = initial.get_pixel(x, y);
+            let b = prepared.get_pixel(x, y);
+            let delta = a[0].abs_diff(b[0]) as u16
+                + a[1].abs_diff(b[1]) as u16
+                + a[2].abs_diff(b[2]) as u16
+                + a[3].abs_diff(b[3]) as u16 / 2;
+            if delta > 28 {
+                let strength = delta.min(255) as u8;
+                diff.put_pixel(
+                    x,
+                    y,
+                    Rgba([
+                        170u8.saturating_add(strength / 5),
+                        83u8.saturating_add(strength / 7),
+                        42,
+                        255,
+                    ]),
+                );
+            } else {
+                let gray = ((a[0] as u16 + a[1] as u16 + a[2] as u16) / 3) as u8;
+                diff.put_pixel(x, y, Rgba([gray / 3, gray / 3 + 8, gray / 3, 255]));
+            }
+        }
+    }
+    diff.save(out_path)
+        .with_context(|| format!("failed to save {}", out_path.display()))
+}
+
+fn save_visual_lock_feature_overlay(
+    beauty_path: impl AsRef<Path>,
+    state: &MissionState,
+    out_path: impl AsRef<Path>,
+) -> Result<()> {
+    let beauty_path = beauty_path.as_ref();
+    let out_path = out_path.as_ref();
+    if let Some(parent) = out_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut image = image::open(beauty_path)
+        .with_context(|| format!("failed to open {}", beauty_path.display()))?
+        .to_rgba8();
+    let projection = MissionVisualProjection::new(&state.map);
+    for y in 0..state.map.height {
+        for x in 0..state.map.width {
+            let coord = CellCoord::new(x, y);
+            let Some(cell) = state.map.cell(coord) else {
+                continue;
+            };
+            let overlay = match cell.earth_state {
+                EarthState::Trench | EarthState::DeepTrench | EarthState::Ditch => {
+                    Some(Rgba([65, 94, 128, 94]))
+                }
+                EarthState::Berm | EarthState::SpoilPile => Some(Rgba([174, 116, 55, 88])),
+                _ if cell.ground == GroundKind::Road => Some(Rgba([194, 156, 88, 58])),
+                _ if cell.ground == GroundKind::Rock => Some(Rgba([156, 158, 145, 62])),
+                _ => None,
+            };
+            if let Some(color) = overlay {
+                draw_diamond_fill(&mut image, &projection, coord, cell.height, color);
+                draw_diamond_outline(
+                    &mut image,
+                    &projection,
+                    coord,
+                    cell.height,
+                    Rgba([246, 221, 142, 155]),
+                );
+            }
+        }
+    }
+    image
+        .save(out_path)
+        .with_context(|| format!("failed to save {}", out_path.display()))
+}
+
 struct VisualLockStageAuditParts<'a> {
     stage: &'a str,
+    state: &'a MissionState,
     beauty_path: PathBuf,
     routes_path: PathBuf,
     debug_path: PathBuf,
@@ -10447,6 +10583,7 @@ struct VisualLockStageAuditParts<'a> {
 fn visual_lock_stage_audit(parts: VisualLockStageAuditParts<'_>) -> VisualLockStageAudit {
     let VisualLockStageAuditParts {
         stage,
+        state,
         beauty_path,
         routes_path,
         debug_path,
@@ -10457,8 +10594,16 @@ fn visual_lock_stage_audit(parts: VisualLockStageAuditParts<'_>) -> VisualLockSt
     } = parts;
     let dominant_features = visual_lock_dominant_features(&feature_map);
     let sprite_role_summary = visual_lock_sprite_role_summary(&asset_report);
-    let visual_priority_notes =
-        visual_lock_priority_notes(stage, &asset_report, &feature_map, &dominant_features);
+    let visible_sprite_impacts = visual_lock_visible_sprite_impacts(state);
+    let placeholder_impacts = visual_lock_placeholder_impacts(state);
+    let visual_priority_notes = visual_lock_priority_notes(
+        stage,
+        &asset_report,
+        &feature_map,
+        &dominant_features,
+        &visible_sprite_impacts,
+        &placeholder_impacts,
+    );
     VisualLockStageAudit {
         stage: stage.to_string(),
         beauty_path: beauty_path.to_string_lossy().to_string(),
@@ -10470,6 +10615,8 @@ fn visual_lock_stage_audit(parts: VisualLockStageAuditParts<'_>) -> VisualLockSt
         feature_map,
         dominant_features,
         sprite_role_summary,
+        visible_sprite_impacts,
+        placeholder_impacts,
         visual_priority_notes,
     }
 }
@@ -10527,6 +10674,72 @@ fn visual_lock_sprite_role_summary(
     out
 }
 
+fn visual_lock_visible_sprite_impacts(state: &MissionState) -> Vec<VisualLockVisibleSpriteImpact> {
+    let projection = MissionVisualProjection::new(&state.map);
+    let tile_area = projection.tile_w * projection.tile_h / 2;
+    let total_cells = (state.map.width * state.map.height).max(1);
+    let mut counts: HashMap<String, u32> = HashMap::new();
+    for y in 0..state.map.height {
+        for x in 0..state.map.width {
+            let coord = CellCoord::new(x, y);
+            let Some(cell) = state.map.cell(coord) else {
+                continue;
+            };
+            let piece = mission_cell_sprite_kind(state, coord, cell)
+                .id()
+                .to_string();
+            *counts.entry(piece).or_default() += 1;
+        }
+    }
+    let mut out = counts
+        .into_iter()
+        .map(|(piece, cell_count)| VisualLockVisibleSpriteImpact {
+            role: visual_lock_sprite_role(&piece).to_string(),
+            piece,
+            cell_count,
+            estimated_screen_area_px: cell_count * tile_area,
+            ratio_of_map_cells: cell_count as f32 / total_cells as f32,
+        })
+        .collect::<Vec<_>>();
+    out.sort_by(|a, b| {
+        b.estimated_screen_area_px
+            .cmp(&a.estimated_screen_area_px)
+            .then_with(|| a.piece.cmp(&b.piece))
+    });
+    out
+}
+
+fn visual_lock_placeholder_impacts(state: &MissionState) -> Vec<VisualLockPlaceholderImpact> {
+    let mut out = visual_object_counts(state)
+        .into_iter()
+        .map(|entry| VisualLockPlaceholderImpact {
+            estimated_screen_area_px: entry.count * visual_lock_placeholder_area(&entry.object),
+            placeholder: entry.object,
+            count: entry.count,
+        })
+        .collect::<Vec<_>>();
+    out.sort_by(|a, b| {
+        b.estimated_screen_area_px
+            .cmp(&a.estimated_screen_area_px)
+            .then_with(|| a.placeholder.cmp(&b.placeholder))
+    });
+    out
+}
+
+fn visual_lock_placeholder_area(label: &str) -> u32 {
+    match label {
+        "tree_standing" => 1_700,
+        "log_or_trunk" => 900,
+        "wall_or_ruin" => 1_000,
+        "fighting_position" => 620,
+        "stakes_cluster" => 520,
+        "rock" => 430,
+        "wire" => 360,
+        "stump" => 260,
+        _ => 400,
+    }
+}
+
 fn visual_lock_sprite_role(piece: &str) -> &'static str {
     if piece.starts_with("grass") {
         "grass/top surface"
@@ -10550,6 +10763,8 @@ fn visual_lock_priority_notes(
     report: &MissionVisualAssetReport,
     feature_map: &GeneratedMissionFeatureMap,
     dominant_features: &[VisualLockDominantFeature],
+    visible_sprite_impacts: &[VisualLockVisibleSpriteImpact],
+    placeholder_impacts: &[VisualLockPlaceholderImpact],
 ) -> Vec<String> {
     let mut notes = Vec::new();
     if report.overridden_sprite_count == 0 {
@@ -10574,6 +10789,40 @@ fn visual_lock_priority_notes(
             "Dominant visual feature is '{}' at {:.0}% of map cells.",
             top.label,
             top.ratio * 100.0
+        ));
+    }
+    if let Some(top_sprite) = visible_sprite_impacts.first() {
+        notes.push(format!(
+            "Largest visible sprite impact is {} ({}, {} cell(s), about {} px).",
+            top_sprite.piece,
+            top_sprite.role,
+            top_sprite.cell_count,
+            top_sprite.estimated_screen_area_px
+        ));
+    }
+    if let Some(top_placeholder) = placeholder_impacts.first() {
+        notes.push(format!(
+            "Largest placeholder impact is {} ({} instance(s), about {} px).",
+            top_placeholder.placeholder,
+            top_placeholder.count,
+            top_placeholder.estimated_screen_area_px
+        ));
+    }
+    let prepared_feature_pieces = visible_sprite_impacts
+        .iter()
+        .filter(|impact| {
+            matches!(
+                impact.role.as_str(),
+                "trench/recessed terrain" | "berm/raised terrain" | "path/dirt surface"
+            )
+        })
+        .take(4)
+        .map(|impact| format!("{}:{} cells", impact.piece, impact.cell_count))
+        .collect::<Vec<_>>();
+    if !prepared_feature_pieces.is_empty() {
+        notes.push(format!(
+            "Top prepared-feature sprite impacts: {}.",
+            prepared_feature_pieces.join(", ")
         ));
     }
     for feature_name in ["trench_network", "berm_network", "stone_region"] {
@@ -11211,7 +11460,7 @@ fn draw_visual_cell_accent(
             draw_visual_trench_accent(image, state, coord, cell, projection);
         }
         EarthState::Berm | EarthState::SpoilPile => {
-            draw_visual_berm_accent(image, coord, cell, projection);
+            draw_visual_berm_accent(image, state, coord, cell, projection);
         }
         _ if cell.ground == GroundKind::Road => {
             draw_visual_path_accent(image, state, coord, cell, projection);
@@ -11237,8 +11486,9 @@ fn draw_visual_path_accent(
     let (cx, cy) = projection.center(coord, cell.height);
     let hw = projection.tile_w as i32 / 2;
     let hh = projection.tile_h as i32 / 2;
-    let road_shadow = Rgba([73, 45, 28, 92]);
-    let road_high = Rgba([156, 103, 60, 88]);
+    let road_shadow = Rgba([76, 50, 32, 68]);
+    let road_high = Rgba([168, 119, 70, 72]);
+    let grass_blend = Rgba([63, 103, 50, 58]);
     for (bit, tx, ty) in [
         (1, cx, cy - hh / 2),
         (2, cx + hw / 2, cy),
@@ -11246,8 +11496,13 @@ fn draw_visual_path_accent(
         (8, cx - hw / 2, cy),
     ] {
         if mask & bit != 0 {
-            draw_rgba_line(image, cx, cy, tx, ty, road_shadow, 6);
+            draw_rgba_line(image, cx, cy, tx, ty, road_shadow, 5);
             draw_rgba_line(image, cx, cy - 1, tx, ty - 1, road_high, 2);
+        }
+    }
+    for bit in [1, 2, 4, 8] {
+        if mask & bit == 0 {
+            draw_visual_edge_line(image, projection, coord, cell.height, bit, grass_blend, 2);
         }
     }
     if mask == 0 {
@@ -11271,41 +11526,87 @@ fn draw_visual_trench_accent(
     let (cx, cy) = projection.center(coord, cell.height);
     let hw = projection.tile_w as i32 / 2;
     let hh = projection.tile_h as i32 / 2;
-    let floor = Rgba([31, 23, 19, 120]);
-    let lip = Rgba([142, 91, 47, 120]);
+    draw_diamond_fill(
+        image,
+        projection,
+        coord,
+        cell.height,
+        Rgba([118, 78, 48, 84]),
+    );
+    let floor = Rgba([58, 41, 31, 70]);
+    let floor_high = Rgba([104, 72, 44, 64]);
+    let lip = Rgba([154, 99, 51, 118]);
+    let grass_intrusion = Rgba([75, 116, 58, 74]);
     if mask & 10 != 0 {
-        draw_rgba_line(image, cx - hw / 3, cy, cx + hw / 3, cy, floor, 5);
+        draw_rgba_line(image, cx - hw / 3, cy, cx + hw / 3, cy, floor, 6);
+        draw_rgba_line(
+            image,
+            cx - hw / 5,
+            cy - 2,
+            cx + hw / 5,
+            cy - 2,
+            floor_high,
+            2,
+        );
     }
     if mask & 5 != 0 {
-        draw_rgba_line(image, cx, cy - hh / 3, cx, cy + hh / 3, floor, 5);
+        draw_rgba_line(image, cx, cy - hh / 3, cx, cy + hh / 3, floor, 6);
+        draw_rgba_line(
+            image,
+            cx + 2,
+            cy - hh / 5,
+            cx + 2,
+            cy + hh / 5,
+            floor_high,
+            2,
+        );
     }
-    draw_rgba_line(
+    if mask == 0 {
+        draw_rgba_line(image, cx - hw / 5, cy, cx + hw / 5, cy, floor, 6);
+    }
+    for bit in [1, 2, 4, 8] {
+        if mask & bit == 0 {
+            draw_visual_edge_line(image, projection, coord, cell.height, bit, lip, 3);
+            draw_visual_edge_grass(image, projection, coord, cell.height, bit, grass_intrusion);
+        }
+    }
+    draw_visual_cell_speckles(
         image,
-        cx - hw / 3,
-        cy + hh / 3,
-        cx + hw / 3,
-        cy + hh / 3,
-        lip,
-        2,
+        projection,
+        coord,
+        cell.height,
+        Rgba([180, 117, 58, 62]),
+        4,
     );
 }
 
 fn draw_visual_berm_accent(
     image: &mut RgbaImage,
+    state: &MissionState,
     coord: CellCoord,
     cell: &MissionCell,
     projection: &MissionVisualProjection,
 ) {
+    let mask = cardinal_mask_for_cells(state, coord, |cell| {
+        matches!(cell.earth_state, EarthState::Berm | EarthState::SpoilPile)
+    });
     let (cx, cy) = projection.center(coord, cell.height);
     let hw = projection.tile_w as i32 / 2;
     let hh = projection.tile_h as i32 / 2;
+    draw_diamond_fill(
+        image,
+        projection,
+        coord,
+        cell.height,
+        Rgba([118, 91, 53, 38]),
+    );
     draw_rgba_line(
         image,
         cx - hw / 3,
         cy - hh / 4,
         cx + hw / 4,
         cy - hh / 6,
-        Rgba([154, 113, 62, 105]),
+        Rgba([174, 135, 78, 102]),
         3,
     );
     draw_rgba_line(
@@ -11314,8 +11615,37 @@ fn draw_visual_berm_accent(
         cy + hh / 3,
         cx + hw / 3,
         cy + hh / 3,
-        Rgba([52, 36, 25, 105]),
-        3,
+        Rgba([44, 33, 24, 74]),
+        2,
+    );
+    for bit in [1, 2, 4, 8] {
+        if mask & bit == 0 {
+            draw_visual_edge_line(
+                image,
+                projection,
+                coord,
+                cell.height,
+                bit,
+                Rgba([150, 109, 62, 82]),
+                2,
+            );
+            draw_visual_edge_grass(
+                image,
+                projection,
+                coord,
+                cell.height,
+                bit,
+                Rgba([77, 119, 58, 68]),
+            );
+        }
+    }
+    draw_visual_cell_speckles(
+        image,
+        projection,
+        coord,
+        cell.height,
+        Rgba([202, 153, 82, 52]),
+        5,
     );
 }
 
@@ -11344,6 +11674,80 @@ fn draw_visual_stone_accent(
         Rgba([154, 154, 136, 80]),
         1,
     );
+}
+
+fn draw_visual_edge_line(
+    image: &mut RgbaImage,
+    projection: &MissionVisualProjection,
+    coord: CellCoord,
+    height: i8,
+    edge_bit: u8,
+    color: Rgba<u8>,
+    thickness: u32,
+) {
+    let (a, b) = visual_diamond_edge(projection, coord, height, edge_bit);
+    draw_rgba_line(image, a.0, a.1, b.0, b.1, color, thickness);
+}
+
+fn draw_visual_edge_grass(
+    image: &mut RgbaImage,
+    projection: &MissionVisualProjection,
+    coord: CellCoord,
+    height: i8,
+    edge_bit: u8,
+    color: Rgba<u8>,
+) {
+    let (a, b) = visual_diamond_edge(projection, coord, height, edge_bit);
+    for step in 1..=3 {
+        let t = step as f32 / 4.0;
+        let x = (a.0 as f32 + (b.0 - a.0) as f32 * t).round() as i32;
+        let y = (a.1 as f32 + (b.1 - a.1) as f32 * t).round() as i32;
+        let dir = if edge_bit == 1 || edge_bit == 8 {
+            -1
+        } else {
+            1
+        };
+        draw_rgba_line(image, x, y, x + dir * 7, y - 4, color, 1);
+    }
+}
+
+fn draw_visual_cell_speckles(
+    image: &mut RgbaImage,
+    projection: &MissionVisualProjection,
+    coord: CellCoord,
+    height: i8,
+    color: Rgba<u8>,
+    count: u32,
+) {
+    let (cx, cy) = projection.center(coord, height);
+    let seed = coord.x.wrapping_mul(37) ^ coord.y.wrapping_mul(61) ^ count;
+    for index in 0..count {
+        let dx = ((seed + index * 11) % 25) as i32 - 12;
+        let dy = ((seed + index * 17) % 15) as i32 - 7;
+        fill_rgba_rect(image, cx + dx, cy + dy, 2, 1, color);
+    }
+}
+
+fn visual_diamond_edge(
+    projection: &MissionVisualProjection,
+    coord: CellCoord,
+    height: i8,
+    edge_bit: u8,
+) -> ((i32, i32), (i32, i32)) {
+    let (cx, cy) = projection.center(coord, height);
+    let hw = projection.tile_w as i32 / 2;
+    let hh = projection.tile_h as i32 / 2;
+    let top = (cx, cy - hh);
+    let right = (cx + hw, cy);
+    let bottom = (cx, cy + hh);
+    let left = (cx - hw, cy);
+    match edge_bit {
+        1 => (left, top),
+        2 => (top, right),
+        4 => (right, bottom),
+        8 => (bottom, left),
+        _ => (left, right),
+    }
 }
 
 fn draw_visual_perimeter_fringe(
