@@ -1,5 +1,5 @@
 [package]
-name = "ground_app"
+name = "ground_game"
 edition.workspace = true
 version.workspace = true
 authors.workspace = true
@@ -7,6 +7,6 @@ license.workspace = true
 
 [dependencies]
 anyhow.workspace = true
-eframe.workspace = true
-ground_core = { path = "../ground_core" }
-ground_game = { path = "../ground_game" }
+ron.workspace = true
+serde.workspace = true
+serde_json.workspace = true

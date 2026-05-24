@@ -8,3 +8,4 @@ license.workspace = true
 [dependencies]
 anyhow.workspace = true
 ground_core = { path = "../ground_core" }
+ground_game = { path = "../ground_game" }

@@ -1,6 +1,7 @@
 [workspace]
 members = [
     "crates/ground_core",
+    "crates/ground_game",
     "crates/ground_app",
     "crates/ground_cli",
     "crates/ground_sprite_app",

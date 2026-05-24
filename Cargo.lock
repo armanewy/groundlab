@@ -1340,6 +1340,7 @@ dependencies = [
  "anyhow",
  "eframe",
  "ground_core",
+ "ground_game",
 ]
 
 [[package]]
@@ -1348,6 +1349,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "ground_core",
+ "ground_game",
 ]
 
 [[package]]
@@ -1356,6 +1358,16 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "image",
+ "ron",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "ground_game"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
  "ron",
  "serde",
  "serde_json",

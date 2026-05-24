@@ -3,9 +3,17 @@
 GroundLab is intentionally not a general engine. It is a custom terrain/art/simulation workbench
 for one future game family: terrain-first prepared-ground defense.
 
+The active roadmap has pivoted to a mission-first workbench. SpriteGen remains the terrain art
+forge, while `ground_game` owns mission specs, prep-phase work orders, local materials,
+environment-object states, and future doctrine/assault simulation.
+
 ## What is custom-owned now
 
 - Terrain data model
+- Mission data model
+- State-based terrain and environment objects
+- Prep-phase work order model
+- Local material stock and side-effect tracking
 - Terrain editing brushes
 - Pixel tile recipes
 - Palette ramps and palette file format
@@ -37,6 +45,19 @@ without changing the terrain, generation, pathing, or LOS systems.
 
 ## Data flow
 
+GamePivot mission flow:
+
+```txt
+MissionSpec
+  -> MissionState
+  -> prep-phase work orders
+  -> terrain/object/material state changes
+  -> route / LOS / cover consequences
+  -> future assault sandbox
+```
+
+Art asset flow:
+
 ```txt
 recipe.ron + palette.ron
   -> TilesetRecipe + Palette
@@ -51,6 +72,11 @@ recipe.ron + palette.ron
 The important design rule is that generated art remains deterministic and metadata-rich. Tiles are
 not just PNGs; they carry role, material, movement cost, cover hint, sight-blocking hint, height role,
 transition metadata, and structure-face metadata.
+
+The matching gameplay rule is that important world changes are state-based and deterministic. A tree
+does not become abstract wood; it moves through standing, fallen, cut-log, stake/timber, and cleared
+states. Digging changes earth state, height, cover, movement, and local spoil. Building a berm spends
+nearby spoil and changes cover, sight, movement, and route cost.
 
 ## Simulation vs faked/custom
 

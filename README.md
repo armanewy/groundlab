@@ -4,71 +4,27 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: ArtGen 4.0 — stone platform / raised terrain kit
+## Current status: GamePivot 1 — mission workbench seed
 
-GroundLab's active visual work has pivoted away from the large editable scene renderer. The current
-focus is a dedicated, fast terrain sprite generator that produces simple, cozy, top-down pixel
-terrain primitives from swappable style profiles, palettes, motif libraries, and art rules. It does
-not require reference images.
+GroundLab has pivoted from art-generation milestones back toward the game workbench. The primary
+product direction is now a 2.5D tactical engineering defense game: the player is a commander /
+engineer who reads a compact level, issues prep-phase work orders, transforms terrain and local
+objects, then later tests those choices against predictable enemy doctrine.
 
-ArtGen 4.0 keeps the primitive style tuning studio and shared topology diagnostics from 3.3, then
-adds the first hard raised-terrain family: stone platform sprites. The generator now produces
-stone top surfaces, front/side faces, bevels, steps, caps, corners, contact shadow, crack decals,
-and moss/grass edge pieces with the same role, anchor, footprint, z-bias, occlusion, override, and
-validation metadata used by grass, dirt, paths, trenches, and berms.
+SpriteGen remains in the repository as the terrain art forge. It still provides swappable style
+profiles, override PNGs, sprite manifests, validation, and exportable grass/dirt/path/trench/berm/
+stone pieces. It is now supporting infrastructure rather than the main roadmap driver.
 
-The style profiles remain data-driven under `assets/sprite_styles/`. The current built-in profiles
-are:
+GamePivot 1 adds a new `ground_game` crate with:
 
-- `cozy_upland`
-- `cozy_upland_lush`
-- `cozy_upland_sparse`
-
-Each profile has a `style.ron` for palette/rule/projection tuning, a `motifs.ron` for tiny
-pixel-cluster motifs, and an `overrides/` folder for optional replacement PNGs. The Forge app can
-switch profiles from a dropdown, and the CLI can export with an explicit profile path.
-
-ArtGen 4.0 exports:
-
-- tileable grass variants
-- tileable dirt variants
-- grass-to-dirt transition edges
-- `path_mask_00` through `path_mask_15`
-- path autotile and multiple path-map previews
-- oblique material preview for the high-oblique 2.5D contract
-- oblique trench floor, wall, lip, end-cap, corner, contact-shadow, and spoil sprites
-- trench straight, caps, corner, shadow, and mask-debug previews
-- `trench_mask_00` through `trench_mask_15`
-- trench autotile sheet
-- sparse, dense, dense-clean, loop, junction, corner, dead-end, and single-mask trench topology previews
-- trench neighbor-seam, lip-continuity, and floor-continuity heatmaps plus amplified edge heatmaps
-- trench validation metrics for role coverage, piece coverage, floor darkness, wall/floor contrast, lip contrast, shadow continuity, cap presence, anchor validity, mask coverage, cap/corner/junction coverage, and continuity scores
-- worst-offending trench neighbor pairs in `trench_neighbor_pairs.json`
-- worst-offending trench neighbor pair preview in `trench_worst_neighbor_pairs.png`
-- oblique berm top, front-face, lip, end-cap, corner, contact-shadow, spoil, and grass-fringe sprites
-- berm straight, caps, corner, shadow, and mask-debug previews
-- `berm_mask_00` through `berm_mask_15`
-- berm autotile sheet
-- sparse, dense, loop, junction, corner, and dead-end berm topology previews
-- berm neighbor-seam, lip-continuity, face-continuity, and shadow-continuity heatmaps
-- worst-offending berm neighbor pairs in `berm_neighbor_pairs.json`
-- worst-offending berm neighbor pair preview in `berm_worst_neighbor_pairs.png`
-- side-by-side path/trench/berm topology preview in `terrain_engineering_topology_preview.png`
-- berm validation metrics for piece coverage, role coverage, face/top contrast, face rectangularity, silhouette variance, base shadow strength, cap taper, corner continuity, shadow continuity, cap presence, anchor validity, mask coverage, cap/corner/junction coverage, and continuity scores
-- oblique stone floor, front-face, side-face, bevel, step, end-cap, corner, contact-shadow, crack-decal, and moss-edge sprites
-- stone platform, steps, caps, corner, and mask-debug previews
-- stone validation metrics for piece coverage, role coverage, top/face contrast, bevel contrast, step presence, shadow continuity, cap presence, and anchor validity
-- `sprite_manifest.ron` / `sprite_manifest.json` with role, anchor, footprint, z-bias, occlusion, and projection metadata
-- neighbor seam heatmap
-- contact sheets
-- grass, dirt, and transition repeat previews
-- palette previews
-- seam/noise validation reports
-- art-kit-compatible PNG pieces and `manifest.ron`
-- generated source PNGs in `generated_pieces/`
-- effective PNGs in `pieces/`
-- `generated_contact_sheet.png`, `effective_contact_sheet.png`, `override_contact_sheet.png`, and `override_diff_sheet.png`
-- `override_report.json` with per-sprite `Generated`, `Missing override`, `Overridden`, `Invalid size`, or `Load error` status
+- `MissionSpec`, `MissionMap`, and `MissionCell`
+- earth states such as normal, scraped, trench, deep trench, spoil pile, berm, unstable, and muddy
+- environment object states for trees, logs, rocks, walls, wire, stakes, and fighting positions
+- `ToolLoadout`, `CrewPool`, local material stock, and enemy group doctrine specs
+- deterministic work orders for dig trench, raise berm, flatten, fell tree, cut into logs, and place stakes
+- a seed mission, `The Road Below`, with a small road/ridge/tree terrain problem
+- CLI export of mission spec, before/after mission state, scripted work orders, ASCII maps, and a summary
+- a `Mission Lab` tab in `ground_app` beside the older terrain forge controls
 
 Run the sprite workbench:
 
@@ -88,8 +44,28 @@ Promote the current generated sprites into a profile's override folder as editab
 cargo run -p ground_sprite_cli -- promote-overrides assets/sprite_styles/cozy_upland/style.ron
 ```
 
-The full-scene terrain renderer remains in the repository as downstream infrastructure for terrain
-data, pathing, LOS, and future art-kit composition, but it is paused as the visual feedback loop.
+Export the GamePivot 1 mission seed:
+
+```bash
+cargo run -p ground_cli -- mission-seed exports/gamepivot_01
+```
+
+Run the mission workbench:
+
+```bash
+cargo run -p ground_app
+```
+
+The full-scene terrain renderer and ArtGen outputs remain downstream infrastructure for terrain
+data, pathing, LOS, and future art-kit composition, but the active gameplay roadmap now starts with
+mission prep, work orders, local materials, and predictable terrain consequences.
+
+## Previous status: ArtGen 4.0 — stone platform / raised terrain kit
+
+ArtGen 4.0 added the first hard raised-terrain sprite family: stone platform sprites. The generator
+now produces stone top surfaces, front/side faces, bevels, steps, caps, corners, contact shadow,
+crack decals, and moss/grass edge pieces with role, anchor, footprint, z-bias, occlusion, override,
+and validation metadata.
 
 ## Previous status: Milestone 4.12 — edit patch stress tests and cover patches
 

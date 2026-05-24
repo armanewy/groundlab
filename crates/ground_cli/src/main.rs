@@ -4,6 +4,7 @@ use ground_core::{
     load_workbench_assets, TerrainArtKit, TerrainMap, WorkbenchAssetPaths, DEFAULT_PALETTE_PATH,
     DEFAULT_RECIPE_PATH,
 };
+use ground_game::{export_road_below_seed, DEFAULT_MISSION_EXPORT_DIR};
 
 fn main() -> Result<()> {
     let mut args = std::env::args().skip(1);
@@ -104,6 +105,17 @@ fn main() -> Result<()> {
                 println!("… plus {} more", loaded.validation.issues.len() - 32);
             }
         }
+        "mission-seed" => {
+            let out_dir = args
+                .next()
+                .unwrap_or_else(|| DEFAULT_MISSION_EXPORT_DIR.to_string());
+            export_road_below_seed(&out_dir)?;
+            println!("Exported GamePivot 1 mission seed to {out_dir}.");
+            println!("Mission: The Road Below");
+            println!(
+                "Files: mission_spec.ron/json, mission_before.json, mission_after.json, scripted_work_orders.json, mission_summary.txt"
+            );
+        }
         "help" | "--help" | "-h" => print_help(),
         other => bail!("unknown command: {other}"),
     }
@@ -118,4 +130,5 @@ fn print_help() {
     eprintln!("  cargo run -p ground_cli -- export [out_dir] [recipe_path] [palette_path]");
     eprintln!("  cargo run -p ground_cli -- edit-scenarios [out_dir] [recipe_path] [palette_path]");
     eprintln!("  cargo run -p ground_cli -- validate [recipe_path] [palette_path]");
+    eprintln!("  cargo run -p ground_cli -- mission-seed [out_dir]");
 }

@@ -1,5 +1,33 @@
 # GroundLab milestones
 
+## Current pivot — Tactical engineering defense workbench
+
+GroundLab's active roadmap has pivoted from ArtGen expansion to a game-first mission workbench.
+SpriteGen remains the terrain art forge, but the main product is now a 2.5D level-based tactical
+engineering defense game built around prep-phase work orders, local materials, state-based terrain
+destruction, route/LOS consequences, and predictable enemy doctrine.
+
+## GamePivot 1 — Mission workbench seed
+
+Implemented in this drop.
+
+- added `ground_game` as a new workspace crate for mission/prep-phase gameplay data
+- added `MissionSpec`, `MissionMap`, `MissionCell`, `MissionObjective`, `ToolLoadout`, `CrewPool`, `MissionConstraints`, and enemy group doctrine specs
+- added stateful terrain/object enums for earth states, trees, logs, rocks, walls, obstacles, and fighting positions
+- added local material stock for spoil, timber, logs, stakes, loose stone, scrap, and rope uses
+- added deterministic work orders for dig trench, raise berm, flatten, fell tree, cut into logs, and place stakes
+- work orders check tool availability, prep/labor budget, local material availability, and apply state changes immediately for the seed milestone
+- added seed mission `The Road Below`
+- added scripted seed work orders that dig a trench, raise a berm from the spoil, fell/cut a tree, and place stakes
+- added `cargo run -p ground_cli -- mission-seed [out_dir]`
+- mission seed export writes `mission_spec.ron`, `mission_spec.json`, `mission_before.json`, `mission_after.json`, `scripted_work_orders.json`, ASCII before/after maps, and `mission_summary.txt`
+- `ground_app` now opens to a `Mission Lab` tab with prep budget, tools, local materials, enemy intel, work-order buttons, work log, export, and a simple tactical grid
+- the older terrain asset workbench remains available as the `Terrain Forge` tab
+
+This milestone is intentionally data-first. It does not add assault simulation, enemy movement, a
+new renderer, or route doctrine preview yet; it establishes the commander/engineer prep loop as the
+new center of the project.
+
 ## Milestone 0 — Project seed
 
 Implemented.
