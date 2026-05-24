@@ -251,7 +251,7 @@ fn main() -> Result<()> {
             let mut generator = MissionGeneratorSpec::road_below(seed);
             generator.theme = theme;
             let report = export_generated_mission_batch(&out_dir, generator, count)?;
-            println!("Exported ProcGen 1 mission batch to {out_dir}.");
+            println!("Exported ProcGen 2 mission batch to {out_dir}.");
             println!(
                 "Generated {} candidate(s): {} accepted, {} rejected.",
                 report.generated_count, report.accepted_count, report.rejected_count
@@ -263,7 +263,7 @@ fn main() -> Result<()> {
                 );
             }
             println!(
-                "ProcGen files: generator_summary.json, ranked_candidates.json, rejected_candidates.json, top_10_contact_sheet.png, candidates/*/mission.ron"
+                "ProcGen files: generator_summary.json, ranked_candidates.json, rejected_candidates.json, accepted_contact_sheet.png, rejected_contact_sheet.png, top_ranked_contact_sheet.png, candidates/*/mission.ron"
             );
         }
         "help" | "--help" | "-h" => print_help(),

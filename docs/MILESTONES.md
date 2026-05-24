@@ -197,6 +197,34 @@ This milestone changes the priority from hand-tuning one mission to batch-genera
 terrain-defense problems. SpriteGen and Mission Lab remain essential, but their new role is to
 support candidate generation, evaluation, inspection, and export.
 
+## ProcGen 2 — Candidate evaluation and batch ranking
+
+Implemented in this drop.
+
+- expanded candidate evaluation with `GeneratedMissionScoreBreakdown` for baseline pressure, prep
+  delta, route diversity, terrain interest, material affordances, work-order opportunities, hazard
+  viability, doctrine spread, objective vulnerability, and duplicate penalty
+- added `GeneratedMissionPlanSensitivity` so each candidate records best-vs-baseline,
+  best-vs-worst, rolling-log ratio, and overbuilt-plan score behavior
+- added structured `GeneratedMissionRejectionKind` categories including too easy, too hard, no route
+  diversity, no useful materials, no hazard opportunity, hazard too dominant, objective unreachable,
+  terrain too flat, spawn placement issues, invalid map, and duplicate candidate
+- added generated mission fingerprints over objective, spawns, ridge cells, tree cells, route cells,
+  route lengths, and rolling-hazard route intersections
+- added near-duplicate filtering so samey high-scoring candidates are moved into the rejected set
+  with `duplicate_of_seed` and `similarity_to_duplicate`
+- batch exports now include `accepted_contact_sheet.png`, `rejected_contact_sheet.png`, and
+  `top_ranked_contact_sheet.png` in addition to `top_10_contact_sheet.png`
+- contact sheets now draw route overlays, accepted/rejected/duplicate borders, tactical score bars,
+  and plan-sensitivity bars for faster visual scanning
+- Mission Lab can load a generated candidate from `mission.ron` using a simple file path field
+- saved prep plans now apply against the currently loaded mission instead of always resetting to
+  the original Road Below seed
+
+The generator was smoke-tested with a deterministic 100-candidate ridge-trap batch. That run
+accepted 11 candidates and rejected 89, including near-duplicate candidates with explicit duplicate
+diagnostics.
+
 ## Milestone 0 — Project seed
 
 Implemented.

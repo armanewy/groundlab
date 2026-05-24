@@ -10,7 +10,7 @@ use ground_core::{
     ValidationReport, ViewOrientation, WorkbenchAssetPaths,
 };
 use ground_game::{
-    export_road_below_seed, load_work_order_script, mission_rating_for_state,
+    export_road_below_seed, load_mission_spec, load_work_order_script, mission_rating_for_state,
     road_below_balance_scripts, road_below_seed_orders, run_work_order_script,
     save_work_order_script, AssaultEventKind, CellCoord, CoverClass, EarthState, EnemyAgentStatus,
     EnvironmentObject, EnvironmentObjectKind, GroundKind, LogState, MissionPhase, MissionState,
@@ -193,6 +193,7 @@ struct GroundLabApp {
     route_group_filter: usize,
     balance_dashboard: Vec<MissionBalanceDashboardRow>,
     notifications: Vec<String>,
+    mission_load_path_text: String,
     paths: WorkbenchAssetPaths,
     recipe_path_text: String,
     palette_path_text: String,
@@ -247,6 +248,8 @@ impl GroundLabApp {
                 "Road Below briefing ready. Start prep when you are ready to issue orders."
                     .to_string(),
             ],
+            mission_load_path_text: "exports/procgen_01/candidates/seed_0001/mission.ron"
+                .to_string(),
             recipe_path_text: paths.recipe_path.to_string_lossy().to_string(),
             palette_path_text: paths.palette_path.to_string_lossy().to_string(),
             file_snapshot: FileSnapshot::capture(&paths),
@@ -564,6 +567,27 @@ impl GroundLabApp {
                         ));
                     }
                     Err(err) => self.notify(format!("Apply saved plan failed: {err}")),
+                }
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Mission file");
+            ui.add(
+                egui::TextEdit::singleline(&mut self.mission_load_path_text).desired_width(310.0),
+            );
+            if ui.button("Load mission").clicked() {
+                let path = self.mission_load_path_text.trim();
+                match load_mission_spec(path) {
+                    Ok(spec) => {
+                        let objective = spec.objective.defend_cell;
+                        let title = spec.title.clone();
+                        self.mission_state = MissionState::from_spec(spec);
+                        self.mission_state.phase = MissionPhase::Briefing;
+                        self.selected_mission_cell = objective;
+                        self.route_group_filter = 0;
+                        self.notify(format!("Loaded generated mission: {title}."));
+                    }
+                    Err(err) => self.notify(format!("Load mission failed: {err}")),
                 }
             }
         });
@@ -1318,9 +1342,10 @@ impl GroundLabApp {
     }
 
     fn reset_to_prep_with_script(&mut self, script: &WorkOrderScript, run_all: bool) {
-        self.mission_state = MissionState::road_below_seed();
+        let spec = self.mission_state.spec.clone();
+        self.mission_state = MissionState::from_spec(spec);
         self.mission_state.phase = MissionPhase::Prep;
-        self.selected_mission_cell = CellCoord::new(5, 4);
+        self.selected_mission_cell = self.mission_state.spec.objective.defend_cell;
         for order in &script.orders {
             self.mission_state
                 .queue_work_order(order.kind, order.target.clone());

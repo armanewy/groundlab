@@ -7,7 +7,7 @@ The active roadmap has pivoted to generated mission candidates. SpriteGen remain
 forge, while `ground_game` owns mission specs, prep-phase work orders, local materials,
 environment-object states, doctrine route preview, deterministic assault sandbox, assault
 readability/debrief artifacts, the first deterministic rolling hazard sandbox, mission balance
-scenario comparison, and seeded mission generation/ranking.
+scenario comparison, and seeded mission generation/ranking with structured rejection diagnostics.
 `ground_app` now treats Mission Lab as the primary tactical prep surface rather than a generic
 terrain editor panel, and Road Below starts as a playable briefing-to-debrief slice. The same
 mission loop now evaluates generated Road-Below-like candidates so GroundLab can batch-generate,
@@ -27,6 +27,8 @@ score, reject, and export compact terrain-defense problems.
 - Playable mission lifecycle, prep-plan replay, tutorial prompts, and player-facing debrief panels
 - Seeded mission generator specs, generated affordance reports, tactical-interest scoring, and batch
   ranking/rejection exports
+- Generated mission fingerprints, plan-sensitivity scores, rejection taxonomies, duplicate filtering,
+  and candidate contact sheets
 - Terrain editing brushes
 - Pixel tile recipes
 - Palette ramps and palette file format
@@ -89,9 +91,12 @@ MissionGeneratorSpec
   -> doctrine route preview
   -> scripted balance scenarios
   -> deterministic assault/debrief/rating
+  -> score breakdown + plan sensitivity
+  -> map/route/material/hazard fingerprint
   -> tactical-interest score
-  -> accepted/rejected candidate reports
-  -> ranked mission batch + top-candidate contact sheet
+  -> duplicate/similarity filtering
+  -> accepted/rejected candidate reports with structured rejection kinds
+  -> ranked mission batch + accepted/rejected/top-candidate contact sheets
   -> Mission Lab inspection / playable retry
 ```
 

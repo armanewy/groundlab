@@ -1,7 +1,7 @@
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
 use image::{Rgba, RgbaImage};
@@ -906,6 +906,74 @@ pub struct GeneratedMissionScenarioScore {
     pub validation_issue_count: u32,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum GeneratedMissionRejectionKind {
+    TooEasyNoPrep,
+    TooHardAllPlansFail,
+    NoRouteDiversity,
+    NoUsefulMaterials,
+    NoHazardOpportunity,
+    HazardTooDominant,
+    ObjectiveUnreachable,
+    TerrainTooFlat,
+    SpawnTooClose,
+    SpawnTooFar,
+    InvalidMap,
+    DuplicateCandidate,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct GeneratedMissionScoreBreakdown {
+    pub baseline_pressure: i32,
+    pub prep_delta: i32,
+    pub route_diversity: i32,
+    pub terrain_interest: i32,
+    pub material_affordances: i32,
+    pub work_order_opportunities: i32,
+    pub hazard_viability: i32,
+    pub doctrine_spread: i32,
+    pub objective_vulnerability: i32,
+    pub duplicate_penalty: i32,
+}
+
+impl GeneratedMissionScoreBreakdown {
+    pub fn total(&self) -> i32 {
+        self.baseline_pressure
+            + self.prep_delta
+            + self.route_diversity
+            + self.terrain_interest
+            + self.material_affordances
+            + self.work_order_opportunities
+            + self.hazard_viability
+            + self.doctrine_spread
+            + self.objective_vulnerability
+            - self.duplicate_penalty
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionPlanSensitivity {
+    pub baseline_score: i32,
+    pub best_score: i32,
+    pub worst_score: i32,
+    pub best_minus_baseline: i32,
+    pub best_minus_worst: i32,
+    pub rolling_log_score: Option<i32>,
+    pub rolling_log_to_best_ratio: Option<f32>,
+    pub overbuilt_bad_plan_score: Option<i32>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionFingerprint {
+    pub objective: CellCoord,
+    pub spawns: Vec<CellCoord>,
+    pub ridge_cells: Vec<CellCoord>,
+    pub tree_cells: Vec<CellCoord>,
+    pub route_cells: Vec<CellCoord>,
+    pub route_lengths: Vec<u32>,
+    pub rolling_hazard_route_intersections: u32,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct GeneratedMissionEvaluation {
     pub seed: u64,
@@ -913,7 +981,12 @@ pub struct GeneratedMissionEvaluation {
     pub title: String,
     pub accepted: bool,
     pub tactical_interest_score: i32,
+    pub score_breakdown: GeneratedMissionScoreBreakdown,
+    pub plan_sensitivity: GeneratedMissionPlanSensitivity,
+    pub rejection_kinds: Vec<GeneratedMissionRejectionKind>,
     pub rejection_reasons: Vec<String>,
+    pub duplicate_of_seed: Option<u64>,
+    pub similarity_to_duplicate: Option<f32>,
     pub baseline_rating: MissionRating,
     pub best_rating: MissionRating,
     pub best_plan_label: String,
@@ -925,6 +998,7 @@ pub struct GeneratedMissionEvaluation {
     pub doctrine_spread_score: f32,
     pub objective_vulnerability_score: f32,
     pub affordance_report: GeneratedMissionAffordanceReport,
+    pub fingerprint: GeneratedMissionFingerprint,
     pub scenarios: Vec<GeneratedMissionScenarioScore>,
 }
 
@@ -936,6 +1010,13 @@ pub struct GeneratedMissionBatchReport {
     pub rejected_count: u32,
     pub ranked_candidates: Vec<GeneratedMissionEvaluation>,
     pub rejected_candidates: Vec<GeneratedMissionEvaluation>,
+}
+
+#[derive(Clone, Debug)]
+struct GeneratedMissionArtifact {
+    spec: MissionSpec,
+    candidate_dir: PathBuf,
+    evaluation: GeneratedMissionEvaluation,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -2175,8 +2256,7 @@ pub fn export_generated_mission_batch(
     write_json(out_dir.join("generator_spec.json"), &generator)?;
     write_ron(out_dir.join("generator_spec.ron"), &generator)?;
 
-    let mut evaluated = Vec::new();
-    let mut specs_by_seed = HashMap::new();
+    let mut artifacts = Vec::new();
     for index in 0..count {
         let seed = generator
             .seed
@@ -2220,37 +2300,78 @@ pub fn export_generated_mission_batch(
 
         let evaluation =
             evaluate_generated_mission_candidate(&candidate, &initial_routes, &balance_report);
-        write_json(candidate_dir.join("candidate_evaluation.json"), &evaluation)?;
-        specs_by_seed.insert(candidate.seed, candidate.spec);
-        evaluated.push(evaluation);
+        artifacts.push(GeneratedMissionArtifact {
+            spec: candidate.spec,
+            candidate_dir,
+            evaluation,
+        });
     }
 
-    let mut ranked_candidates: Vec<_> = evaluated
-        .iter()
-        .filter(|candidate| candidate.accepted)
-        .cloned()
-        .collect();
-    ranked_candidates.sort_by(|a, b| {
-        b.tactical_interest_score
-            .cmp(&a.tactical_interest_score)
-            .then_with(|| a.seed.cmp(&b.seed))
+    artifacts.sort_by(|a, b| {
+        b.evaluation
+            .tactical_interest_score
+            .cmp(&a.evaluation.tactical_interest_score)
+            .then_with(|| a.evaluation.seed.cmp(&b.evaluation.seed))
     });
-    let mut rejected_candidates: Vec<_> = evaluated
-        .into_iter()
-        .filter(|candidate| !candidate.accepted)
-        .collect();
+
+    let mut kept_accepted = Vec::new();
+    let mut rejected_artifacts = Vec::new();
+    for mut artifact in artifacts {
+        if artifact.evaluation.accepted {
+            if let Some((duplicate_seed, similarity)) =
+                first_similar_candidate(&artifact.evaluation, &kept_accepted)
+            {
+                mark_duplicate_candidate(&mut artifact.evaluation, duplicate_seed, similarity);
+                rejected_artifacts.push(artifact);
+            } else {
+                kept_accepted.push(artifact);
+            }
+        } else {
+            rejected_artifacts.push(artifact);
+        }
+    }
+
+    let ranked_candidates = kept_accepted
+        .iter()
+        .map(|artifact| artifact.evaluation.clone())
+        .collect::<Vec<_>>();
+    let mut rejected_candidates = rejected_artifacts
+        .iter()
+        .map(|artifact| artifact.evaluation.clone())
+        .collect::<Vec<_>>();
     rejected_candidates.sort_by(|a, b| {
         b.tactical_interest_score
             .cmp(&a.tactical_interest_score)
             .then_with(|| a.seed.cmp(&b.seed))
     });
 
-    let top_specs = ranked_candidates
-        .iter()
-        .take(10)
-        .filter_map(|candidate| specs_by_seed.get(&candidate.seed).cloned())
-        .collect::<Vec<_>>();
-    save_generated_mission_contact_sheet(out_dir.join("top_10_contact_sheet.png"), &top_specs)?;
+    for artifact in kept_accepted.iter().chain(rejected_artifacts.iter()) {
+        write_json(
+            artifact.candidate_dir.join("candidate_evaluation.json"),
+            &artifact.evaluation,
+        )?;
+    }
+
+    save_generated_mission_contact_sheet(
+        out_dir.join("top_10_contact_sheet.png"),
+        &kept_accepted,
+        10,
+    )?;
+    save_generated_mission_contact_sheet(
+        out_dir.join("top_ranked_contact_sheet.png"),
+        &kept_accepted,
+        10,
+    )?;
+    save_generated_mission_contact_sheet(
+        out_dir.join("accepted_contact_sheet.png"),
+        &kept_accepted,
+        25,
+    )?;
+    save_generated_mission_contact_sheet(
+        out_dir.join("rejected_contact_sheet.png"),
+        &rejected_artifacts,
+        25,
+    )?;
 
     let report = GeneratedMissionBatchReport {
         generator,
@@ -2527,55 +2648,131 @@ fn evaluate_generated_mission_candidate(
         0.0
     };
     let doctrine_spread_score = doctrine_spread_score(&candidate.spec.enemy_groups);
-    let objective_vulnerability_score = match baseline.rating.stars {
+    let objective_vulnerability_score: f32 = match baseline.rating.stars {
         0 => 0.7,
         1 => 1.0,
         2 => 0.55,
         _ => 0.0,
     };
+    let rolling_log_rating = balance_report
+        .scenarios
+        .iter()
+        .find(|scenario| scenario.id == "rolling_log_plan")
+        .or_else(|| {
+            balance_report
+                .scenarios
+                .iter()
+                .find(|scenario| scenario.id == "road_below_hazard_prep")
+        })
+        .map(|scenario| scenario.rating.score);
+    let worst_score = balance_report
+        .scenarios
+        .iter()
+        .map(|scenario| scenario.rating.score)
+        .min()
+        .unwrap_or(baseline.rating.score);
+    let overbuilt_bad_plan_score = balance_report
+        .scenarios
+        .iter()
+        .find(|scenario| scenario.id == "overbuilt_bad_plan")
+        .map(|scenario| scenario.rating.score);
+    let plan_sensitivity = GeneratedMissionPlanSensitivity {
+        baseline_score: baseline.rating.score,
+        best_score: best.rating.score,
+        worst_score,
+        best_minus_baseline: best.rating.score - baseline.rating.score,
+        best_minus_worst: best.rating.score - worst_score,
+        rolling_log_score: rolling_log_rating,
+        rolling_log_to_best_ratio: rolling_log_rating
+            .map(|score| score as f32 / best.rating.score.max(1) as f32),
+        overbuilt_bad_plan_score,
+    };
 
+    let mut rejection_kinds = Vec::new();
     let mut rejection_reasons = Vec::new();
     if initial_routes
         .routes
         .iter()
         .any(|route| !route.reached_goal)
     {
+        rejection_kinds.push(GeneratedMissionRejectionKind::ObjectiveUnreachable);
         rejection_reasons.push("one or more enemy routes cannot reach the objective".to_string());
     }
     if baseline.rating.stars >= 3 {
+        rejection_kinds.push(GeneratedMissionRejectionKind::TooEasyNoPrep);
         rejection_reasons.push("no-prep baseline earns 3 stars".to_string());
     }
     if best.rating.stars == 0 {
+        rejection_kinds.push(GeneratedMissionRejectionKind::TooHardAllPlansFail);
         rejection_reasons.push("all known prep scripts fail".to_string());
     }
+    if route_diversity_score < 0.25 {
+        rejection_kinds.push(GeneratedMissionRejectionKind::NoRouteDiversity);
+        rejection_reasons.push("enemy routes are too similar".to_string());
+    }
+    if height_interest_score < 0.12 {
+        rejection_kinds.push(GeneratedMissionRejectionKind::TerrainTooFlat);
+        rejection_reasons.push("terrain has too little height variation".to_string());
+    }
     if candidate.affordance_report.tree_count < 2 {
+        rejection_kinds.push(GeneratedMissionRejectionKind::NoUsefulMaterials);
         rejection_reasons.push("not enough local timber affordance".to_string());
     }
     if candidate.affordance_report.trenchable_soil_cells < 36 {
+        rejection_kinds.push(GeneratedMissionRejectionKind::NoUsefulMaterials);
         rejection_reasons.push("not enough trenchable soil".to_string());
     }
     if rolling_hazard_score <= 0.0 {
+        rejection_kinds.push(GeneratedMissionRejectionKind::NoHazardOpportunity);
         rejection_reasons.push("rolling-log opportunity does not cross likely routes".to_string());
+    }
+    if rolling_log_rating
+        .map(|score| best.rating.score > 0 && score >= best.rating.score && score >= 95)
+        .unwrap_or(false)
+        && plan_sensitivity.best_minus_baseline < 10
+    {
+        rejection_kinds.push(GeneratedMissionRejectionKind::HazardTooDominant);
+        rejection_reasons
+            .push("rolling-log plan dominates without enough broader prep sensitivity".to_string());
+    }
+    if candidate
+        .spec
+        .map
+        .spawn_cells
+        .iter()
+        .any(|spawn| spawn.manhattan(candidate.spec.objective.defend_cell) <= 4)
+    {
+        rejection_kinds.push(GeneratedMissionRejectionKind::SpawnTooClose);
+        rejection_reasons.push("enemy spawn is too close to the objective".to_string());
     }
 
     let rating_delta = (best.rating.score - baseline.rating.score).max(0) as f32 / 100.0;
-    let tactical_interest_score = ((route_diversity_score * 14.0)
-        + (height_interest_score * 12.0)
-        + (local_material_score * 10.0)
-        + (work_order_opportunity_score * 14.0)
-        + (rolling_hazard_score * 18.0)
-        + (doctrine_spread_score * 10.0)
-        + (objective_vulnerability_score * 12.0)
-        + (rating_delta * 20.0))
-        .round() as i32;
+    let score_breakdown = GeneratedMissionScoreBreakdown {
+        baseline_pressure: (objective_vulnerability_score * 12.0).round() as i32,
+        prep_delta: (rating_delta * 20.0).round() as i32,
+        route_diversity: (route_diversity_score * 14.0).round() as i32,
+        terrain_interest: (height_interest_score * 12.0).round() as i32,
+        material_affordances: (local_material_score * 10.0).round() as i32,
+        work_order_opportunities: (work_order_opportunity_score * 14.0).round() as i32,
+        hazard_viability: (rolling_hazard_score * 18.0).round() as i32,
+        doctrine_spread: (doctrine_spread_score * 10.0).round() as i32,
+        objective_vulnerability: 0,
+        duplicate_penalty: 0,
+    };
+    let tactical_interest_score = score_breakdown.total();
 
     GeneratedMissionEvaluation {
         seed: candidate.seed,
         mission_id: candidate.spec.id.clone(),
         title: candidate.spec.title.clone(),
-        accepted: rejection_reasons.is_empty(),
+        accepted: rejection_kinds.is_empty(),
         tactical_interest_score,
+        score_breakdown,
+        plan_sensitivity,
+        rejection_kinds,
         rejection_reasons,
+        duplicate_of_seed: None,
+        similarity_to_duplicate: None,
         baseline_rating: baseline.rating.clone(),
         best_rating: best.rating.clone(),
         best_plan_label: best.label.clone(),
@@ -2587,8 +2784,137 @@ fn evaluate_generated_mission_candidate(
         doctrine_spread_score,
         objective_vulnerability_score,
         affordance_report: candidate.affordance_report.clone(),
+        fingerprint: generated_mission_fingerprint(&candidate.spec, initial_routes),
         scenarios,
     }
+}
+
+fn first_similar_candidate(
+    evaluation: &GeneratedMissionEvaluation,
+    accepted: &[GeneratedMissionArtifact],
+) -> Option<(u64, f32)> {
+    accepted
+        .iter()
+        .map(|artifact| {
+            (
+                artifact.evaluation.seed,
+                generated_mission_similarity(
+                    &evaluation.fingerprint,
+                    &artifact.evaluation.fingerprint,
+                ),
+            )
+        })
+        .filter(|(_, similarity)| *similarity >= 0.92)
+        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(Ordering::Equal))
+}
+
+fn mark_duplicate_candidate(
+    evaluation: &mut GeneratedMissionEvaluation,
+    duplicate_seed: u64,
+    similarity: f32,
+) {
+    evaluation.accepted = false;
+    evaluation.duplicate_of_seed = Some(duplicate_seed);
+    evaluation.similarity_to_duplicate = Some(similarity);
+    evaluation
+        .rejection_kinds
+        .push(GeneratedMissionRejectionKind::DuplicateCandidate);
+    evaluation.rejection_reasons.push(format!(
+        "near-duplicate of higher-ranked seed {duplicate_seed} ({similarity:.2} similarity)"
+    ));
+    evaluation.score_breakdown.duplicate_penalty = 12;
+    evaluation.tactical_interest_score = evaluation.score_breakdown.total();
+}
+
+fn generated_mission_fingerprint(
+    spec: &MissionSpec,
+    routes: &DoctrineRouteSet,
+) -> GeneratedMissionFingerprint {
+    let mut ridge_cells = Vec::new();
+    for y in 0..spec.map.height {
+        for x in 0..spec.map.width {
+            let coord = CellCoord::new(x, y);
+            let Some(cell) = spec.map.cell(coord) else {
+                continue;
+            };
+            if cell.height >= 2 {
+                ridge_cells.push(coord);
+            }
+        }
+    }
+    let mut tree_cells = spec
+        .map
+        .objects
+        .iter()
+        .filter_map(|object| match object.kind {
+            EnvironmentObjectKind::Tree(TreeState::Standing)
+            | EnvironmentObjectKind::Tree(TreeState::PartiallyCut { .. }) => Some(object.cell),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+    let mut route_cells = routes
+        .routes
+        .iter()
+        .flat_map(|route| route.points.iter().copied())
+        .collect::<HashSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>();
+    let route_lengths = routes
+        .routes
+        .iter()
+        .map(|route| route.points.len() as u32)
+        .collect::<Vec<_>>();
+    ridge_cells.sort_by_key(|cell| (cell.y, cell.x));
+    tree_cells.sort_by_key(|cell| (cell.y, cell.x));
+    route_cells.sort_by_key(|cell| (cell.y, cell.x));
+
+    GeneratedMissionFingerprint {
+        objective: spec.objective.defend_cell,
+        spawns: spec.map.spawn_cells.clone(),
+        ridge_cells,
+        tree_cells,
+        route_cells,
+        route_lengths,
+        rolling_hazard_route_intersections: build_generated_affordance_report(spec)
+            .rolling_hazard_route_intersections,
+    }
+}
+
+fn generated_mission_similarity(
+    a: &GeneratedMissionFingerprint,
+    b: &GeneratedMissionFingerprint,
+) -> f32 {
+    let objective_score = if a.objective.manhattan(b.objective) <= 1 {
+        1.0
+    } else {
+        0.0
+    };
+    let route_score = coord_jaccard(&a.route_cells, &b.route_cells);
+    let ridge_score = coord_jaccard(&a.ridge_cells, &b.ridge_cells);
+    let tree_score = coord_jaccard(&a.tree_cells, &b.tree_cells);
+    let spawn_score = coord_jaccard(&a.spawns, &b.spawns);
+    let hazard_score =
+        if a.rolling_hazard_route_intersections == b.rolling_hazard_route_intersections {
+            1.0
+        } else {
+            0.4
+        };
+    (route_score * 0.35)
+        + (ridge_score * 0.22)
+        + (tree_score * 0.15)
+        + (spawn_score * 0.1)
+        + (objective_score * 0.1)
+        + (hazard_score * 0.08)
+}
+
+fn coord_jaccard(a: &[CellCoord], b: &[CellCoord]) -> f32 {
+    if a.is_empty() && b.is_empty() {
+        return 1.0;
+    }
+    let left = a.iter().copied().collect::<HashSet<_>>();
+    let right = b.iter().copied().collect::<HashSet<_>>();
+    let union = left.union(&right).count().max(1) as f32;
+    left.intersection(&right).count() as f32 / union
 }
 
 #[derive(Clone, Debug)]
@@ -2796,31 +3122,92 @@ fn parse_validation_issue_count(note: &str) -> Option<u32> {
 
 fn save_generated_mission_contact_sheet(
     path: impl AsRef<Path>,
-    specs: &[MissionSpec],
+    artifacts: &[GeneratedMissionArtifact],
+    limit: usize,
 ) -> Result<()> {
     let path = path.as_ref();
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
+    let entries = artifacts.iter().take(limit).collect::<Vec<_>>();
     let cell_px = 16;
     let preview_w = 12 * cell_px;
-    let preview_h = 8 * cell_px;
+    let label_h = 10;
+    let preview_h = 8 * cell_px + label_h;
     let gap = 8;
-    let columns = specs.len().clamp(1, 5) as u32;
-    let rows = (specs.len() as u32).div_ceil(columns).max(1);
+    let columns = entries.len().clamp(1, 5) as u32;
+    let rows = (entries.len() as u32).div_ceil(columns).max(1);
     let mut sheet = RgbaImage::from_pixel(
         columns * preview_w + (columns + 1) * gap,
         rows * preview_h + (rows + 1) * gap,
         Rgba([24, 27, 26, 255]),
     );
-    for (index, spec) in specs.iter().enumerate() {
-        let state = MissionState::from_spec(spec.clone());
-        let image = mission_preview_image(&state, cell_px);
+    for (index, artifact) in entries.iter().enumerate() {
+        let state = MissionState::from_spec(artifact.spec.clone());
+        let mut image = mission_preview_image(&state, cell_px);
+        let route_colors = [
+            Rgba([68, 132, 226, 145]),
+            Rgba([230, 194, 70, 145]),
+            Rgba([210, 82, 112, 145]),
+        ];
+        for (route_index, route) in state.route_preview().routes.iter().enumerate() {
+            draw_route_path(
+                &mut image,
+                route,
+                cell_px,
+                route_colors[route_index % route_colors.len()],
+                3,
+            );
+        }
+        draw_defender_positions(&mut image, &state.spec, cell_px);
         let col = index as u32 % columns;
         let row = index as u32 / columns;
         let x0 = gap + col * (preview_w + gap);
         let y0 = gap + row * (preview_h + gap);
         blit_image(&mut sheet, &image, x0, y0);
+        let border_color = if artifact.evaluation.accepted {
+            Rgba([78, 184, 92, 255])
+        } else if artifact
+            .evaluation
+            .rejection_kinds
+            .contains(&GeneratedMissionRejectionKind::DuplicateCandidate)
+        {
+            Rgba([210, 150, 54, 255])
+        } else {
+            Rgba([202, 76, 68, 255])
+        };
+        draw_preview_border(&mut sheet, x0, y0, preview_w, 8 * cell_px, border_color);
+        fill_preview_rect(
+            &mut sheet,
+            x0,
+            y0 + 8 * cell_px,
+            preview_w,
+            label_h,
+            Rgba([34, 37, 34, 255]),
+        );
+        let score_width = ((artifact.evaluation.tactical_interest_score.max(0) as u32).min(100)
+            * preview_w)
+            / 100;
+        fill_preview_rect(
+            &mut sheet,
+            x0,
+            y0 + 8 * cell_px + 2,
+            score_width.max(1),
+            3,
+            border_color,
+        );
+        let sensitivity_width =
+            ((artifact.evaluation.plan_sensitivity.best_minus_worst.max(0) as u32).min(100)
+                * preview_w)
+                / 100;
+        fill_preview_rect(
+            &mut sheet,
+            x0,
+            y0 + 8 * cell_px + 6,
+            sensitivity_width.max(1),
+            2,
+            Rgba([230, 198, 84, 255]),
+        );
     }
     sheet
         .save(path)
