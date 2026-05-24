@@ -417,7 +417,7 @@ impl SpriteForgeApp {
 
     fn show_controls(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.heading("Pixel Terrain Forge");
-        ui.label("ArtGen 2.0: oblique trench sprite kit.");
+        ui.label("ArtGen 2.0b: trench visual polish.");
         ui.separator();
         let selected_profile = BUILTIN_SPRITE_STYLE_PROFILES
             .get(self.selected_profile_index)

@@ -2,8 +2,8 @@
 
 GroundLab's active visual milestone is now a dedicated terrain sprite generator, not the large
 editable scene renderer. The generator first produces cozy top-surface terrain primitives: grass,
-dirt, grass-to-dirt transitions, and connected dirt path masks. ArtGen 2.0 then extends that
-foundation with oblique trench pieces for the desired high-oblique 2.5D terrain grammar.
+dirt, grass-to-dirt transitions, and connected dirt path masks. ArtGen 2.0b then extends that
+foundation with polished oblique trench pieces for the desired high-oblique 2.5D terrain grammar.
 
 The generator does not require reference images. It uses:
 
@@ -20,10 +20,10 @@ The generator does not require reference images. It uses:
 - seam/noise validation
 - art-kit-compatible PNG piece export
 
-ArtGen 2.0 keeps the ArtGen 1.2b path topology, ArtGen 1.3 style profiles, and ArtGen 1.4
+ArtGen 2.0b keeps the ArtGen 1.2b path topology, ArtGen 1.3 style profiles, and ArtGen 1.4
 projection-aware sprite contract. Grass/dirt/path pieces are still top-surface material primitives,
-and trench pieces now introduce the first front faces, lips, caps, contact shadows, and recessed
-terrain metadata:
+and trench pieces now introduce the first polished front faces, chunked lips, tapered caps,
+L-shaped corners, contact shadows, integrated spoil, and recessed terrain metadata:
 
 ```txt
 sprite role
@@ -68,13 +68,13 @@ cargo run -p ground_sprite_app
 Export the deterministic bundle:
 
 ```bash
-cargo run -p ground_sprite_cli -- export exports/artgen_02_0 assets/sprite_styles/cozy_upland/style.ron
+cargo run -p ground_sprite_cli -- export exports/artgen_02_0b assets/sprite_styles/cozy_upland/style.ron
 ```
 
 Export output:
 
 ```txt
-exports/artgen_02_0/
+exports/artgen_02_0b/
   manifest.ron
   sprite_manifest.ron
   sprite_manifest.json

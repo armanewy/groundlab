@@ -4,17 +4,19 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: ArtGen 2.0 — oblique trench sprite kit
+## Current status: ArtGen 2.0b — trench visual polish
 
 GroundLab's active visual work has pivoted away from the large editable scene renderer. The current
 focus is a dedicated, fast terrain sprite generator that produces simple, cozy, top-down pixel
 terrain primitives from swappable style profiles, palettes, motif libraries, and art rules. It does
 not require reference images.
 
-ArtGen 2.0 keeps grass/dirt/path generation as the top-surface foundation and adds the first
-projection-aware terrain engineering kit: oblique trench sprites. Trench pieces now export as named
-PNG sprites with sprite role, anchor, footprint, z-bias, occlusion intent, and projection metadata,
-so they can be composed later as recessed terrain rather than flat top-down trench texture.
+ArtGen 2.0b keeps grass/dirt/path generation as the top-surface foundation and polishes the first
+projection-aware terrain engineering kit: oblique trench sprites. Trench pieces export as named PNG
+sprites with sprite role, anchor, footprint, z-bias, occlusion intent, and projection metadata, so
+they can be composed later as recessed terrain rather than flat top-down trench texture. The 2.0b
+pass improves the trench floor depth, front wall read, chunked dirt lips, tapered end caps, L-shaped
+corner language, integrated spoil mounds, and preview staging.
 
 The style profiles remain data-driven under `assets/sprite_styles/`. The current built-in profiles
 are:
@@ -27,7 +29,7 @@ Each profile has a `style.ron` for palette/rule/projection tuning and a `motifs.
 pixel-cluster motifs. The Forge app can switch profiles from a dropdown, and the CLI can export with
 an explicit profile path.
 
-ArtGen 2.0 generates:
+ArtGen 2.0b generates:
 
 - tileable grass variants
 - tileable dirt variants
@@ -55,7 +57,7 @@ cargo run -p ground_sprite_app
 Export the sprite bundle:
 
 ```bash
-cargo run -p ground_sprite_cli -- export exports/artgen_02_0 assets/sprite_styles/cozy_upland/style.ron
+cargo run -p ground_sprite_cli -- export exports/artgen_02_0b assets/sprite_styles/cozy_upland/style.ron
 ```
 
 The full-scene terrain renderer remains in the repository as downstream infrastructure for terrain

@@ -814,30 +814,32 @@ fn draw_straight_trench(
 ) {
     let trench_w = (250.0 * width_factor).round() as u32;
     if let Some(shadow) = sprite_image(sprites, TerrainSpriteKind::TrenchContactShadow, 1) {
-        blit_scaled_i32(target, shadow, x - 10, y + 52, trench_w + 28, 54);
+        blit_scaled_i32(target, shadow, x - 14, y + 56, trench_w + 34, 58);
     }
+
     if let Some(spoil) = sprite_image(sprites, TerrainSpriteKind::TrenchSpoilPile, 1) {
-        blit_scaled_i32(target, spoil, x - 4, y - 28, trench_w / 2, 36);
+        blit_scaled_i32(target, spoil, x - 2, y - 24, trench_w / 2, 36);
         blit_scaled_i32(
             target,
             spoil,
-            x + trench_w as i32 / 2,
-            y + 90,
+            x + trench_w as i32 / 2 - 8,
+            y + 92,
             trench_w / 2,
             34,
         );
     }
+
     if let Some(lip) = sprite_image(sprites, TerrainSpriteKind::TrenchLipBack, 1) {
-        blit_scaled_i32(target, lip, x - 6, y + 22, trench_w + 12, 20);
+        blit_scaled_i32(target, lip, x - 8, y + 22, trench_w + 16, 22);
     }
     if let Some(floor) = sprite_image(sprites, TerrainSpriteKind::TrenchFloorTop, 1) {
-        blit_scaled_i32(target, floor, x + 8, y + 38, trench_w - 16, 54);
+        blit_scaled_i32(target, floor, x + 10, y + 40, trench_w - 20, 52);
     }
     if let Some(wall) = sprite_image(sprites, TerrainSpriteKind::TrenchWallFront, 1) {
-        blit_scaled_i32(target, wall, x + 8, y + 88, trench_w - 16, 52);
+        blit_scaled_i32(target, wall, x + 10, y + 86, trench_w - 20, 56);
     }
     if let Some(lip) = sprite_image(sprites, TerrainSpriteKind::TrenchLipFront, 1) {
-        blit_scaled_i32(target, lip, x - 6, y + 80, trench_w + 12, 22);
+        blit_scaled_i32(target, lip, x - 8, y + 79, trench_w + 16, 24);
     }
 }
 

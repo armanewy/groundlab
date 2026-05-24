@@ -405,43 +405,70 @@ fn generate_trench_floor_top(recipe: &TerrainSpriteRecipe, variant: u32) -> Pixe
     let rules = &recipe.style.trench;
     let palette = &recipe.style.palette;
     let width = projection.cell_width_px * 2;
-    let height = (projection.cell_height_px * 7 / 16).max(28);
-    let seed = sprite_seed(recipe.seed, variant, 0x2101);
-    let base = palette.dirt_shadow.darken(rules.floor_darkness * 0.72);
-    let plank = palette.dirt_dark.darken(rules.floor_darkness * 0.38);
+    let height = (projection.cell_height_px * 7 / 16).max(30);
+    let seed = sprite_seed(recipe.seed, variant, 0x2b01);
+
+    let mut image = PixelImage::transparent(width, height);
+    let floor = palette.dirt_shadow.darken(rules.floor_darkness * 0.62);
+    let floor_hi = palette.dirt_dark.darken(rules.floor_darkness * 0.34);
     let seam = palette
         .dirt_shadow
-        .darken(rules.inner_shadow_strength * 0.42);
-    let mut image = PixelImage::new(width, height, base);
+        .darken(rules.inner_shadow_strength * 0.52);
 
-    for y in (5..height).step_by(8) {
-        image.draw_line(1, y as i32, width as i32 - 2, y as i32, seam);
+    for y in 0..height {
+        let t_y = y as f32 / height.max(1) as f32;
+        let edge_y = (height / 3).saturating_sub(y);
+        for x in 0..width {
+            let left_noise = trench_noise(seed ^ 0x11, x / 3, y / 3);
+            let right_noise = trench_noise(seed ^ 0x12, x / 3, y / 3);
+            let left_margin = 8 + (left_noise * 5.0).round() as i32;
+            let right_margin = 8 + (right_noise * 5.0).round() as i32;
+            if x as i32 <= left_margin || x as i32 >= width as i32 - right_margin {
+                continue;
+            }
+            let shade = if t_y > 0.70 {
+                floor.darken(0.10)
+            } else if t_y < 0.18 {
+                floor_hi
+            } else {
+                floor
+            };
+            let alpha = (0.92 - edge_y as f32 * 0.018).clamp(0.65, 1.0);
+            image.set(x, y, shade.with_alpha((alpha * 255.0) as u8));
+        }
     }
-    for x in (12..width).step_by(22) {
+
+    for y in (7..height.saturating_sub(3)).step_by(9) {
+        image.draw_line(10, y as i32, width as i32 - 12, y as i32, seam);
+    }
+    for x in (18..width.saturating_sub(10)).step_by(28) {
         let offset = (hash(seed ^ x as u64) % 5) as i32 - 2;
         image.draw_line(
             x as i32 + offset,
-            2,
+            4,
             x as i32 + offset + 3,
-            height as i32 - 3,
-            seam.blend(plank, 0.28),
+            height as i32 - 4,
+            seam.blend(floor_hi, 0.30),
         );
     }
 
-    let detail_count = ((width * height) as f32 * rules.floor_detail_density / 28.0)
+    let detail_count = ((width * height) as f32 * rules.floor_detail_density / 48.0)
         .round()
-        .max(2.0) as u32;
+        .max(3.0) as u32;
     for i in 0..detail_count {
-        let x = (hash(seed ^ 0x2102 ^ i as u64) % width as u64) as u32;
-        let y = (hash(seed ^ 0x2103 ^ (i as u64 * 11)) % height as u64) as u32;
+        let x = (hash(seed ^ 0x2b02 ^ i as u64) % width as u64) as u32;
+        let y = (hash(seed ^ 0x2b03 ^ (i as u64 * 11)) % height as u64) as u32;
+        if x < 12 || x + 12 >= width {
+            continue;
+        }
         let color = if i % 3 == 0 {
-            palette.dirt_light.darken(0.35)
+            palette.dirt_light.darken(0.42)
         } else {
-            palette.dirt_shadow.darken(0.18)
+            palette.dirt_shadow.darken(0.22)
         };
-        image.blend_pixel(x, y, color, 0.55);
+        image.blend_pixel(x, y, color, 0.45);
         if x + 1 < width {
-            image.blend_pixel(x + 1, y, color, 0.35);
+            image.blend_pixel(x + 1, y, color, 0.25);
         }
     }
     image
@@ -452,42 +479,75 @@ fn generate_trench_wall_front(recipe: &TerrainSpriteRecipe, variant: u32) -> Pix
     let rules = &recipe.style.trench;
     let palette = &recipe.style.palette;
     let width = projection.cell_width_px * 2;
-    let height = (projection.face_height_px + 18).max(32);
-    let seed = sprite_seed(recipe.seed, variant, 0x2201);
-    let base = palette.dirt_dark.darken(rules.wall_shadow_strength * 0.30);
-    let mut image = PixelImage::new(width, height, base);
+    let height = (projection.face_height_px + 20).max(34);
+    let seed = sprite_seed(recipe.seed, variant, 0x2b21);
+    let mut image = PixelImage::transparent(width, height);
 
+    let top = palette.dirt_mid.darken(rules.wall_shadow_strength * 0.14);
+    let mid = palette.dirt_dark.darken(rules.wall_shadow_strength * 0.08);
+    let bottom = palette.dirt_shadow.darken(0.18);
+
+    for y in 0..height {
+        let t = y as f32 / height.max(1) as f32;
+        for x in 0..width {
+            let edge = trench_noise(seed ^ 0x21, x / 4, 0);
+            if y < 2 && edge > 0.38 {
+                continue;
+            }
+            let color = if t > 0.68 {
+                bottom
+            } else if t < 0.18 {
+                top.lighten(0.06)
+            } else {
+                mid
+            };
+            image.set(x, y, color.with_alpha(238));
+        }
+    }
+
+    for y in (7..height.saturating_sub(3)).step_by(10) {
+        let line = palette.dirt_shadow.darken(0.22);
+        image.draw_line(0, y as i32, width as i32 - 1, y as i32, line);
+        if y + 1 < height {
+            image.draw_line(
+                0,
+                y as i32 + 1,
+                width as i32 - 1,
+                y as i32 + 1,
+                palette.dirt_light.darken(0.36),
+            );
+        }
+    }
+    for x in (14..width).step_by(30) {
+        let post_w = 4 + (hash(seed ^ x as u64) % 2) as u32;
+        let post = palette.dirt_shadow.darken(0.30);
+        blend_rect(&mut image, x, 0, post_w, height, post, 0.70);
+        if x + post_w < width {
+            image.draw_line(
+                (x + post_w) as i32,
+                1,
+                (x + post_w) as i32,
+                height as i32 - 2,
+                palette.dirt_light.darken(0.33),
+            );
+        }
+    }
     blend_rect(
         &mut image,
         0,
-        height * 2 / 3,
+        height * 3 / 4,
         width,
-        height / 3,
+        height / 4,
         Rgba8::BLACK,
-        0.18,
+        0.22,
     );
-    for y in (6..height.saturating_sub(2)).step_by(9) {
-        let color = palette.dirt_shadow.darken(0.10);
-        image.draw_line(0, y as i32, width as i32 - 1, y as i32, color);
-    }
-    for x in (10..width).step_by(24) {
-        let post = palette.dirt_shadow.darken(0.22);
-        blend_rect(&mut image, x, 0, 3, height, post, 0.58);
-        image.draw_line(
-            x as i32 + 3,
-            1,
-            x as i32 + 3,
-            height as i32 - 2,
-            palette.dirt_light.darken(0.25),
-        );
-    }
 
-    let motif_count = ((width * height) as f32 * rules.wall_detail_density / 38.0)
+    let motif_count = ((width * height) as f32 * rules.wall_detail_density / 54.0)
         .round()
-        .max(3.0) as u32;
+        .max(4.0) as u32;
     for i in 0..motif_count {
-        let x = (hash(seed ^ 0x2202 ^ i as u64) % width as u64) as u32;
-        let y = (hash(seed ^ 0x2203 ^ (i as u64 * 17)) % height as u64) as u32;
+        let x = (hash(seed ^ 0x2b22 ^ i as u64) % width as u64) as u32;
+        let y = (hash(seed ^ 0x2b23 ^ (i as u64 * 17)) % height as u64) as u32;
         let motifs = if hash(seed ^ i as u64).is_multiple_of(3) {
             &recipe.motifs.trench_wall_shadow
         } else {
@@ -498,21 +558,9 @@ fn generate_trench_wall_front(recipe: &TerrainSpriteRecipe, variant: u32) -> Pix
             x,
             y,
             motifs,
-            seed ^ 0x2204 ^ i as u64,
+            seed ^ 0x2b24 ^ i as u64,
             &trench_wood_color_picker(recipe),
         );
-    }
-
-    let knot_count = ((width * height) as f32 * rules.wood_knot_density / 80.0)
-        .round()
-        .max(1.0) as u32;
-    for i in 0..knot_count {
-        let x = (hash(seed ^ 0x2205 ^ i as u64) % width as u64) as u32;
-        let y = (hash(seed ^ 0x2206 ^ (i as u64 * 19)) % height as u64) as u32;
-        image.blend_pixel(x, y, palette.dirt_shadow.darken(0.30), 0.75);
-        if x + 1 < width {
-            image.blend_pixel(x + 1, y, palette.dirt_shadow, 0.45);
-        }
     }
     image
 }
@@ -522,101 +570,134 @@ fn generate_trench_lip(recipe: &TerrainSpriteRecipe, variant: u32, front: bool) 
     let rules = &recipe.style.trench;
     let palette = &recipe.style.palette;
     let width = projection.cell_width_px * 2;
-    let height = (projection.face_height_px / 2).max(14);
-    let seed = sprite_seed(recipe.seed, variant, if front { 0x2301 } else { 0x2302 });
+    let height = (projection.face_height_px / 2).max(16);
+    let seed = sprite_seed(recipe.seed, variant, if front { 0x2b31 } else { 0x2b32 });
     let mut image = PixelImage::transparent(width, height);
-    let band_y = if front { height / 3 } else { height / 5 };
-    let base = palette
-        .dirt_mid
-        .blend(palette.dirt_light, rules.lip_highlight_strength);
 
-    for x in 0..width {
-        let jitter = (hash(seed ^ x as u64 ^ 0x2303)
+    let band_y = if front { height / 3 } else { height / 4 };
+    let lip = palette
+        .dirt_mid
+        .blend(palette.dirt_light, rules.lip_highlight_strength)
+        .lighten(if front { 0.03 } else { 0.00 });
+    let shadow = palette.dirt_dark.darken(0.16);
+
+    let mut x = 0;
+    while x < width {
+        let seg = 7 + (hash(seed ^ x as u64 ^ 0x2b33) % 17) as u32;
+        let gap = 1 + (hash(seed ^ x as u64 ^ 0x2b34) % 5) as u32;
+        let jitter = (hash(seed ^ x as u64 ^ 0x2b35)
             % (rules.lip_irregularity_px.max(1) * 2 + 1) as u64) as i32
             - rules.lip_irregularity_px as i32;
         let y0 = (band_y as i32 + jitter).clamp(0, height as i32 - 1) as u32;
-        let lip_h = 4 + (hash(seed ^ x as u64 ^ 0x2304) % 4) as u32;
-        for y in y0..(y0 + lip_h).min(height) {
-            let shade = if y == y0 {
-                base.lighten(0.08)
-            } else if y > y0 + lip_h / 2 {
-                palette.dirt_dark
-            } else {
-                base
-            };
-            image.set(x, y, shade);
+        let lip_h = 4 + (hash(seed ^ x as u64 ^ 0x2b36) % 4) as u32;
+        for xx in x..(x + seg).min(width) {
+            for yy in y0..(y0 + lip_h).min(height) {
+                let color = if yy == y0 {
+                    lip.lighten(0.08)
+                } else if yy > y0 + lip_h / 2 {
+                    shadow
+                } else {
+                    lip
+                };
+                image.set(xx, yy, color.with_alpha(242));
+            }
         }
+        x = x.saturating_add(seg + gap);
     }
-    let motif_count = ((width * height) as f32 * rules.spoil_density / 22.0)
+
+    let clump_count = ((width * height) as f32 * rules.spoil_density / 42.0)
         .round()
         .max(2.0) as u32;
-    for i in 0..motif_count {
-        let x = (hash(seed ^ 0x2305 ^ i as u64) % width as u64) as u32;
-        let y = (hash(seed ^ 0x2306 ^ (i as u64 * 13)) % height as u64) as u32;
-        let motifs = if i % 4 == 0 {
-            &recipe.motifs.trench_grass_overhang
-        } else {
-            &recipe.motifs.trench_lip
-        };
-        if i % 4 == 0 {
-            draw_motif_from_set(
-                &mut image,
-                x,
-                y,
-                motifs,
-                seed ^ i as u64,
-                &trench_grass_color_picker(recipe),
-            );
-        } else {
-            draw_motif_from_set(
-                &mut image,
-                x,
-                y,
-                motifs,
-                seed ^ i as u64,
-                &trench_dirt_color_picker(recipe),
-            );
-        }
+    for i in 0..clump_count {
+        let x = (hash(seed ^ 0x2b37 ^ i as u64) % width as u64) as u32;
+        let y = (band_y + (hash(seed ^ 0x2b38 ^ i as u64) % height.max(1) as u64) as u32 / 2)
+            .min(height - 1);
+        draw_motif_from_set(
+            &mut image,
+            x,
+            y,
+            &recipe.motifs.trench_lip,
+            seed ^ i as u64,
+            &trench_dirt_color_picker(recipe),
+        );
+    }
+
+    let grass_count = ((width * height) as f32 * rules.grass_intrusion_density / 58.0)
+        .round()
+        .max(1.0) as u32;
+    for i in 0..grass_count {
+        let x = (hash(seed ^ 0x2b39 ^ i as u64) % width as u64) as u32;
+        let y = (band_y.saturating_sub(2) + (hash(seed ^ 0x2b3a ^ i as u64) % 4) as u32)
+            .min(height - 1);
+        draw_motif_from_set(
+            &mut image,
+            x,
+            y,
+            &recipe.motifs.trench_grass_overhang,
+            seed ^ 0x2b3b ^ i as u64,
+            &trench_grass_color_picker(recipe),
+        );
     }
     image
 }
 
 fn generate_trench_end_cap(recipe: &TerrainSpriteRecipe, variant: u32, left: bool) -> PixelImage {
     let projection = &recipe.style.projection;
-    let width = (projection.cell_width_px / 2).max(32);
-    let height = (projection.cell_height_px / 2 + projection.face_height_px / 2).max(42);
-    let seed = sprite_seed(recipe.seed, variant, if left { 0x2401 } else { 0x2402 });
+    let width = (projection.cell_width_px / 2).max(38);
+    let height = (projection.cell_height_px / 2 + projection.face_height_px / 2).max(48);
+    let seed = sprite_seed(recipe.seed, variant, if left { 0x2b41 } else { 0x2b42 });
     let mut image = PixelImage::transparent(width, height);
     let palette = &recipe.style.palette;
-    let wall = palette.dirt_dark.darken(0.18);
-    let lip = palette.dirt_mid.lighten(0.06);
-    let edge_x = if left { width / 3 } else { width * 2 / 3 };
 
-    for y in 4..height.saturating_sub(4) {
-        let spread = (height - y).min(height / 2) / 2;
-        let x0 = if left {
-            edge_x.saturating_sub(spread)
-        } else {
-            edge_x
-        };
-        let x1 = if left {
-            edge_x
-        } else {
-            (edge_x + spread).min(width - 1)
-        };
-        for x in x0..=x1 {
-            image.set(x, y, if y < height / 3 { lip } else { wall });
+    let wall = palette.dirt_dark.darken(0.20);
+    let floor = palette.dirt_shadow.darken(0.28);
+    let lip = palette.dirt_mid.lighten(0.08);
+    let open_side = if left { width - 1 } else { 0 };
+
+    for y in 0..height {
+        let yf = y as f32 / height.max(1) as f32;
+        for x in 0..width {
+            let xf = if left {
+                x as f32 / width.max(1) as f32
+            } else {
+                1.0 - x as f32 / width.max(1) as f32
+            };
+            let center = 0.56 + (trench_noise(seed ^ 0x2b43, y / 4, 0) * 0.07);
+            let taper = (xf - 0.16).clamp(0.0, 1.0);
+            let half = 0.08 + taper * 0.38;
+            if (yf - center).abs() > half {
+                continue;
+            }
+            let color = if yf < center - half * 0.28 {
+                lip
+            } else if yf < center + half * 0.18 {
+                floor
+            } else {
+                wall
+            };
+            let edge_fade = if xf < 0.24 { xf / 0.24 } else { 1.0 };
+            image.set(
+                x,
+                y,
+                color.with_alpha((edge_fade.clamp(0.35, 1.0) * 245.0) as u8),
+            );
         }
     }
-    for i in 0..9 {
-        let x = (hash(seed ^ i) % width as u64) as u32;
-        let y = (hash(seed ^ 0x2403 ^ i) % height as u64) as u32;
+
+    let edge_x = open_side.min(width - 1);
+    for y in height / 3..height.saturating_sub(4) {
+        image.set(edge_x, y, wall.darken(0.22).with_alpha(230));
+    }
+
+    for i in 0..10 {
+        let x = (hash(seed ^ 0x2b44 ^ i) % width as u64) as u32;
+        let y = (hash(seed ^ 0x2b45 ^ i) % height as u64) as u32;
         draw_motif_from_set(
             &mut image,
             x,
             y,
             &recipe.motifs.trench_lip,
-            seed ^ 0x2404 ^ i,
+            seed ^ 0x2b46 ^ i,
             &trench_dirt_color_picker(recipe),
         );
     }
@@ -625,36 +706,74 @@ fn generate_trench_end_cap(recipe: &TerrainSpriteRecipe, variant: u32, left: boo
 
 fn generate_trench_corner(recipe: &TerrainSpriteRecipe, variant: u32, inner: bool) -> PixelImage {
     let projection = &recipe.style.projection;
-    let size = (projection.cell_width_px / 2).max(40);
-    let seed = sprite_seed(recipe.seed, variant, if inner { 0x2501 } else { 0x2502 });
+    let size = (projection.cell_width_px / 2).max(46);
+    let seed = sprite_seed(recipe.seed, variant, if inner { 0x2b51 } else { 0x2b52 });
     let mut image = PixelImage::transparent(size, size);
     let palette = &recipe.style.palette;
     let lip = palette.dirt_mid.lighten(0.08);
-    let wall = palette.dirt_dark.darken(0.12);
-    let radius = size as f32 * if inner { 0.44 } else { 0.58 };
+    let wall = palette.dirt_dark.darken(0.17);
+    let floor = palette.dirt_shadow.darken(0.28);
 
+    let arm = (size / 3).max(14);
+    let center = size / 2;
     for y in 0..size {
         for x in 0..size {
-            let dx = x as f32 - size as f32 * 0.52;
-            let dy = y as f32 - size as f32 * 0.50;
-            let d = (dx * dx + dy * dy).sqrt();
-            if (d - radius).abs() < 5.5 || (inner && d < radius && x > size / 2 && y > size / 2) {
-                let color = if y < size / 3 { lip } else { wall };
-                image.set(x, y, color);
+            let horizontal =
+                y >= center.saturating_sub(arm / 2) && y <= center + arm / 2 && x <= center + arm;
+            let vertical =
+                x >= center.saturating_sub(arm / 2) && x <= center + arm / 2 && y <= center + arm;
+            let l_shape = if inner {
+                horizontal || vertical
+            } else {
+                (horizontal || vertical) && !(x > center && y > center)
+            };
+            if !l_shape {
+                continue;
             }
+            let noise = trench_noise(seed ^ 0x2b53, x / 3, y / 3);
+            let color = if y < center.saturating_sub(arm / 2) + 4
+                || x < center.saturating_sub(arm / 2) + 4
+            {
+                lip
+            } else if y > center + arm / 3 || x > center + arm / 3 {
+                wall
+            } else {
+                floor
+            };
+            let alpha = (0.86 + noise * 0.12).clamp(0.62, 1.0);
+            image.set(x, y, color.with_alpha((alpha * 255.0) as u8));
         }
     }
-    for i in 0..10 {
-        let x = (hash(seed ^ 0x2503 ^ i) % size as u64) as u32;
-        let y = (hash(seed ^ 0x2504 ^ (i * 7)) % size as u64) as u32;
-        draw_motif_from_set(
-            &mut image,
-            x,
-            y,
-            &recipe.motifs.trench_lip,
-            seed ^ i,
-            &trench_dirt_color_picker(recipe),
-        );
+
+    for y in center.saturating_sub(arm / 3)..(center + arm).min(size) {
+        for x in center.saturating_sub(arm / 3)..(center + arm).min(size) {
+            image.blend_pixel(x, y, Rgba8::BLACK, if inner { 0.22 } else { 0.12 });
+        }
+    }
+
+    let motif_count = 8 + (hash(seed ^ 0x2b54) % 5) as u32;
+    for i in 0..motif_count {
+        let x = (hash(seed ^ 0x2b55 ^ i as u64) % size as u64) as u32;
+        let y = (hash(seed ^ 0x2b56 ^ (i as u64 * 7)) % size as u64) as u32;
+        if i % 3 == 0 {
+            draw_motif_from_set(
+                &mut image,
+                x,
+                y,
+                &recipe.motifs.trench_grass_overhang,
+                seed ^ i as u64,
+                &trench_grass_color_picker(recipe),
+            );
+        } else {
+            draw_motif_from_set(
+                &mut image,
+                x,
+                y,
+                &recipe.motifs.trench_lip,
+                seed ^ i as u64,
+                &trench_dirt_color_picker(recipe),
+            );
+        }
     }
     image
 }
@@ -662,22 +781,23 @@ fn generate_trench_corner(recipe: &TerrainSpriteRecipe, variant: u32, inner: boo
 fn generate_trench_contact_shadow(recipe: &TerrainSpriteRecipe, variant: u32) -> PixelImage {
     let projection = &recipe.style.projection;
     let width = projection.cell_width_px * 2;
-    let height = (projection.face_height_px + 16).max(36);
-    let seed = sprite_seed(recipe.seed, variant, 0x2601);
+    let height = (projection.face_height_px + 18).max(38);
+    let seed = sprite_seed(recipe.seed, variant, 0x2b61);
     let mut image = PixelImage::transparent(width, height);
     let strength = recipe.style.trench.contact_shadow_strength;
     for y in 0..height {
         let yf = y as f32 / height.max(1) as f32;
         for x in 0..width {
             let xf = (x as f32 / width.max(1) as f32 - 0.5).abs();
-            let organic = hash01(seed ^ (((x / 3) as u64) << 8) ^ (y / 2) as u64) * 0.10;
-            let alpha =
-                ((1.0 - xf * 1.7).max(0.0) * (1.0 - yf).powf(1.4) + organic) * strength * 0.72;
-            if alpha > 0.02 {
+            let organic = trench_noise(seed ^ 0x2b62, x / 4, y / 3) * 0.08;
+            let alpha = ((1.0 - xf * 1.65).max(0.0) * (1.0 - yf * 0.92).powf(1.55) + organic)
+                * strength
+                * 0.78;
+            if alpha > 0.018 {
                 image.set(
                     x,
                     y,
-                    Rgba8::BLACK.with_alpha((alpha.clamp(0.0, 0.65) * 255.0) as u8),
+                    Rgba8::BLACK.with_alpha((alpha.clamp(0.0, 0.58) * 255.0) as u8),
                 );
             }
         }
@@ -705,45 +825,67 @@ fn blend_rect(
 
 fn generate_trench_spoil_pile(recipe: &TerrainSpriteRecipe, variant: u32) -> PixelImage {
     let projection = &recipe.style.projection;
-    let width = projection.cell_width_px.max(48);
-    let height = (projection.cell_height_px / 3).max(24);
-    let seed = sprite_seed(recipe.seed, variant, 0x2701);
+    let width = projection.cell_width_px.max(54);
+    let height = (projection.cell_height_px / 3).max(26);
+    let seed = sprite_seed(recipe.seed, variant, 0x2b71);
     let mut image = PixelImage::transparent(width, height);
     let rules = &recipe.style.trench;
-    let count = ((width * height) as f32 * rules.spoil_density / 10.0)
+    let palette = &recipe.style.palette;
+
+    for y in 0..height {
+        let yf = y as f32 / height.max(1) as f32;
+        for x in 0..width {
+            let xf = (x as f32 / width.max(1) as f32 - 0.5).abs();
+            let n = trench_noise(seed ^ 0x2b72, x / 3, y / 3);
+            if yf < 0.20 + n * 0.12 || yf > 0.82 - xf * 0.16 + n * 0.08 {
+                continue;
+            }
+            let color = if yf < 0.42 {
+                palette.dirt_light.blend(palette.dirt_mid, 0.40)
+            } else {
+                palette.dirt_mid.darken(0.08)
+            };
+            let alpha = (0.72 + n * 0.12).clamp(0.45, 0.90);
+            image.set(x, y, color.with_alpha((alpha * 255.0) as u8));
+        }
+    }
+
+    let count = ((width * height) as f32 * rules.spoil_density / 24.0)
         .round()
-        .max(6.0) as u32;
+        .max(5.0) as u32;
     for i in 0..count {
-        let x = (hash(seed ^ 0x2702 ^ i as u64) % width as u64) as u32;
-        let center_y = height as i32 / 2
-            + (hash(seed ^ 0x2703 ^ (i as u64 * 13)) % (height / 2).max(1) as u64) as i32
-            - height as i32 / 4;
-        let y = center_y.clamp(0, height as i32 - 1) as u32;
+        let x = (hash(seed ^ 0x2b73 ^ i as u64) % width as u64) as u32;
+        let y = (hash(seed ^ 0x2b74 ^ (i as u64 * 13)) % height as u64) as u32;
         draw_motif_from_set(
             &mut image,
             x,
             y,
             &recipe.motifs.trench_spoil,
-            seed ^ 0x2704 ^ i as u64,
+            seed ^ 0x2b75 ^ i as u64,
             &trench_dirt_color_picker(recipe),
         );
     }
-    let grass_count = ((width * height) as f32 * rules.grass_intrusion_density / 42.0)
+
+    let grass_count = ((width * height) as f32 * rules.grass_intrusion_density / 58.0)
         .round()
         .max(1.0) as u32;
     for i in 0..grass_count {
-        let x = (hash(seed ^ 0x2705 ^ i as u64) % width as u64) as u32;
-        let y = (hash(seed ^ 0x2706 ^ (i as u64 * 5)) % height as u64) as u32;
+        let x = (hash(seed ^ 0x2b76 ^ i as u64) % width as u64) as u32;
+        let y = (hash(seed ^ 0x2b77 ^ (i as u64 * 5)) % height as u64) as u32;
         draw_motif_from_set(
             &mut image,
             x,
             y,
             &recipe.motifs.trench_grass_overhang,
-            seed ^ 0x2707 ^ i as u64,
+            seed ^ 0x2b78 ^ i as u64,
             &trench_grass_color_picker(recipe),
         );
     }
     image
+}
+
+fn trench_noise(seed: u64, x: u32, y: u32) -> f32 {
+    hash01(seed ^ ((x as u64) << 18) ^ (y as u64 * 0x9e37)) * 2.0 - 1.0
 }
 
 fn path_mask_signed_distance(
