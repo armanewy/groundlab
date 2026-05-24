@@ -10,8 +10,9 @@ use ground_core::{
     ValidationReport, ViewOrientation, WorkbenchAssetPaths,
 };
 use ground_game::{
-    export_road_below_seed, CellCoord, CoverClass, EarthState, EnvironmentObjectKind, GroundKind,
-    MissionState, TreeState, WorkOrderKind, WorkTarget, DEFAULT_MISSION_EXPORT_DIR,
+    export_road_below_seed, road_below_seed_orders, CellCoord, CoverClass, EarthState,
+    EnvironmentObject, EnvironmentObjectKind, GroundKind, MissionState, TreeState, WorkOrderKind,
+    WorkTarget, DEFAULT_MISSION_EXPORT_DIR,
 };
 
 const MAX_UI_TEXTURE_SIDE: usize = 2048;
@@ -74,6 +75,7 @@ impl CanvasView {
 struct GroundLabApp {
     active_panel: WorkbenchPanel,
     mission_state: MissionState,
+    selected_mission_cell: CellCoord,
     paths: WorkbenchAssetPaths,
     recipe_path_text: String,
     palette_path_text: String,
@@ -118,6 +120,7 @@ impl GroundLabApp {
         let mut app = Self {
             active_panel: WorkbenchPanel::MissionLab,
             mission_state: MissionState::road_below_seed(),
+            selected_mission_cell: CellCoord::new(5, 4),
             recipe_path_text: paths.recipe_path.to_string_lossy().to_string(),
             palette_path_text: paths.palette_path.to_string_lossy().to_string(),
             file_snapshot: FileSnapshot::capture(&paths),
@@ -156,7 +159,7 @@ impl GroundLabApp {
             dirty_assets: true,
             dirty_preview: true,
             last_preview_size: [1, 1],
-            status: "Ready. GamePivot 1 mission workbench seed is active.".to_string(),
+            status: "Ready. GamePivot 2 work orders and local materials are active.".to_string(),
         };
         app.refresh_if_dirty(&cc.egui_ctx);
         app
@@ -289,16 +292,17 @@ impl GroundLabApp {
     fn show_mission_controls(&mut self, ui: &mut egui::Ui) {
         self.show_panel_tabs(ui);
         ui.heading("Mission Lab");
-        ui.label("GamePivot 1: commander/engineer prep-phase workbench");
+        ui.label("GamePivot 2: queued work orders, local materials, and prep costs");
         ui.separator();
 
         ui.strong(&self.mission_state.spec.title);
         ui.label(&self.mission_state.spec.objective.label);
         ui.small(format!(
-            "Prep: {}s · labor: {}s · crews: {}",
+            "Prep: {}s · labor: {}s · crews: {} · queued: {}",
             self.mission_state.remaining_prep_seconds,
             self.mission_state.remaining_labor_seconds,
-            self.mission_state.spec.crew.crews
+            self.mission_state.spec.crew.crews,
+            self.mission_state.work_queue.len()
         ));
         ui.small(format!(
             "Objective cell: ({}, {}) · health {}",
@@ -332,13 +336,59 @@ impl GroundLabApp {
         }
 
         ui.separator();
-        ui.strong("Seed work orders");
-        if ui.button("Apply Road Below seed plan").clicked() {
+        self.show_selected_mission_context(ui);
+
+        ui.separator();
+        ui.strong("Work-order queue");
+        ui.horizontal(|ui| {
+            if ui.button("Queue Road Below seed plan").clicked() {
+                for (kind, target) in road_below_seed_orders() {
+                    self.queue_mission_order(kind, target);
+                }
+                self.status = "Queued scripted Road Below engineering plan.".to_string();
+            }
+            if ui.button("Run next").clicked() {
+                match self.mission_state.run_next_queued_order() {
+                    Some(order) => {
+                        self.status = format!(
+                            "Ran order #{:02}: {} · {}",
+                            order.id,
+                            order.kind.label(),
+                            order.status.label()
+                        );
+                    }
+                    None => self.status = "No queued work order to run.".to_string(),
+                }
+            }
+            if ui.button("Run all").clicked() {
+                self.mission_state.run_all_queued_orders();
+                self.status = "Ran all queued work orders.".to_string();
+            }
+        });
+        if self.mission_state.work_queue.is_empty() {
+            ui.label("No queued work orders.");
+        } else {
+            for order in &self.mission_state.work_queue {
+                ui.label(format!(
+                    "#{:02} {} · {}s · crew {} · {}",
+                    order.id,
+                    order.kind.label(),
+                    order.duration_seconds,
+                    order.assigned_crews,
+                    order.status.label()
+                ));
+            }
+        }
+
+        ui.separator();
+        ui.strong("Mission actions");
+        if ui.button("Apply seed plan immediately").clicked() {
             self.mission_state.apply_seed_orders();
-            self.status = "Applied scripted Road Below engineering plan.".to_string();
+            self.status = "Applied scripted Road Below engineering plan immediately.".to_string();
         }
         if ui.button("Reset mission").clicked() {
             self.mission_state = MissionState::road_below_seed();
+            self.selected_mission_cell = CellCoord::new(5, 4);
             self.status = "Reset Road Below mission state.".to_string();
         }
         if ui.button("Export mission seed").clicked() {
@@ -352,9 +402,9 @@ impl GroundLabApp {
             }
         }
 
-        ui.collapsing("Apply one order", |ui| {
-            if ui.button("Dig trench across road").clicked() {
-                self.apply_mission_order(
+        ui.collapsing("Quick queue", |ui| {
+            if ui.button("Queue trench across road").clicked() {
+                self.queue_mission_order(
                     WorkOrderKind::DigTrench,
                     WorkTarget::Rect(ground_game::CellRect {
                         origin: CellCoord::new(5, 4),
@@ -363,8 +413,8 @@ impl GroundLabApp {
                     }),
                 );
             }
-            if ui.button("Raise berm behind trench").clicked() {
-                self.apply_mission_order(
+            if ui.button("Queue berm behind trench").clicked() {
+                self.queue_mission_order(
                     WorkOrderKind::RaiseBerm,
                     WorkTarget::Rect(ground_game::CellRect {
                         origin: CellCoord::new(5, 3),
@@ -373,20 +423,20 @@ impl GroundLabApp {
                     }),
                 );
             }
-            if ui.button("Fell roadside pine").clicked() {
-                self.apply_mission_order(
+            if ui.button("Queue fell roadside pine").clicked() {
+                self.queue_mission_order(
                     WorkOrderKind::FellTree,
                     WorkTarget::Object("tree_west_01".to_string()),
                 );
             }
-            if ui.button("Cut pine into logs").clicked() {
-                self.apply_mission_order(
+            if ui.button("Queue cut pine into logs").clicked() {
+                self.queue_mission_order(
                     WorkOrderKind::CutIntoLogs,
                     WorkTarget::Object("tree_west_01".to_string()),
                 );
             }
-            if ui.button("Place stakes in road").clicked() {
-                self.apply_mission_order(
+            if ui.button("Queue stakes in road").clicked() {
+                self.queue_mission_order(
                     WorkOrderKind::PlaceStakes,
                     WorkTarget::Cell(CellCoord::new(3, 4)),
                 );
@@ -400,6 +450,36 @@ impl GroundLabApp {
                 "{} · {} units · {:?}",
                 group.label, group.count, group.doctrine
             ));
+        }
+
+        ui.separator();
+        ui.strong("Material ledger");
+        if self.mission_state.material_ledger.is_empty() {
+            ui.label("No material changes yet.");
+        } else {
+            for entry in self.mission_state.material_ledger.iter().rev().take(8) {
+                let summary = entry.net.signed_summary().join(", ");
+                ui.label(format!(
+                    "#{:02} {} · {}",
+                    entry.order_id,
+                    entry.order_kind.label(),
+                    if summary.is_empty() {
+                        "no material delta".to_string()
+                    } else {
+                        summary
+                    }
+                ));
+            }
+        }
+
+        ui.separator();
+        ui.strong("Order validation");
+        if self.mission_state.order_validation.is_empty() {
+            ui.label("No order validation issues.");
+        } else {
+            for issue in self.mission_state.order_validation.iter().rev().take(6) {
+                ui.label(format!("{:?} · {}", issue.severity, issue.message));
+            }
         }
 
         ui.separator();
@@ -422,10 +502,138 @@ impl GroundLabApp {
         ui.label(&self.status);
     }
 
-    fn apply_mission_order(&mut self, kind: WorkOrderKind, target: WorkTarget) {
-        let order = self.mission_state.apply_work_order(kind, target);
+    fn show_selected_mission_context(&mut self, ui: &mut egui::Ui) {
+        let cell_coord = self.selected_mission_cell;
+        ui.strong("Selected terrain");
+        let Some(cell) = self.mission_state.map.cell(cell_coord) else {
+            ui.label("Selection is outside the mission map.");
+            return;
+        };
+        ui.label(format!(
+            "Cell ({}, {}) · {} · {:?} · height {} · cover {:?} · move {:.1}",
+            cell_coord.x,
+            cell_coord.y,
+            cell.ground.label(),
+            cell.earth_state,
+            cell.height,
+            cell.cover,
+            cell.movement_cost
+        ));
+        if let Some(object) = self
+            .mission_state
+            .map
+            .objects
+            .iter()
+            .find(|object| object.cell == cell_coord)
+            .cloned()
+        {
+            ui.label(format!(
+                "Object: {} · {}",
+                object.label,
+                mission_object_state_label(&object)
+            ));
+            self.show_object_order_buttons(ui, &object);
+        } else {
+            self.show_cell_order_buttons(ui, cell_coord);
+        }
+    }
+
+    fn show_cell_order_buttons(&mut self, ui: &mut egui::Ui, cell: CellCoord) {
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Queue dig trench").clicked() {
+                self.queue_mission_order(WorkOrderKind::DigTrench, WorkTarget::Cell(cell));
+            }
+            if ui.button("Queue raise berm").clicked() {
+                self.queue_mission_order(WorkOrderKind::RaiseBerm, WorkTarget::Cell(cell));
+            }
+            if ui.button("Queue flatten").clicked() {
+                self.queue_mission_order(WorkOrderKind::Flatten, WorkTarget::Cell(cell));
+            }
+            if ui.button("Queue stakes").clicked() {
+                self.queue_mission_order(WorkOrderKind::PlaceStakes, WorkTarget::Cell(cell));
+            }
+        });
+        self.show_order_preview_card(ui, WorkOrderKind::DigTrench, WorkTarget::Cell(cell));
+    }
+
+    fn show_object_order_buttons(&mut self, ui: &mut egui::Ui, object: &EnvironmentObject) {
+        match object.kind {
+            EnvironmentObjectKind::Tree(TreeState::Standing)
+            | EnvironmentObjectKind::Tree(TreeState::PartiallyCut { .. }) => {
+                if ui.button("Queue fell tree").clicked() {
+                    self.queue_mission_order(
+                        WorkOrderKind::FellTree,
+                        WorkTarget::Object(object.id.clone()),
+                    );
+                }
+                self.show_order_preview_card(
+                    ui,
+                    WorkOrderKind::FellTree,
+                    WorkTarget::Object(object.id.clone()),
+                );
+            }
+            EnvironmentObjectKind::Tree(TreeState::FallenTrunk { .. }) => {
+                if ui.button("Queue cut into logs").clicked() {
+                    self.queue_mission_order(
+                        WorkOrderKind::CutIntoLogs,
+                        WorkTarget::Object(object.id.clone()),
+                    );
+                }
+                self.show_order_preview_card(
+                    ui,
+                    WorkOrderKind::CutIntoLogs,
+                    WorkTarget::Object(object.id.clone()),
+                );
+            }
+            _ => {
+                ui.label("No context work orders for this object yet.");
+            }
+        }
+    }
+
+    fn show_order_preview_card(&self, ui: &mut egui::Ui, kind: WorkOrderKind, target: WorkTarget) {
+        let preview = self.mission_state.preview_work_order(kind, target);
+        ui.group(|ui| {
+            ui.strong(format!("Preview: {}", preview.kind.label()));
+            ui.label(format!(
+                "Cost: {}s labor / {}s duration · crew {} · tools {}",
+                preview.labor_seconds,
+                preview.duration_seconds,
+                preview.assigned_crews,
+                preview
+                    .required_tools
+                    .iter()
+                    .map(|tool| tool.label())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+            let inputs = preview.material_inputs.signed_summary();
+            let outputs = preview.material_outputs.signed_summary();
+            if !inputs.is_empty() {
+                ui.label(format!("Consumes: {}", inputs.join(", ")));
+            }
+            if !outputs.is_empty() {
+                ui.label(format!("Creates: {}", outputs.join(", ")));
+            }
+            for note in &preview.preview.notes {
+                ui.small(format!("Effect: {note}"));
+            }
+            if matches!(
+                preview.status,
+                ground_game::WorkOrderStatus::Rejected { .. }
+            ) {
+                ui.colored_label(
+                    egui::Color32::from_rgb(230, 160, 120),
+                    preview.status.label(),
+                );
+            }
+        });
+    }
+
+    fn queue_mission_order(&mut self, kind: WorkOrderKind, target: WorkTarget) {
+        let order = self.mission_state.queue_work_order(kind, target);
         self.status = format!(
-            "Mission order #{:02}: {} · {}",
+            "Queued order #{:02}: {} · {}",
             order.id,
             order.kind.label(),
             order.status.label()
@@ -1070,7 +1278,19 @@ impl GroundLabApp {
         let cell_size = 44.0;
         let map_w = self.mission_state.map.width as f32 * cell_size;
         let map_h = self.mission_state.map.height as f32 * cell_size;
-        let (rect, _) = ui.allocate_exact_size(egui::vec2(map_w, map_h), egui::Sense::hover());
+        let (rect, response) =
+            ui.allocate_exact_size(egui::vec2(map_w, map_h), egui::Sense::click());
+        if response.clicked() {
+            if let Some(pos) = response.interact_pointer_pos() {
+                let local = pos - rect.min;
+                let x = (local.x / cell_size).floor().max(0.0) as u32;
+                let y = (local.y / cell_size).floor().max(0.0) as u32;
+                if x < self.mission_state.map.width && y < self.mission_state.map.height {
+                    self.selected_mission_cell = CellCoord::new(x, y);
+                    self.status = format!("Selected mission cell ({x}, {y}).");
+                }
+            }
+        }
         let painter = ui.painter_at(rect);
 
         for y in 0..self.mission_state.map.height {
@@ -1094,6 +1314,14 @@ impl GroundLabApp {
                     egui::Stroke::new(1.0, egui::Color32::from_gray(45)),
                     egui::StrokeKind::Inside,
                 );
+                if self.selected_mission_cell == coord {
+                    painter.rect_stroke(
+                        tile_rect.shrink(2.0),
+                        0.0,
+                        egui::Stroke::new(2.0, egui::Color32::from_rgb(240, 220, 110)),
+                        egui::StrokeKind::Inside,
+                    );
+                }
                 let glyph = mission_cell_glyph(&self.mission_state, coord, cell);
                 if !glyph.is_empty() {
                     painter.text(
@@ -1195,6 +1423,24 @@ fn mission_cell_glyph(
                 String::new()
             }
         }
+    }
+}
+
+fn mission_object_state_label(object: &EnvironmentObject) -> &'static str {
+    match object.kind {
+        EnvironmentObjectKind::Tree(TreeState::Standing) => "standing tree",
+        EnvironmentObjectKind::Tree(TreeState::PartiallyCut { .. }) => "partially cut tree",
+        EnvironmentObjectKind::Tree(TreeState::Falling { .. }) => "falling tree",
+        EnvironmentObjectKind::Tree(TreeState::FallenTrunk { .. }) => "fallen trunk",
+        EnvironmentObjectKind::Tree(TreeState::CutLogs) => "cut logs",
+        EnvironmentObjectKind::Tree(TreeState::StakesBundle) => "stakes bundle",
+        EnvironmentObjectKind::Tree(TreeState::Stump) => "stump",
+        EnvironmentObjectKind::Log(_) => "log",
+        EnvironmentObjectKind::Rock(_) => "rock",
+        EnvironmentObjectKind::Wall(_) => "wall",
+        EnvironmentObjectKind::Wire(_) => "wire",
+        EnvironmentObjectKind::Stakes(_) => "stakes",
+        EnvironmentObjectKind::FightingPosition(_) => "fighting position",
     }
 }
 

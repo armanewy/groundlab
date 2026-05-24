@@ -28,6 +28,25 @@ This milestone is intentionally data-first. It does not add assault simulation, 
 new renderer, or route doctrine preview yet; it establishes the commander/engineer prep loop as the
 new center of the project.
 
+## GamePivot 2 — Work orders and local materials
+
+Implemented in this drop.
+
+- work orders now enter a queue before execution
+- queued orders preserve status, progress, crew requirement, assigned crews, labor seconds, elapsed prep duration, tool requirements, material inputs, material outputs, affected cells/objects, and preview notes
+- execution validates tools, prep time, crew labor, target compatibility, and local material availability
+- dependent scripts can be queued before execution; object/material preconditions are checked when each order runs
+- added material ledger entries for spoil, timber, logs, stakes, loose stone, scrap, and rope deltas
+- added order validation entries for rejected or illegal work orders
+- `mission-seed` export now writes order scripts, material ledger, order validation, and a PNG mission preview
+- added `cargo run -p ground_cli -- mission-orders [out_dir] [mission_spec.ron|json] [order_script.ron|json]`
+- `mission-orders` runs either the built-in Road Below script or supplied mission/script files and exports initial/after state, work log, material ledger, validation, ASCII maps, PNG preview, and summary
+- Mission Lab now shows selected-cell context, relevant order buttons, preview cards, queue controls, material ledger, validation feedback, and click-to-select tactical grid cells
+
+This milestone keeps combat paused. The goal is to make prep-phase engineering visible and testable:
+select terrain/object, preview a work order, queue it, run it, and inspect the terrain/object/material
+side effects.
+
 ## Milestone 0 — Project seed
 
 Implemented.

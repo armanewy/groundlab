@@ -1368,6 +1368,7 @@ name = "ground_game"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "image",
  "ron",
  "serde",
  "serde_json",

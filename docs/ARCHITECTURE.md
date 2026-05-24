@@ -50,8 +50,10 @@ GamePivot mission flow:
 ```txt
 MissionSpec
   -> MissionState
-  -> prep-phase work orders
+  -> prep-phase work-order queue
+  -> order validation
   -> terrain/object/material state changes
+  -> material ledger + work log
   -> route / LOS / cover consequences
   -> future assault sandbox
 ```
