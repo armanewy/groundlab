@@ -4,7 +4,7 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: GamePivot 7 — first balanced mission pass
+## Current status: GamePivot 8 — first playable Road Below slice
 
 GroundLab has pivoted from art-generation milestones back toward the game workbench. The primary
 product direction is now a 2.5D tactical engineering defense game: the player is a commander /
@@ -15,7 +15,7 @@ SpriteGen remains in the repository as the terrain art forge. It still provides 
 profiles, override PNGs, sprite manifests, validation, and exportable grass/dirt/path/trench/berm/
 stone pieces. It is now supporting infrastructure rather than the main roadmap driver.
 
-GamePivot 7 builds on the `ground_game` crate with:
+GamePivot 8 builds on the `ground_game` crate with:
 
 - `MissionSpec`, `MissionMap`, and `MissionCell`
 - earth states such as normal, scraped, trench, deep trench, spoil pile, berm, unstable, and muddy
@@ -42,6 +42,11 @@ GamePivot 7 builds on the `ground_game` crate with:
 - built-in balance scenarios for no prep, trench line, berm/stakes, basic prep, rolling-log prep, ridge chokepoint, and an overbuilt bad plan
 - scenario comparison exports that show whether different prep plans produce meaningfully different assault outcomes
 - route-shift, hazard-effectiveness, and rating-breakdown summaries for the balance pass
+- a playable Mission Lab lifecycle: briefing, start prep, player work orders, assault, debrief, retry, and reset
+- a Road Below guide checklist that nudges the first playthrough through route preview, earthwork, local material, rolling log, assault, and debrief
+- player prep-plan save/load/apply controls using `exports/gamepivot_08/player_plan.ron`
+- a Mission Lab rating breakdown that surfaces objective health, enemies stopped/reached, prep time, friendly-risk penalties, unused defenses, hazard impact, and route accuracy
+- a compact in-app balance dashboard that shows the scripted benchmark plans and their star/score outcomes
 - assault summary and debrief exports for debugging why the plan worked or failed
 - per-cell influence summaries for crossed cells, delayed cells, damaging cells, defender pressure, breach cells, effective obstacles, and unused defenses
 - prediction-vs-actual route comparison for doctrine preview accuracy
@@ -98,6 +103,12 @@ Run the GamePivot 7 mission balance pass:
 cargo run -p ground_cli -- mission-balance exports/gamepivot_07
 ```
 
+Road Below player plans saved from Mission Lab are written to:
+
+```txt
+exports/gamepivot_08/player_plan.ron
+```
+
 Run the mission workbench:
 
 ```bash
@@ -107,6 +118,11 @@ cargo run -p ground_app
 The full-scene terrain renderer and ArtGen outputs remain downstream infrastructure for terrain
 data, pathing, LOS, and future art-kit composition, but the active gameplay roadmap now starts with
 mission prep, work orders, local materials, and predictable terrain consequences.
+
+## Previous status: GamePivot 7 — first balanced mission pass
+
+GamePivot 7 added mission briefing metadata, mission ratings, Road Below balance scripts, the
+`mission-balance` export, scenario comparison reports, and in-app briefing/rating surfaces.
 
 ## Previous status: GamePivot 6 — rolling hazard sandbox
 

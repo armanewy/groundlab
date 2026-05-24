@@ -152,6 +152,23 @@ This milestone does not add new mechanics. It uses the existing work-order, rout
 debrief, and rolling-hazard systems to answer whether one small mission has meaningful strategic
 space.
 
+## GamePivot 8 — First playable Road Below slice
+
+Implemented in this drop.
+
+- Mission Lab now starts Road Below in the briefing phase instead of dropping directly into prep
+- added explicit lifecycle controls for Start Prep, Start Assault, Retry Assault, and Reset to Briefing
+- blocked accidental order queuing or assault stepping before prep starts
+- added a Road Below guide checklist covering route preview, earthwork, local material use, ridge log decisions, assault, and debrief
+- added player prep-plan save/load/apply controls backed by `exports/gamepivot_08/player_plan.ron`
+- added a richer player-facing debrief breakdown with objective survival, health remaining, enemies stopped/reached, prep time, friendly-risk hazard cells, unused defenses, hazard hits, and route accuracy
+- added a compact in-app balance dashboard that computes the scripted Road Below benchmark plans and displays star/score/outcome summaries
+- kept the existing debug/scripted scenario tools available, but moved the primary loop toward human playthrough and retry
+
+This milestone does not add new mechanics or new art. It turns the existing Road Below systems into
+an end-to-end playable slice that can be attempted, rated, retried, and compared against benchmark
+plans.
+
 ## Milestone 0 — Project seed
 
 Implemented.

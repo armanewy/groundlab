@@ -9,7 +9,7 @@ environment-object states, doctrine route preview, deterministic assault sandbox
 readability/debrief artifacts, the first deterministic rolling hazard sandbox, and mission balance
 scenario comparison.
 `ground_app` now treats Mission Lab as the primary tactical prep surface rather than a generic
-terrain editor panel.
+terrain editor panel, and Road Below starts as a playable briefing-to-debrief slice.
 
 ## What is custom-owned now
 
@@ -22,6 +22,7 @@ terrain editor panel.
 - Deterministic assault agents, typed timeline, debrief summary, and influence heatmaps
 - Deterministic rolling-log hazard path prediction, release, impact, and debrief reporting
 - Mission briefing, rating, and balance-scenario comparison
+- Playable mission lifecycle, prep-plan replay, tutorial prompts, and player-facing debrief panels
 - Terrain editing brushes
 - Pixel tile recipes
 - Palette ramps and palette file format
@@ -71,6 +72,7 @@ MissionSpec
   -> debrief summary + influence heatmaps
   -> prediction-vs-actual route comparison
   -> rating + scenario comparison reports
+  -> player retry / saved prep-plan iteration
 ```
 
 Art asset flow:

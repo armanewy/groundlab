@@ -10,12 +10,16 @@ use ground_core::{
     ValidationReport, ViewOrientation, WorkbenchAssetPaths,
 };
 use ground_game::{
-    export_road_below_seed, road_below_seed_orders, AssaultEventKind, CellCoord, CoverClass,
-    EarthState, EnemyAgentStatus, EnvironmentObject, EnvironmentObjectKind, GroundKind, LogState,
-    MissionState, TreeState, WorkOrderKind, WorkTarget, DEFAULT_MISSION_EXPORT_DIR,
+    export_road_below_seed, load_work_order_script, mission_rating_for_state,
+    road_below_balance_scripts, road_below_seed_orders, run_work_order_script,
+    save_work_order_script, AssaultEventKind, CellCoord, CoverClass, EarthState, EnemyAgentStatus,
+    EnvironmentObject, EnvironmentObjectKind, GroundKind, LogState, MissionPhase, MissionState,
+    ScriptedWorkOrder, TreeState, WorkOrderKind, WorkOrderScript, WorkOrderStatus, WorkTarget,
+    DEFAULT_MISSION_EXPORT_DIR,
 };
 
 const MAX_UI_TEXTURE_SIDE: usize = 2048;
+const PLAYER_PLAN_PATH: &str = "exports/gamepivot_08/player_plan.ron";
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
@@ -168,6 +172,17 @@ impl MissionMapMode {
     }
 }
 
+#[derive(Clone, Debug)]
+struct MissionBalanceDashboardRow {
+    label: String,
+    stars: u8,
+    score: i32,
+    outcome: String,
+    stopped: u32,
+    reached: u32,
+    prep_time_used_seconds: u32,
+}
+
 struct GroundLabApp {
     active_panel: WorkbenchPanel,
     mission_state: MissionState,
@@ -176,6 +191,7 @@ struct GroundLabApp {
     mission_map_mode: MissionMapMode,
     route_overlay_mode: RouteOverlayMode,
     route_group_filter: usize,
+    balance_dashboard: Vec<MissionBalanceDashboardRow>,
     notifications: Vec<String>,
     paths: WorkbenchAssetPaths,
     recipe_path_text: String,
@@ -220,14 +236,16 @@ impl GroundLabApp {
         let terrain = TerrainMap::target_derived(16, 12, loaded.recipe.seed);
         let mut app = Self {
             active_panel: WorkbenchPanel::MissionLab,
-            mission_state: MissionState::road_below_seed(),
+            mission_state: playable_road_below_state(),
             selected_mission_cell: CellCoord::new(5, 4),
             mission_action_mode: MissionActionMode::Inspect,
             mission_map_mode: MissionMapMode::Terrain,
             route_overlay_mode: RouteOverlayMode::Current,
             route_group_filter: 0,
+            balance_dashboard: build_balance_dashboard(),
             notifications: vec![
-                "Mission Lab ready. Select terrain or an object to issue prep orders.".to_string(),
+                "Road Below briefing ready. Start prep when you are ready to issue orders."
+                    .to_string(),
             ],
             recipe_path_text: paths.recipe_path.to_string_lossy().to_string(),
             palette_path_text: paths.palette_path.to_string_lossy().to_string(),
@@ -400,10 +418,14 @@ impl GroundLabApp {
     fn show_mission_controls(&mut self, ui: &mut egui::Ui) {
         self.show_panel_tabs(ui);
         ui.heading("Mission Lab");
-        ui.label("GamePivot 5: deterministic assault sandbox over prepared terrain");
+        ui.label("GamePivot 8: playable Road Below slice");
         ui.separator();
 
         self.show_mission_status_panel(ui);
+        ui.separator();
+        self.show_mission_lifecycle_panel(ui);
+        ui.separator();
+        self.show_tutorial_panel(ui);
         ui.separator();
         self.show_mission_action_toolbar(ui);
         ui.separator();
@@ -420,6 +442,8 @@ impl GroundLabApp {
         self.show_objective_panel(ui);
         ui.separator();
         self.show_mission_scenario_controls(ui);
+        ui.separator();
+        self.show_balance_dashboard_panel(ui);
         ui.separator();
         self.show_feedback_panel(ui);
     }
@@ -463,6 +487,94 @@ impl GroundLabApp {
                     .collect::<Vec<_>>()
                     .join(" · ")
             ));
+        });
+    }
+
+    fn show_mission_lifecycle_panel(&mut self, ui: &mut egui::Ui) {
+        ui.strong("Mission flow");
+        ui.horizontal_wrapped(|ui| {
+            if ui
+                .add_enabled(
+                    matches!(self.mission_state.phase, MissionPhase::Briefing),
+                    egui::Button::new("Start prep"),
+                )
+                .clicked()
+            {
+                self.mission_state.phase = MissionPhase::Prep;
+                self.notify("Prep started. Issue work orders, preview routes, then start assault.");
+            }
+            if ui
+                .add_enabled(
+                    !matches!(self.mission_state.phase, MissionPhase::Briefing),
+                    egui::Button::new("Start assault"),
+                )
+                .clicked()
+            {
+                if !self.mission_state.work_queue.is_empty() {
+                    self.notify("Run or clear queued work orders before starting assault.");
+                } else {
+                    self.mission_state.start_assault();
+                    self.notify("Assault started from current prepared terrain.");
+                }
+            }
+            if ui
+                .add_enabled(
+                    self.mission_state.assault.is_some(),
+                    egui::Button::new("Retry assault"),
+                )
+                .clicked()
+            {
+                self.mission_state.reset_assault();
+                let summary = self.mission_state.run_assault_to_completion(160);
+                self.notify(format!("Retried assault: {}", summary.outcome_label));
+            }
+            if ui.button("Reset to briefing").clicked() {
+                self.mission_state = playable_road_below_state();
+                self.selected_mission_cell = CellCoord::new(5, 4);
+                self.notify("Reset Road Below to briefing.");
+            }
+        });
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Save prep plan").clicked() {
+                let script = self.current_player_plan_script();
+                match save_work_order_script(PLAYER_PLAN_PATH, &script) {
+                    Ok(()) => self.notify(format!("Saved prep plan to {PLAYER_PLAN_PATH}.")),
+                    Err(err) => self.notify(format!("Save prep plan failed: {err}")),
+                }
+            }
+            if ui.button("Load plan to queue").clicked() {
+                match load_work_order_script(PLAYER_PLAN_PATH) {
+                    Ok(script) => {
+                        self.reset_to_prep_with_script(&script, false);
+                        self.notify(format!(
+                            "Loaded {} order(s) from {PLAYER_PLAN_PATH} into the queue.",
+                            script.orders.len()
+                        ));
+                    }
+                    Err(err) => self.notify(format!("Load prep plan failed: {err}")),
+                }
+            }
+            if ui.button("Apply saved plan").clicked() {
+                match load_work_order_script(PLAYER_PLAN_PATH) {
+                    Ok(script) => {
+                        self.reset_to_prep_with_script(&script, true);
+                        self.notify(format!(
+                            "Applied saved prep plan with {} order(s).",
+                            script.orders.len()
+                        ));
+                    }
+                    Err(err) => self.notify(format!("Apply saved plan failed: {err}")),
+                }
+            }
+        });
+        ui.small("Playable flow: briefing -> prep -> assault -> debrief -> retry.");
+    }
+
+    fn show_tutorial_panel(&self, ui: &mut egui::Ui) {
+        ui.collapsing("Road Below guide", |ui| {
+            for (done, text) in self.tutorial_steps() {
+                ui.small(format!("{} {text}", if done { "Done:" } else { "Next:" }));
+            }
         });
     }
 
@@ -527,23 +639,41 @@ impl GroundLabApp {
     }
 
     fn show_assault_panel(&mut self, ui: &mut egui::Ui) {
-        ui.strong("Assault sandbox");
+        ui.strong("Assault");
         ui.horizontal_wrapped(|ui| {
-            if ui.button("Start assault").clicked() {
-                self.mission_state.start_assault();
-                self.notify("Assault started from current prepared terrain.");
+            if ui.button("Start / restart assault").clicked() {
+                if matches!(self.mission_state.phase, MissionPhase::Briefing) {
+                    self.notify("Start prep before launching the assault.");
+                } else if !self.mission_state.work_queue.is_empty() {
+                    self.notify("Run or clear queued work orders before starting assault.");
+                } else {
+                    self.mission_state.start_assault();
+                    self.notify("Assault started from current prepared terrain.");
+                }
             }
             if ui.button("Step").clicked() {
-                let events = self.mission_state.step_assault();
-                if let Some(event) = events.last() {
-                    self.notify(format!("Assault step: {}", event.note));
+                if matches!(self.mission_state.phase, MissionPhase::Briefing) {
+                    self.notify("Start prep before stepping the assault.");
+                } else if !self.mission_state.work_queue.is_empty() {
+                    self.notify("Run or clear queued work orders before stepping the assault.");
                 } else {
-                    self.notify("Assault step produced no new event.");
+                    let events = self.mission_state.step_assault();
+                    if let Some(event) = events.last() {
+                        self.notify(format!("Assault step: {}", event.note));
+                    } else {
+                        self.notify("Assault step produced no new event.");
+                    }
                 }
             }
             if ui.button("Run").clicked() {
-                let summary = self.mission_state.run_assault_to_completion(160);
-                self.notify(summary.outcome_label);
+                if matches!(self.mission_state.phase, MissionPhase::Briefing) {
+                    self.notify("Start prep before running the assault.");
+                } else if !self.mission_state.work_queue.is_empty() {
+                    self.notify("Run or clear queued work orders before running the assault.");
+                } else {
+                    let summary = self.mission_state.run_assault_to_completion(160);
+                    self.notify(summary.outcome_label);
+                }
             }
             if ui.button("Release logs").clicked() {
                 let count = self.mission_state.release_prepared_rolling_hazards();
@@ -593,11 +723,7 @@ impl GroundLabApp {
             }
             if let Some(debrief) = self.mission_state.assault_debrief() {
                 ui.separator();
-                ui.strong("Debrief");
-                ui.small(format!(
-                    "Rating: {} star(s) · {} · score {}",
-                    debrief.rating.stars, debrief.rating.label, debrief.rating.score
-                ));
+                self.show_debrief_breakdown(ui, &debrief);
                 if let Some(group) = &debrief.influence.most_delayed_group {
                     ui.small(format!(
                         "Most delayed: {} · {} tick(s)",
@@ -638,6 +764,41 @@ impl GroundLabApp {
         } else {
             ui.small("No assault is running. Start uses the current prepared mission state.");
         }
+    }
+
+    fn show_debrief_breakdown(&self, ui: &mut egui::Ui, debrief: &ground_game::AssaultDebrief) {
+        ui.strong("Debrief");
+        ui.small(format!(
+            "Rating: {} star(s) · {} · score {}",
+            debrief.rating.stars, debrief.rating.label, debrief.rating.score
+        ));
+        ui.small(format!(
+            "Objective survived: {} · health {:.0}% · damage {}",
+            if debrief.rating.objective_survived {
+                "yes"
+            } else {
+                "no"
+            },
+            debrief.rating.objective_health_ratio * 100.0,
+            debrief.summary.objective_damage_taken
+        ));
+        ui.small(format!(
+            "Attackers stopped: {} / {} · reached {}",
+            debrief.summary.enemies_eliminated,
+            debrief.summary.enemies_spawned,
+            debrief.summary.enemies_reached_objective
+        ));
+        ui.small(format!(
+            "Prep used: {} · friendly-risk cells {} · unused defenses {}",
+            format_duration(debrief.rating.prep_time_used_seconds),
+            debrief.rating.friendly_risk_count,
+            debrief.rating.unused_defense_count
+        ));
+        ui.small(format!(
+            "Hazard impact: {} enemy hit(s) · route accuracy {:.0}%",
+            debrief.rating.hazard_enemies_hit,
+            debrief.route_prediction_accuracy.average_accuracy * 100.0
+        ));
     }
 
     fn show_work_order_queue_panel(&mut self, ui: &mut egui::Ui) {
@@ -758,11 +919,15 @@ impl GroundLabApp {
     fn show_mission_scenario_controls(&mut self, ui: &mut egui::Ui) {
         ui.collapsing("Scenario controls", |ui| {
             if ui.button("Apply seed plan immediately").clicked() {
-                self.mission_state.apply_seed_orders();
-                self.notify("Applied scripted Road Below engineering plan immediately.");
+                if matches!(self.mission_state.phase, MissionPhase::Briefing) {
+                    self.notify("Start prep before applying a scripted plan.");
+                } else {
+                    self.mission_state.apply_seed_orders();
+                    self.notify("Applied scripted Road Below engineering plan immediately.");
+                }
             }
             if ui.button("Reset mission").clicked() {
-                self.mission_state = MissionState::road_below_seed();
+                self.mission_state = playable_road_below_state();
                 self.selected_mission_cell = CellCoord::new(5, 4);
                 self.notify("Reset Road Below mission state.");
             }
@@ -819,6 +984,30 @@ impl GroundLabApp {
                     WorkOrderKind::PrepareRollingLog,
                     WorkTarget::Object("ridge_log_01".to_string()),
                 );
+            }
+        });
+    }
+
+    fn show_balance_dashboard_panel(&mut self, ui: &mut egui::Ui) {
+        ui.collapsing("Mission balance dashboard", |ui| {
+            ui.horizontal_wrapped(|ui| {
+                if ui.button("Refresh dashboard").clicked() {
+                    self.balance_dashboard = build_balance_dashboard();
+                    self.notify("Refreshed Road Below balance dashboard.");
+                }
+                ui.small("Scripted benchmark plans for tuning Road Below.");
+            });
+            for row in &self.balance_dashboard {
+                ui.small(format!(
+                    "{} · {} star(s) · score {} · stopped {} · reached {} · prep {} · {}",
+                    row.label,
+                    row.stars,
+                    row.score,
+                    row.stopped,
+                    row.reached,
+                    format_duration(row.prep_time_used_seconds),
+                    row.outcome
+                ));
             }
         });
     }
@@ -880,6 +1069,10 @@ impl GroundLabApp {
     fn show_selected_mission_context(&mut self, ui: &mut egui::Ui) {
         let cell_coord = self.selected_mission_cell;
         ui.strong(format!("{} context", self.mission_action_mode.label()));
+        if matches!(self.mission_state.phase, MissionPhase::Briefing) {
+            ui.label("Start prep to issue engineering work orders.");
+            return;
+        }
         let Some(cell) = self.mission_state.map.cell(cell_coord) else {
             ui.label("Selection is outside the mission map.");
             return;
@@ -1092,6 +1285,10 @@ impl GroundLabApp {
     }
 
     fn queue_mission_order(&mut self, kind: WorkOrderKind, target: WorkTarget) {
+        if matches!(self.mission_state.phase, MissionPhase::Briefing) {
+            self.notify("Start prep before queuing work orders.");
+            return;
+        }
         let order = self.mission_state.queue_work_order(kind, target);
         self.notify(format!(
             "Queued order #{:02}: {} · {}",
@@ -1099,6 +1296,85 @@ impl GroundLabApp {
             order.kind.label(),
             order.status.label()
         ));
+    }
+
+    fn current_player_plan_script(&self) -> WorkOrderScript {
+        let orders = self
+            .mission_state
+            .work_orders
+            .iter()
+            .chain(self.mission_state.work_queue.iter())
+            .filter(|order| !matches!(order.status, WorkOrderStatus::Rejected { .. }))
+            .map(|order| ScriptedWorkOrder {
+                kind: order.kind,
+                target: order.target.clone(),
+            })
+            .collect();
+        WorkOrderScript {
+            id: "road_below_player_plan".to_string(),
+            label: "Road Below player prep plan".to_string(),
+            orders,
+        }
+    }
+
+    fn reset_to_prep_with_script(&mut self, script: &WorkOrderScript, run_all: bool) {
+        self.mission_state = MissionState::road_below_seed();
+        self.mission_state.phase = MissionPhase::Prep;
+        self.selected_mission_cell = CellCoord::new(5, 4);
+        for order in &script.orders {
+            self.mission_state
+                .queue_work_order(order.kind, order.target.clone());
+        }
+        if run_all {
+            self.mission_state.run_all_queued_orders();
+        }
+    }
+
+    fn tutorial_steps(&self) -> Vec<(bool, &'static str)> {
+        let has_routes = self.route_overlay_mode != RouteOverlayMode::None;
+        let has_earthwork = self.has_order_kind(WorkOrderKind::DigTrench)
+            || self.has_order_kind(WorkOrderKind::RaiseBerm);
+        let has_material_order = self.has_order_kind(WorkOrderKind::FellTree)
+            || self.has_order_kind(WorkOrderKind::CutIntoLogs)
+            || self.has_order_kind(WorkOrderKind::PlaceStakes);
+        let has_log_plan = self.has_order_kind(WorkOrderKind::PrepareRollingLog)
+            || !self.mission_state.rolling_hazard_plans().is_empty();
+        let assault_started = self.mission_state.assault.is_some();
+        let has_debrief = self.mission_state.assault_debrief().is_some();
+        vec![
+            (
+                !matches!(self.mission_state.phase, MissionPhase::Briefing),
+                "Start prep from the briefing.",
+            ),
+            (
+                has_routes,
+                "Preview enemy routes and choose one group to inspect.",
+            ),
+            (
+                has_earthwork,
+                "Change the ground with a trench or berm work order.",
+            ),
+            (
+                has_material_order,
+                "Use local material: fell, cut, or place stakes.",
+            ),
+            (
+                has_log_plan,
+                "Prepare the ridge log or decide to ignore it.",
+            ),
+            (assault_started, "Start, step, or run the assault."),
+            (has_debrief, "Read the debrief and rating, then retry."),
+        ]
+    }
+
+    fn has_order_kind(&self, kind: WorkOrderKind) -> bool {
+        self.mission_state
+            .work_orders
+            .iter()
+            .chain(self.mission_state.work_queue.iter())
+            .any(|order| {
+                order.kind == kind && !matches!(order.status, WorkOrderStatus::Rejected { .. })
+            })
     }
 
     fn notify(&mut self, message: impl Into<String>) {
@@ -2168,6 +2444,37 @@ fn route_filter_label(routes: &ground_game::DoctrineRouteSet, route_filter: usiz
         .get(route_filter.saturating_sub(1))
         .map(|route| route.group_label.clone())
         .unwrap_or_else(|| "all groups".to_string())
+}
+
+fn playable_road_below_state() -> MissionState {
+    let mut state = MissionState::road_below_seed();
+    state.phase = MissionPhase::Briefing;
+    state
+}
+
+fn build_balance_dashboard() -> Vec<MissionBalanceDashboardRow> {
+    let spec = ground_game::road_below_spec();
+    road_below_balance_scripts()
+        .into_iter()
+        .filter_map(|script| {
+            let mut state = run_work_order_script(spec.clone(), &script);
+            let prep_time_used_seconds = state
+                .spec
+                .prep_time_seconds
+                .saturating_sub(state.remaining_prep_seconds);
+            let summary = state.run_assault_to_completion(160);
+            let rating = mission_rating_for_state(&state)?;
+            Some(MissionBalanceDashboardRow {
+                label: script.label,
+                stars: rating.stars,
+                score: rating.score,
+                outcome: rating.label,
+                stopped: summary.enemies_eliminated,
+                reached: summary.enemies_reached_objective,
+                prep_time_used_seconds,
+            })
+        })
+        .collect()
 }
 
 fn mission_cell_color(cell: &ground_game::MissionCell, mode: MissionMapMode) -> egui::Color32 {
