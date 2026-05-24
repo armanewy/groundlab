@@ -6,8 +6,9 @@ GroundLab's active roadmap is paused on new game/procgen/campaign expansion whil
 mission art direction is locked. SpriteGen remains the terrain art forge, and Mission Lab remains
 the 2.5D tactical engineering defense workbench, but the current priority is making one generated
 mission beauty render read as a coherent high-oblique pixel-art terrain scene rather than a
-schematic board. Visual Lock 2 keeps the benchmark fixed and focuses on the prepared-work terrain
-layer: trenches, berms, path edges, prepared diff artifacts, and visual-impact audit data.
+schematic board. Visual Lock 3 keeps the benchmark fixed and focuses on mission-scale composition:
+full/cropped/detail renders, softer beauty-mode framing, high-impact override targets, and
+visual-impact audit data.
 
 ## GamePivot 1 — Mission workbench seed
 
@@ -512,6 +513,31 @@ Implemented in this drop.
 This milestone still does not add mechanics, themes, campaign UI, campaign packaging, new
 SpriteGen material families, or a renderer rewrite. It only improves the high-impact prepared
 terrain layer and the benchmark artifacts used to judge that layer.
+
+## Visual Lock 3 — Mission-scale scene composition + high-impact override pack
+
+Implemented in this drop.
+
+- adds `benchmark_visual_full_board.png`, `benchmark_visual_playable_crop.png`, and
+  `benchmark_visual_close_detail.png` to judge the same prepared benchmark at mission, playable, and
+  close-detail scales
+- softens beauty-mode map framing by reducing outer-board shadow/perimeter treatment while keeping
+  the harder slab/grid diagnostics in route/debug exports
+- keeps `benchmark_prepared_visual_beauty.png`, `benchmark_prepared_diff.png`,
+  `benchmark_prepared_feature_overlay.png`, and `benchmark_visual_audit.json` as the comparison
+  contract from Visual Lock 2
+- adds `benchmark_override_report.json` and `benchmark_override_pack/`
+- writes high-impact terrain PNGs under `benchmark_override_pack/overrides/` for the visible
+  path/trench/berm/dirt pieces that dominate the fixed benchmark
+- writes minimal placeholder target PNGs under `benchmark_override_pack/object_placeholders/` for
+  tree, log, rock, and objective art targets
+- records which terrain pieces and placeholder props were selected for the override pack, along with
+  notes about which files can become style-profile overrides and which are benchmark-only object
+  targets
+
+This milestone still does not add mechanics, themes, campaign UI, campaign packaging, new
+SpriteGen material families, or a renderer rewrite. It moves the same fixed benchmark closer to an
+art-direction lock by improving composition, scale, and replaceable high-impact art targets.
 
 ## Milestone 0 — Project seed
 

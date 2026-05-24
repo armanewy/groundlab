@@ -1709,6 +1709,10 @@ pub struct VisualLockBenchmarkReport {
     pub prepared: Option<VisualLockStageAudit>,
     pub prepared_diff_path: Option<String>,
     pub prepared_feature_overlay_path: Option<String>,
+    pub full_board_path: Option<String>,
+    pub playable_crop_path: Option<String>,
+    pub close_detail_path: Option<String>,
+    pub override_report_path: Option<String>,
     pub notes: Vec<String>,
 }
 
@@ -1757,6 +1761,17 @@ pub struct VisualLockPlaceholderImpact {
     pub placeholder: String,
     pub count: u32,
     pub estimated_screen_area_px: u32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VisualLockOverridePackReport {
+    pub output_dir: String,
+    pub profile: String,
+    pub generated_files: Vec<String>,
+    pub terrain_targets: Vec<VisualLockVisibleSpriteImpact>,
+    pub missing_terrain_targets: Vec<String>,
+    pub placeholder_targets: Vec<VisualLockPlaceholderImpact>,
+    pub notes: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -3249,17 +3264,30 @@ pub fn export_visual_lock_benchmark(
     let initial = export_visual_lock_stage(out_dir, "benchmark", &initial_state)?;
 
     let mut notes = vec![
-        "Visual Lock 1 uses one accepted generated mission as the fixed art-direction benchmark."
+        "Visual Lock uses one accepted generated mission as the fixed art-direction benchmark."
             .to_string(),
         "The initial render judges the generated mission as authored; the prepared render shows the same mission after the best scripted prep plan when available."
             .to_string(),
     ];
     let mut prepared_diff_path = None;
     let mut prepared_feature_overlay_path = None;
+    let mut full_board_path = None;
+    let mut playable_crop_path = None;
+    let mut close_detail_path = None;
+    let mut override_report_path = None;
     let prepared = if let Some(script) = visual_lock_best_script(&selected.best_plan_label) {
         let prepared_state = run_work_order_script(spec.clone(), &script);
         let prepared_audit =
             export_visual_lock_stage(out_dir, "benchmark_prepared", &prepared_state)?;
+        let full_board = out_dir.join("benchmark_visual_full_board.png");
+        copy_visual_alias(&prepared_audit.beauty_path, &full_board)?;
+        let crop = out_dir.join("benchmark_visual_playable_crop.png");
+        save_visual_lock_crop(&prepared_audit.beauty_path, &prepared_state, &crop, false)?;
+        let detail = out_dir.join("benchmark_visual_close_detail.png");
+        save_visual_lock_crop(&prepared_audit.beauty_path, &prepared_state, &detail, true)?;
+        full_board_path = Some(full_board.to_string_lossy().to_string());
+        playable_crop_path = Some(crop.to_string_lossy().to_string());
+        close_detail_path = Some(detail.to_string_lossy().to_string());
         let diff_path = out_dir.join("benchmark_prepared_diff.png");
         save_visual_lock_diff(
             &initial.beauty_path,
@@ -3287,6 +3315,22 @@ pub fn export_visual_lock_benchmark(
             out_dir.join("benchmark_prepared_material_ledger.json"),
             &prepared_state.material_ledger,
         )?;
+        let override_report = export_visual_lock_override_pack(
+            out_dir,
+            &prepared_audit,
+            &prepared_state.spec.visual_theme.sprite_style_profile,
+        )?;
+        override_report_path = Some(
+            out_dir
+                .join("benchmark_override_report.json")
+                .to_string_lossy()
+                .to_string(),
+        );
+        notes.push(format!(
+            "Visual Lock override pack exported {} target sprite(s) into {}.",
+            override_report.generated_files.len(),
+            override_report.output_dir
+        ));
         Some(prepared_audit)
     } else {
         notes.push(format!(
@@ -3314,6 +3358,10 @@ pub fn export_visual_lock_benchmark(
         prepared,
         prepared_diff_path,
         prepared_feature_overlay_path,
+        full_board_path,
+        playable_crop_path,
+        close_detail_path,
+        override_report_path,
         notes,
     };
     write_json(out_dir.join("benchmark_visual_audit.json"), &report)?;
@@ -10568,6 +10616,296 @@ fn save_visual_lock_feature_overlay(
         .with_context(|| format!("failed to save {}", out_path.display()))
 }
 
+fn save_visual_lock_crop(
+    beauty_path: impl AsRef<Path>,
+    state: &MissionState,
+    out_path: impl AsRef<Path>,
+    close_detail: bool,
+) -> Result<()> {
+    let beauty_path = beauty_path.as_ref();
+    let out_path = out_path.as_ref();
+    if let Some(parent) = out_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let source = image::open(beauty_path)
+        .with_context(|| format!("failed to open {}", beauty_path.display()))?
+        .to_rgba8();
+    let projection = MissionVisualProjection::new(&state.map);
+    let rect = visual_lock_crop_rect(
+        state,
+        &projection,
+        source.width(),
+        source.height(),
+        close_detail,
+    );
+    let cropped = crop_rgba_image(&source, rect);
+    let output = if close_detail {
+        scale_rgba_nearest(&cropped, 2)
+    } else {
+        cropped
+    };
+    output
+        .save(out_path)
+        .with_context(|| format!("failed to save {}", out_path.display()))
+}
+
+fn visual_lock_crop_rect(
+    state: &MissionState,
+    projection: &MissionVisualProjection,
+    image_w: u32,
+    image_h: u32,
+    close_detail: bool,
+) -> (u32, u32, u32, u32) {
+    let prepared_cells = (0..state.map.height)
+        .flat_map(|y| (0..state.map.width).map(move |x| CellCoord::new(x, y)))
+        .filter(|coord| {
+            state
+                .map
+                .cell(*coord)
+                .map(visual_lock_prepared_cell)
+                .unwrap_or(false)
+        })
+        .collect::<Vec<_>>();
+    let mut focus = Vec::new();
+    for y in 0..state.map.height {
+        for x in 0..state.map.width {
+            let coord = CellCoord::new(x, y);
+            let Some(cell) = state.map.cell(coord) else {
+                continue;
+            };
+            let is_object = state.map.objects.iter().any(|object| object.cell == coord);
+            let near_prepared = prepared_cells
+                .iter()
+                .any(|prepared| prepared.manhattan(coord) <= if close_detail { 3 } else { 6 });
+            let include = if close_detail {
+                visual_lock_prepared_cell(cell)
+                    || (cell.ground == GroundKind::Road && near_prepared)
+                    || (is_object && near_prepared)
+            } else {
+                visual_lock_prepared_cell(cell)
+                    || cell.ground == GroundKind::Road
+                    || is_object
+                    || coord == state.spec.objective.defend_cell
+            };
+            if include {
+                focus.push((coord, cell.height));
+            }
+        }
+    }
+    if focus.is_empty() {
+        for y in 0..state.map.height {
+            for x in 0..state.map.width {
+                let coord = CellCoord::new(x, y);
+                let Some(cell) = state.map.cell(coord) else {
+                    continue;
+                };
+                focus.push((coord, cell.height));
+            }
+        }
+    }
+    let mut min_x = image_w as i32;
+    let mut min_y = image_h as i32;
+    let mut max_x = 0_i32;
+    let mut max_y = 0_i32;
+    let hw = projection.tile_w as i32 / 2;
+    let hh = projection.tile_h as i32 / 2;
+    for (coord, height) in focus {
+        let (cx, cy) = projection.center(coord, height);
+        min_x = min_x.min(cx - hw - 28);
+        max_x = max_x.max(cx + hw + 28);
+        min_y = min_y.min(cy - hh - 76);
+        max_y = max_y.max(cy + hh + 46);
+    }
+    let pad = if close_detail { 28 } else { 54 };
+    min_x -= pad;
+    min_y -= pad;
+    max_x += pad;
+    max_y += pad;
+    let x0 = min_x.clamp(0, image_w.saturating_sub(1) as i32) as u32;
+    let y0 = min_y.clamp(0, image_h.saturating_sub(1) as i32) as u32;
+    let x1 = max_x.clamp(x0 as i32 + 1, image_w as i32) as u32;
+    let y1 = max_y.clamp(y0 as i32 + 1, image_h as i32) as u32;
+    (x0, y0, x1 - x0, y1 - y0)
+}
+
+fn visual_lock_prepared_cell(cell: &MissionCell) -> bool {
+    matches!(
+        cell.earth_state,
+        EarthState::Trench
+            | EarthState::DeepTrench
+            | EarthState::Ditch
+            | EarthState::Berm
+            | EarthState::SpoilPile
+    )
+}
+
+fn crop_rgba_image(source: &RgbaImage, rect: (u32, u32, u32, u32)) -> RgbaImage {
+    let (x0, y0, width, height) = rect;
+    let mut out = RgbaImage::from_pixel(width, height, Rgba([0, 0, 0, 255]));
+    for y in 0..height {
+        for x in 0..width {
+            out.put_pixel(x, y, *source.get_pixel(x0 + x, y0 + y));
+        }
+    }
+    out
+}
+
+fn scale_rgba_nearest(source: &RgbaImage, scale: u32) -> RgbaImage {
+    let scale = scale.max(1);
+    let mut out = RgbaImage::from_pixel(
+        source.width() * scale,
+        source.height() * scale,
+        Rgba([0, 0, 0, 255]),
+    );
+    for y in 0..out.height() {
+        for x in 0..out.width() {
+            out.put_pixel(x, y, *source.get_pixel(x / scale, y / scale));
+        }
+    }
+    out
+}
+
+fn export_visual_lock_override_pack(
+    out_dir: &Path,
+    audit: &VisualLockStageAudit,
+    profile: &str,
+) -> Result<VisualLockOverridePackReport> {
+    let pack_dir = out_dir.join("benchmark_override_pack");
+    let terrain_dir = pack_dir.join("overrides");
+    let object_dir = pack_dir.join("object_placeholders");
+    fs::create_dir_all(&terrain_dir)?;
+    fs::create_dir_all(&object_dir)?;
+
+    let mut recipe = TerrainSpriteRecipe::from_style_profile_path(profile)
+        .unwrap_or_else(|_| TerrainSpriteRecipe::from_default_style_profile());
+    recipe.sanitize();
+    let bundle = generate_effective_terrain_sprites(&recipe);
+    let terrain_targets = audit
+        .visible_sprite_impacts
+        .iter()
+        .filter(|impact| {
+            matches!(
+                impact.role.as_str(),
+                "trench/recessed terrain" | "berm/raised terrain" | "path/dirt surface"
+            )
+        })
+        .take(16)
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut generated_files = Vec::new();
+    let mut missing_terrain_targets = Vec::new();
+    for target in &terrain_targets {
+        if let Some(sprite) = bundle
+            .effective
+            .iter()
+            .find(|sprite| sprite.id == target.piece)
+        {
+            let image = visual_lock_override_variant(&sprite.image, &target.role);
+            let path = terrain_dir.join(format!("{}.png", target.piece));
+            image.save_png(&path)?;
+            generated_files.push(path.to_string_lossy().to_string());
+        } else {
+            missing_terrain_targets.push(target.piece.clone());
+        }
+    }
+
+    let placeholder_targets = audit
+        .placeholder_impacts
+        .iter()
+        .take(8)
+        .cloned()
+        .collect::<Vec<_>>();
+    for target in &placeholder_targets {
+        let path = object_dir.join(format!("{}.png", target.placeholder));
+        save_visual_lock_object_placeholder(&path, &target.placeholder)?;
+        generated_files.push(path.to_string_lossy().to_string());
+    }
+    let objective_path = object_dir.join("objective_marker.png");
+    save_visual_lock_object_placeholder(&objective_path, "objective_marker")?;
+    generated_files.push(objective_path.to_string_lossy().to_string());
+
+    let report = VisualLockOverridePackReport {
+        output_dir: pack_dir.to_string_lossy().to_string(),
+        profile: profile.to_string(),
+        generated_files,
+        terrain_targets,
+        missing_terrain_targets,
+        placeholder_targets,
+        notes: vec![
+            "Terrain PNGs under overrides/ can be copied into a style profile override folder for manual art replacement.".to_string(),
+            "Object placeholder PNGs are benchmark art targets; object sprite manifests are not runtime-integrated yet.".to_string(),
+        ],
+    };
+    write_json(out_dir.join("benchmark_override_report.json"), &report)?;
+    Ok(report)
+}
+
+fn visual_lock_override_variant(source: &PixelImage, role: &str) -> PixelImage {
+    let mut out = source.clone();
+    for pixel in &mut out.pixels {
+        if pixel.a == 0 {
+            continue;
+        }
+        match role {
+            "trench/recessed terrain" => {
+                pixel.r = pixel.r.saturating_add(16);
+                pixel.g = pixel.g.saturating_add(10);
+                pixel.b = pixel.b.saturating_add(6);
+            }
+            "berm/raised terrain" => {
+                pixel.r = pixel.r.saturating_add(10);
+                pixel.g = pixel.g.saturating_add(8);
+                pixel.b = pixel.b.saturating_add(2);
+            }
+            "path/dirt surface" => {
+                pixel.r = pixel.r.saturating_add(6);
+                pixel.g = pixel.g.saturating_add(4);
+                pixel.b = pixel.b.saturating_add(2);
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+fn save_visual_lock_object_placeholder(path: &Path, label: &str) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut image = RgbaImage::from_pixel(64, 64, Rgba([0, 0, 0, 0]));
+    match label {
+        "tree_standing" => {
+            fill_rgba_rect(&mut image, 29, 32, 7, 20, Rgba([82, 49, 30, 255]));
+            fill_rgba_rect(&mut image, 19, 20, 26, 18, Rgba([24, 78, 38, 245]));
+            fill_rgba_rect(&mut image, 23, 11, 19, 16, Rgba([43, 111, 52, 245]));
+            fill_rgba_rect(&mut image, 15, 31, 34, 10, Rgba([34, 89, 42, 230]));
+        }
+        "log_or_trunk" => {
+            draw_rgba_line(&mut image, 13, 35, 51, 46, Rgba([88, 52, 28, 255]), 8);
+            draw_rgba_line(&mut image, 13, 31, 50, 42, Rgba([143, 91, 45, 255]), 3);
+            draw_rgba_line(&mut image, 18, 38, 43, 45, Rgba([50, 31, 20, 170]), 1);
+        }
+        "rock" => {
+            fill_rgba_rect(&mut image, 19, 34, 28, 14, Rgba([102, 108, 98, 255]));
+            fill_rgba_rect(&mut image, 24, 27, 18, 10, Rgba([148, 149, 132, 255]));
+            fill_rgba_rect(&mut image, 28, 31, 9, 5, Rgba([176, 174, 151, 210]));
+        }
+        "objective_marker" => {
+            fill_rgba_rect(&mut image, 19, 36, 28, 15, Rgba([103, 75, 36, 255]));
+            fill_rgba_rect(&mut image, 22, 28, 22, 10, Rgba([228, 203, 89, 245]));
+            fill_rgba_rect(&mut image, 40, 14, 4, 22, Rgba([70, 58, 30, 245]));
+            draw_rgba_line(&mut image, 43, 15, 55, 21, Rgba([207, 78, 54, 230]), 5);
+        }
+        _ => {
+            fill_rgba_rect(&mut image, 21, 28, 24, 20, Rgba([120, 90, 54, 230]));
+            draw_preview_border_safe(&mut image, 21, 28, 24, 20, Rgba([70, 54, 36, 230]));
+        }
+    }
+    image
+        .save(path)
+        .with_context(|| format!("failed to save {}", path.display()))
+}
+
 struct VisualLockStageAuditParts<'a> {
     stage: &'a str,
     state: &'a MissionState,
@@ -11072,7 +11410,7 @@ fn mission_visual_image(
     let mut fallbacks = HashSet::new();
     let mut used_pieces = HashSet::new();
 
-    draw_visual_backdrop(&mut image, state, &projection);
+    draw_visual_backdrop(&mut image, state, &projection, overlay);
 
     for y in 0..state.map.height {
         for x in 0..state.map.width {
@@ -11086,13 +11424,14 @@ fn mission_visual_image(
                 coord,
                 cell,
                 &projection,
-                &assets.sprites,
+                overlay,
                 &mut MissionVisualRenderNotes {
+                    sprites: &assets.sprites,
                     used_pieces: &mut used_pieces,
                     missing: &mut missing,
                 },
             );
-            draw_visual_cell_faces(&mut image, state, coord, cell, &projection);
+            draw_visual_cell_faces(&mut image, state, coord, cell, &projection, overlay);
             let kind = mission_cell_sprite_kind(state, coord, cell);
             let mut selected_kind = kind;
             let sprite = mission_visual_sprite(&assets.sprites, kind).or_else(|| {
@@ -11120,7 +11459,7 @@ fn mission_visual_image(
                     preview_cell_color(cell),
                 );
             }
-            draw_visual_cell_accent(&mut image, state, coord, cell, &projection);
+            draw_visual_cell_accent(&mut image, state, coord, cell, &projection, overlay);
             if matches!(overlay, MissionVisualOverlay::Debug) {
                 draw_diamond_outline(
                     &mut image,
@@ -11180,6 +11519,7 @@ struct MissionVisualAssetContext {
 }
 
 struct MissionVisualRenderNotes<'a> {
+    sprites: &'a [GeneratedTerrainSprite],
     used_pieces: &'a mut HashSet<String>,
     missing: &'a mut HashSet<String>,
 }
@@ -11229,6 +11569,7 @@ fn draw_visual_backdrop(
     image: &mut RgbaImage,
     state: &MissionState,
     projection: &MissionVisualProjection,
+    overlay: MissionVisualOverlay,
 ) {
     for y in 0..image.height() {
         let shade = (y as f32 / image.height().max(1) as f32 * 18.0).round() as u8;
@@ -11242,10 +11583,26 @@ fn draw_visual_backdrop(
             ]);
         }
     }
+    let (shadow_y, shadow_alpha) = if overlay == MissionVisualOverlay::Beauty {
+        (20, 16)
+    } else {
+        (24, 46)
+    };
     for y in 0..state.map.height {
         for x in 0..state.map.width {
+            if overlay == MissionVisualOverlay::Beauty && (x + y) % 2 == 1 {
+                continue;
+            }
             let coord = CellCoord::new(x, y);
-            draw_diamond_fill_offset(image, projection, coord, 0, 18, 24, Rgba([4, 7, 5, 46]));
+            draw_diamond_fill_offset(
+                image,
+                projection,
+                coord,
+                0,
+                18,
+                shadow_y,
+                Rgba([4, 7, 5, shadow_alpha]),
+            );
         }
     }
 }
@@ -11256,7 +11613,7 @@ fn draw_visual_feature_shadow(
     coord: CellCoord,
     cell: &MissionCell,
     projection: &MissionVisualProjection,
-    sprites: &[GeneratedTerrainSprite],
+    overlay: MissionVisualOverlay,
     notes: &mut MissionVisualRenderNotes<'_>,
 ) {
     let shadow_kind = match cell.earth_state {
@@ -11268,7 +11625,7 @@ fn draw_visual_feature_shadow(
         _ => None,
     };
     if let Some(kind) = shadow_kind {
-        if let Some(sprite) = mission_visual_sprite(sprites, kind) {
+        if let Some(sprite) = mission_visual_sprite(notes.sprites, kind) {
             notes.used_pieces.insert(kind.id().to_string());
             draw_diamond_sprite_offset(
                 image,
@@ -11282,7 +11639,7 @@ fn draw_visual_feature_shadow(
         } else {
             notes.missing.insert(format!("{kind:?}"));
         }
-    } else if visual_outer_perimeter_cell(state, coord) {
+    } else if overlay != MissionVisualOverlay::Beauty && visual_outer_perimeter_cell(state, coord) {
         draw_diamond_fill_offset(
             image,
             projection,
@@ -11414,16 +11771,17 @@ fn draw_visual_cell_faces(
     coord: CellCoord,
     cell: &MissionCell,
     projection: &MissionVisualProjection,
+    overlay: MissionVisualOverlay,
 ) {
     for neighbor in [
         CellCoord::new(coord.x + 1, coord.y),
         CellCoord::new(coord.x, coord.y + 1),
     ] {
-        let neighbor_height = state
-            .map
-            .cell(neighbor)
-            .map(|cell| cell.height)
-            .unwrap_or(0);
+        let neighbor_cell = state.map.cell(neighbor);
+        if overlay == MissionVisualOverlay::Beauty && neighbor_cell.is_none() {
+            continue;
+        }
+        let neighbor_height = neighbor_cell.map(|cell| cell.height).unwrap_or(0);
         let delta = (cell.height - neighbor_height).max(0) as u32;
         if delta == 0 {
             continue;
@@ -11454,6 +11812,7 @@ fn draw_visual_cell_accent(
     coord: CellCoord,
     cell: &MissionCell,
     projection: &MissionVisualProjection,
+    overlay: MissionVisualOverlay,
 ) {
     match cell.earth_state {
         EarthState::Trench | EarthState::DeepTrench | EarthState::Ditch => {
@@ -11470,7 +11829,7 @@ fn draw_visual_cell_accent(
         }
         _ => {}
     }
-    if visual_outer_perimeter_cell(state, coord) {
+    if overlay != MissionVisualOverlay::Beauty && visual_outer_perimeter_cell(state, coord) {
         draw_visual_perimeter_fringe(image, state, coord, cell, projection);
     }
 }

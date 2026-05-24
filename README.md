@@ -4,7 +4,7 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: Visual Lock 2 — high-impact terrain piece polish
+## Current status: Visual Lock 3 — mission-scale scene composition + override pack
 
 GroundLab has paused new systems, campaign layers, mechanics, and SpriteGen family expansion to
 lock a minimum generated-mission art bar. The primary product direction is still a 2.5D tactical
@@ -13,9 +13,9 @@ prep-phase work orders, transforms terrain and local objects, then tests those c
 predictable enemy doctrine. The current benchmark takes one accepted generated mission, renders
 beauty/routes/debug views, applies the best known prep script, and audits the visual asset usage so
 art direction can be judged in gameplay context instead of isolated sprites or schematic boards.
-Visual Lock 2 keeps that benchmark fixed and focuses only on the prepared-work visual layer:
-trench integration, berm integration, path-edge blending, prepared diff/feature overlays, and
-visible-impact audit data.
+Visual Lock 3 keeps that benchmark fixed and focuses only on mission-scale art composition:
+full/cropped/detail views, softer beauty-mode framing, high-impact terrain-piece targets, and a
+benchmark override pack for terrain and placeholder prop art.
 
 SpriteGen remains in the repository as the terrain art forge. It still provides swappable style
 profiles, override PNGs, sprite manifests, validation, and exportable grass/dirt/path/trench/berm/
@@ -88,7 +88,9 @@ GamePivot 8 and ProcGen 1-8.1 build on the `ground_game` crate with:
 - weak campaign reports that preserve actionable reasons and recommendations per failed seed
 - a Visual Lock benchmark exporter that selects one accepted generated mission from a fixed seed/theme batch
 - benchmark beauty/routes/debug visual exports for the initial mission and the prepared mission state
+- full-board, playable-crop, and close-detail benchmark exports for judging mission-scale scene art
 - prepared diff and prepared feature-overlay exports for comparing what the prep plan changed
+- a benchmark override pack with high-impact terrain PNGs and placeholder prop targets
 - a visual audit that records generated/effective/override/fallback sprite usage, placeholder object counts, dominant scene features, sprite role summaries, estimated visible sprite impact, placeholder impact, and highest-priority visual notes
 - a Mission Lab file loader for opening generated `mission.ron` candidates directly from disk
 - assault summary and debrief exports for debugging why the plan worked or failed
@@ -332,13 +334,13 @@ exports/procgen_08_1/
 Export the Visual Lock generated-mission benchmark:
 
 ```bash
-cargo run -p ground_cli -- visual-lock-benchmark exports/visual_lock_02 --theme ridge_trap --seed 99418113 --count 8
+cargo run -p ground_cli -- visual-lock-benchmark exports/visual_lock_03 --theme ridge_trap --seed 99418113 --count 8
 ```
 
 Visual Lock output includes:
 
 ```txt
-exports/visual_lock_02/
+exports/visual_lock_03/
   benchmark_mission.ron
   benchmark_mission.json
   benchmark_candidate_evaluation.json
@@ -348,6 +350,9 @@ exports/visual_lock_02/
   benchmark_visual_preview.png
   benchmark_visual_asset_report.json
   benchmark_feature_map.json
+  benchmark_visual_full_board.png
+  benchmark_visual_playable_crop.png
+  benchmark_visual_close_detail.png
   benchmark_prepared_visual_beauty.png
   benchmark_prepared_visual_routes.png
   benchmark_prepared_visual_debug.png
@@ -359,6 +364,8 @@ exports/visual_lock_02/
   benchmark_prepared_order_validation.json
   benchmark_prepared_material_ledger.json
   benchmark_visual_audit.json
+  benchmark_override_report.json
+  benchmark_override_pack/
   source_candidates/
 ```
 
@@ -416,8 +423,15 @@ missions through deterministic visual previews, ProcGen 6.1 separates beauty/rou
 ProcGen 7 and 7.1 validate generated packs, and ProcGen 8/8.1 package and quality-gate campaign
 sets. The active work is now visually narrower: use the generated-content pipeline only as a source
 of fixed benchmark missions, then improve the high-oblique beauty render until it no longer reads as
-a debug board. Visual Lock 2 keeps that freeze in place and polishes the prepared trench, berm, and
-path layers instead of adding more systems.
+a debug board. Visual Lock 3 keeps that freeze in place and adds cropped/detail views plus a
+benchmark override pack, so high-impact pieces can be judged and replaced without adding more
+systems.
+
+## Previous status: Visual Lock 2 — high-impact terrain piece polish
+
+Visual Lock 2 added prepared diff and feature-overlay exports, extended the visual audit with
+visible-impact and placeholder-impact rankings, and softened the path/trench/berm prepared terrain
+layer.
 
 ## Previous status: Visual Lock 1 — generated mission art direction benchmark
 
