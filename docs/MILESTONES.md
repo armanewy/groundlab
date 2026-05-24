@@ -437,6 +437,34 @@ It packages the generated-content pipeline into playable mission sets with lesso
 capability unlock metadata, retry/play navigation, deterministic playtest exports, and save-state
 templates.
 
+## ProcGen 8.1 — Campaign set quality gate + unlock validation
+
+Implemented in this drop.
+
+- added `GeneratedCampaignSetQualityGateReport`, per-campaign quality rows, lesson-role reports,
+  unlock-curve reports, campaign weak reports, and campaign-level aggregate notes
+- added `cargo run -p ground_cli -- quality-gate-campaign-sets [out_dir] [--seed N]
+  [--seed-count N] [--missions N] [--candidates-per-theme N] [--curve balanced|tutorial]
+  [--render-visuals]`
+- the quality gate generates one packaged mission set per seed under `campaign_sets/seed_{seed}/`,
+  preserving mission-set manifests, visual sheets, playtest summaries, and per-mission playtest
+  folders
+- exports `campaign_set_matrix_summary.json`, `campaign_quality_report.json`,
+  `lesson_role_report.json`, `unlock_curve_report.json`, `campaign_difficulty_curve_report.json`,
+  `campaign_complexity_curve_report.json`, and `visual_qa_summary.json`
+- copies mission-set contact sheets into `campaign_contact_sheets/` for quick visual scanning across
+  the campaign seed matrix
+- exports one JSON file per weak campaign under `weak_campaign_reports/` with missing lesson roles,
+  missing or underused unlocks, curve issues, weak mission diagnostics, and tuning recommendations
+- validates tutorial lesson coverage for route/prep basics, tree/material dilemmas, trench/berm
+  shaping, rolling hazards, split approaches, and mixed final tests
+- validates capability unlock metadata for saw kit, survey kit, winch, and brace kit, including
+  whether each unlock has a later mission role where it can matter
+
+This milestone does not add mechanics, themes, UI skinning, campaign economy, or renderer work. It
+turns generated mission sets into a repeatable campaign-level quality gate before adding presentation
+or progression systems on top.
+
 ## Milestone 0 — Project seed
 
 Implemented.

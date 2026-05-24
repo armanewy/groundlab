@@ -6,14 +6,14 @@ use ground_core::{
 };
 use ground_game::{
     export_assault_run, export_generated_campaign_set,
-    export_generated_campaign_set_playtest_from_file, export_generated_mission_batch,
-    export_generated_mission_pack_playtest_from_file, export_generated_mission_pack_quality_gate,
-    export_generated_mission_pack_with_curve, export_generated_mission_theme_batch,
-    export_hazard_sandbox_run, export_mission_balance_run, export_mission_visuals,
-    export_order_script_run, export_road_below_seed, export_theme_calibration_report,
-    load_mission_spec, load_work_order_script, road_below_basic_prep_script,
-    road_below_hazard_prep_script, road_below_spec, MissionGeneratorSpec, MissionPackCurve,
-    MissionTheme, DEFAULT_MISSION_EXPORT_DIR,
+    export_generated_campaign_set_playtest_from_file, export_generated_campaign_set_quality_gate,
+    export_generated_mission_batch, export_generated_mission_pack_playtest_from_file,
+    export_generated_mission_pack_quality_gate, export_generated_mission_pack_with_curve,
+    export_generated_mission_theme_batch, export_hazard_sandbox_run, export_mission_balance_run,
+    export_mission_visuals, export_order_script_run, export_road_below_seed,
+    export_theme_calibration_report, load_mission_spec, load_work_order_script,
+    road_below_basic_prep_script, road_below_hazard_prep_script, road_below_spec,
+    MissionGeneratorSpec, MissionPackCurve, MissionTheme, DEFAULT_MISSION_EXPORT_DIR,
 };
 
 fn main() -> Result<()> {
@@ -569,6 +569,72 @@ fn main() -> Result<()> {
                 "Campaign playtest files: mission_set_playtest_summary.json, pack_playtest_summary.json, per_mission_playtest/*"
             );
         }
+        "quality-gate-campaign-sets" => {
+            let out_dir = args
+                .next()
+                .unwrap_or_else(|| "exports/procgen_08_1".to_string());
+            let mut seed = 99_418_113;
+            let mut seed_count = 3;
+            let mut missions = 6;
+            let mut candidates_per_theme = 20;
+            let mut curve = MissionPackCurve::Tutorial;
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--render-visuals" => {}
+                    "--seed" => {
+                        let Some(value) = args.next() else {
+                            bail!("--seed requires a value");
+                        };
+                        seed = value.parse()?;
+                    }
+                    "--seed-count" => {
+                        let Some(value) = args.next() else {
+                            bail!("--seed-count requires a value");
+                        };
+                        seed_count = value.parse()?;
+                    }
+                    "--missions" => {
+                        let Some(value) = args.next() else {
+                            bail!("--missions requires a value");
+                        };
+                        missions = value.parse()?;
+                    }
+                    "--candidates-per-theme" => {
+                        let Some(value) = args.next() else {
+                            bail!("--candidates-per-theme requires a value");
+                        };
+                        candidates_per_theme = value.parse()?;
+                    }
+                    "--curve" => {
+                        let Some(value) = args.next() else {
+                            bail!("--curve requires a value");
+                        };
+                        curve = value.parse().map_err(|err: String| anyhow::anyhow!(err))?;
+                    }
+                    other => bail!("unknown quality-gate-campaign-sets option: {other}"),
+                }
+            }
+            let generator = MissionGeneratorSpec::road_below(seed);
+            let report = export_generated_campaign_set_quality_gate(
+                &out_dir,
+                generator,
+                seed_count,
+                missions,
+                candidates_per_theme,
+                curve,
+            )?;
+            println!("Exported ProcGen 8.1 campaign set quality gate to {out_dir}.");
+            println!(
+                "{} campaign set(s), {} passed · avg spread {:.1} · weak campaigns {}.",
+                report.campaign_count,
+                report.passed_campaign_count,
+                report.average_plan_spread,
+                report.weak_campaigns.len()
+            );
+            println!(
+                "Campaign quality files: campaign_set_matrix_summary.json, campaign_quality_report.json, lesson_role_report.json, unlock_curve_report.json, campaign_difficulty_curve_report.json, campaign_complexity_curve_report.json, weak_campaign_reports/*, campaign_contact_sheets/*"
+            );
+        }
         "render-mission" => {
             let out_dir = args
                 .next()
@@ -669,6 +735,7 @@ fn print_help() {
     eprintln!(
         "  cargo run -p ground_cli -- playtest-campaign-set [out_dir] [mission_set.ron|json]"
     );
+    eprintln!("  cargo run -p ground_cli -- quality-gate-campaign-sets [out_dir] [--seed 99418113] [--seed-count 3] [--missions 6] [--candidates-per-theme 20] [--curve balanced|tutorial] [--render-visuals]");
     eprintln!("  cargo run -p ground_cli -- render-mission [out_dir] [mission_spec.ron|json]");
     eprintln!(
         "  cargo run -p ground_cli -- calibrate-themes [out_dir] [--count 200] [--seed 99418113]"

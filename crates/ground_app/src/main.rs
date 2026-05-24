@@ -314,7 +314,7 @@ impl GroundLabApp {
             dirty_assets: true,
             dirty_preview: true,
             last_preview_size: [1, 1],
-            status: "Ready. ProcGen 8 generated mission-set tools are active.".to_string(),
+            status: "Ready. ProcGen 8.1 campaign quality tools are active.".to_string(),
         };
         app.refresh_if_dirty(&cc.egui_ctx);
         app
@@ -448,7 +448,7 @@ impl GroundLabApp {
         self.show_panel_tabs(ui);
         ui.heading("Mission Lab");
         ui.label(
-            "ProcGen 8: generated mission sets, quality reports, and playable candidate browser",
+            "ProcGen 8.1: generated mission sets, campaign quality reports, and playable candidate browser",
         );
         ui.separator();
 

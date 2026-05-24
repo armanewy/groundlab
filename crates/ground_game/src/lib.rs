@@ -1376,6 +1376,17 @@ pub enum MissionSetLesson {
 }
 
 impl MissionSetLesson {
+    pub const ALL: [MissionSetLesson; 8] = [
+        MissionSetLesson::BasicRoutesAndPrep,
+        MissionSetLesson::TreeDilemma,
+        MissionSetLesson::TrenchBermShaping,
+        MissionSetLesson::DeadGroundAndLowRoutes,
+        MissionSetLesson::RollingHazardSlope,
+        MissionSetLesson::SplitApproachPrioritization,
+        MissionSetLesson::HardCoverAndBreach,
+        MissionSetLesson::MixedFinalTest,
+    ];
+
     pub fn label(self) -> &'static str {
         match self {
             MissionSetLesson::BasicRoutesAndPrep => "basic routes and prep loop",
@@ -1399,6 +1410,13 @@ pub enum MissionSetUnlock {
 }
 
 impl MissionSetUnlock {
+    pub const ALL: [MissionSetUnlock; 4] = [
+        MissionSetUnlock::SawKit,
+        MissionSetUnlock::SurveyKit,
+        MissionSetUnlock::Winch,
+        MissionSetUnlock::BraceKit,
+    ];
+
     pub fn label(self) -> &'static str {
         match self {
             MissionSetUnlock::SawKit => "saw kit",
@@ -1430,6 +1448,96 @@ pub struct GeneratedCampaignSetSummary {
     pub source_pack_summary: GeneratedMissionPackSummary,
     pub unlock_curve: Vec<MissionSetUnlockPoint>,
     pub notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedCampaignSetQualityGateReport {
+    pub seed: u64,
+    pub seed_count: u32,
+    pub requested_missions: u32,
+    pub candidate_count_per_theme: u32,
+    pub curve: MissionPackCurve,
+    pub campaign_count: u32,
+    pub passed_campaign_count: u32,
+    pub average_plan_spread: f32,
+    pub campaigns: Vec<GeneratedCampaignSetQualityCampaignReport>,
+    pub lesson_role_report: GeneratedCampaignLessonRoleReport,
+    pub unlock_curve_report: GeneratedCampaignUnlockCurveReport,
+    pub campaign_difficulty_curve_report: GeneratedMissionCurveQualityReport,
+    pub campaign_complexity_curve_report: GeneratedMissionCurveQualityReport,
+    pub visual_qa_summary: GeneratedMissionVisualQaSummary,
+    pub weak_campaigns: Vec<GeneratedCampaignWeakReport>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedCampaignSetQualityCampaignReport {
+    pub seed: u64,
+    pub campaign_dir: String,
+    pub mission_set_id: String,
+    pub mission_count: u32,
+    pub required_lesson_count: u32,
+    pub missing_lessons: Vec<MissionSetLesson>,
+    pub required_unlock_count: u32,
+    pub missing_unlocks: Vec<MissionSetUnlock>,
+    pub underused_unlocks: Vec<MissionSetUnlock>,
+    pub difficulty_curve_is_monotonic: bool,
+    pub complexity_curve_is_monotonic: bool,
+    pub average_no_prep_score: f32,
+    pub average_best_score: f32,
+    pub average_plan_spread: f32,
+    pub visual_warning_count: u32,
+    pub weak_mission_count: u32,
+    pub passed: bool,
+    pub notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedCampaignLessonRoleReport {
+    pub required_lessons: Vec<MissionSetLesson>,
+    pub campaign_count: u32,
+    pub complete_campaign_count: u32,
+    pub lessons: Vec<GeneratedCampaignLessonRoleEntry>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedCampaignLessonRoleEntry {
+    pub lesson: MissionSetLesson,
+    pub label: String,
+    pub mission_count: u32,
+    pub campaign_count: u32,
+    pub required: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedCampaignUnlockCurveReport {
+    pub required_unlocks: Vec<MissionSetUnlock>,
+    pub campaign_count: u32,
+    pub complete_campaign_count: u32,
+    pub useful_campaign_count: u32,
+    pub unlocks: Vec<GeneratedCampaignUnlockCurveEntry>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedCampaignUnlockCurveEntry {
+    pub unlock: MissionSetUnlock,
+    pub label: String,
+    pub slot_count: u32,
+    pub campaign_count: u32,
+    pub useful_later_campaign_count: u32,
+    pub required: bool,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedCampaignWeakReport {
+    pub seed: u64,
+    pub campaign_dir: String,
+    pub mission_set_id: String,
+    pub reasons: Vec<String>,
+    pub recommendations: Vec<String>,
+    pub weak_missions: Vec<GeneratedMissionWeakMissionReport>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -3751,6 +3859,203 @@ pub fn export_generated_campaign_set_playtest_from_file(
     Ok(report)
 }
 
+pub fn export_generated_campaign_set_quality_gate(
+    out_dir: impl AsRef<Path>,
+    base_generator: MissionGeneratorSpec,
+    seed_count: u32,
+    requested_missions: u32,
+    candidate_count_per_theme: u32,
+    curve: MissionPackCurve,
+) -> Result<GeneratedCampaignSetQualityGateReport> {
+    let out_dir = out_dir.as_ref();
+    fs::create_dir_all(out_dir)
+        .with_context(|| format!("failed to create {}", out_dir.display()))?;
+    let campaigns_dir = out_dir.join("campaign_sets");
+    let contact_sheets_dir = out_dir.join("campaign_contact_sheets");
+    let weak_campaigns_dir = out_dir.join("weak_campaign_reports");
+    fs::create_dir_all(&campaigns_dir)
+        .with_context(|| format!("failed to create {}", campaigns_dir.display()))?;
+    fs::create_dir_all(&contact_sheets_dir)
+        .with_context(|| format!("failed to create {}", contact_sheets_dir.display()))?;
+    fs::create_dir_all(&weak_campaigns_dir)
+        .with_context(|| format!("failed to create {}", weak_campaigns_dir.display()))?;
+
+    let required_lessons = required_campaign_lessons(curve, requested_missions);
+    let required_unlocks = required_campaign_unlocks(requested_missions);
+    let mut campaigns = Vec::new();
+    let mut mission_sets = Vec::new();
+    let mut weak_campaigns = Vec::new();
+    let mut difficulty_curves = Vec::new();
+    let mut complexity_curves = Vec::new();
+    let mut visual_qas = Vec::new();
+
+    for index in 0..seed_count {
+        let seed = quality_gate_seed(base_generator.seed, index);
+        let mut generator = base_generator.clone();
+        generator.seed = seed;
+        let campaign_dir = campaigns_dir.join(format!("seed_{seed:016x}"));
+        let summary = export_generated_campaign_set(
+            &campaign_dir,
+            generator,
+            requested_missions,
+            candidate_count_per_theme,
+            curve,
+        )?;
+        let playtest = export_generated_campaign_set_playtest_from_file(
+            &campaign_dir,
+            campaign_dir.join("mission_set.ron"),
+        )?;
+
+        copy_file_if_exists(
+            campaign_dir.join("mission_set_contact_sheet.png"),
+            contact_sheets_dir.join(format!("seed_{seed:016x}_mission_set.png")),
+        )?;
+        copy_file_if_exists(
+            campaign_dir.join("mission_set_debug_contact_sheet.png"),
+            contact_sheets_dir.join(format!("seed_{seed:016x}_debug.png")),
+        )?;
+
+        difficulty_curves.push(
+            summary
+                .source_pack_summary
+                .difficulty_curve
+                .iter()
+                .map(|point| point.difficulty_score)
+                .collect::<Vec<_>>(),
+        );
+        complexity_curves.push(
+            summary
+                .source_pack_summary
+                .complexity_curve
+                .iter()
+                .map(|point| point.complexity_score)
+                .collect::<Vec<_>>(),
+        );
+
+        let mut weak_missions = Vec::new();
+        for mission in &playtest.missions {
+            visual_qas.push(mission.visual_qa.clone());
+            if let Some(weak) = weak_mission_report(seed, mission) {
+                weak_missions.push(weak);
+            }
+        }
+
+        let campaign_report = campaign_set_quality_report(
+            seed,
+            &campaign_dir,
+            &summary,
+            &playtest,
+            &required_lessons,
+            &required_unlocks,
+            &weak_missions,
+        );
+        if let Some(weak_campaign) = weak_campaign_report(
+            seed,
+            &campaign_dir,
+            &summary,
+            &campaign_report,
+            &weak_missions,
+        ) {
+            let weak_path = weak_campaigns_dir.join(format!("seed_{seed:016x}.json"));
+            write_json(weak_path, &weak_campaign)?;
+            weak_campaigns.push(weak_campaign);
+        }
+        mission_sets.push(summary.mission_set.clone());
+        campaigns.push(campaign_report);
+    }
+
+    let campaign_count = campaigns.len() as u32;
+    let passed_campaign_count = campaigns.iter().filter(|campaign| campaign.passed).count() as u32;
+    let average_plan_spread = average_f32(
+        campaigns
+            .iter()
+            .map(|campaign| campaign.average_plan_spread),
+    );
+    let lesson_role_report =
+        campaign_lesson_role_report(&mission_sets, &required_lessons, campaign_count);
+    let unlock_curve_report =
+        campaign_unlock_curve_report(&mission_sets, &required_unlocks, campaign_count);
+    let campaign_difficulty_curve_report =
+        curve_quality_report("campaign difficulty", &difficulty_curves, |curve| {
+            curve.windows(2).all(|w| w[0] <= w[1])
+        });
+    let campaign_complexity_curve_report =
+        curve_quality_report("campaign complexity", &complexity_curves, |curve| {
+            curve.windows(2).all(|w| w[0] <= w[1] + 5)
+        });
+    let visual_qa_summary = visual_qa_summary(&visual_qas);
+
+    let mut notes = Vec::new();
+    if campaign_count == 0 {
+        notes.push("No campaign sets were generated for the quality gate.".to_string());
+    }
+    if passed_campaign_count < campaign_count {
+        notes.push(format!(
+            "{} of {} campaign set(s) passed the current quality gate.",
+            passed_campaign_count, campaign_count
+        ));
+    } else if campaign_count > 0 {
+        notes.push("All generated campaign sets passed the current quality gate.".to_string());
+    }
+    if !weak_campaigns.is_empty() {
+        notes.push(format!(
+            "{} weak campaign diagnostic(s) were exported for follow-up tuning.",
+            weak_campaigns.len()
+        ));
+    }
+    notes.extend(lesson_role_report.notes.iter().cloned());
+    notes.extend(unlock_curve_report.notes.iter().cloned());
+    notes.extend(campaign_difficulty_curve_report.notes.iter().cloned());
+    notes.extend(campaign_complexity_curve_report.notes.iter().cloned());
+    notes.extend(visual_qa_summary.notes.iter().cloned());
+
+    let report = GeneratedCampaignSetQualityGateReport {
+        seed: base_generator.seed,
+        seed_count,
+        requested_missions,
+        candidate_count_per_theme,
+        curve,
+        campaign_count,
+        passed_campaign_count,
+        average_plan_spread,
+        campaigns,
+        lesson_role_report,
+        unlock_curve_report,
+        campaign_difficulty_curve_report,
+        campaign_complexity_curve_report,
+        visual_qa_summary,
+        weak_campaigns,
+        notes,
+    };
+
+    write_json(out_dir.join("campaign_set_matrix_summary.json"), &report)?;
+    write_json(
+        out_dir.join("campaign_quality_report.json"),
+        &report.campaigns,
+    )?;
+    write_json(
+        out_dir.join("lesson_role_report.json"),
+        &report.lesson_role_report,
+    )?;
+    write_json(
+        out_dir.join("unlock_curve_report.json"),
+        &report.unlock_curve_report,
+    )?;
+    write_json(
+        out_dir.join("campaign_difficulty_curve_report.json"),
+        &report.campaign_difficulty_curve_report,
+    )?;
+    write_json(
+        out_dir.join("campaign_complexity_curve_report.json"),
+        &report.campaign_complexity_curve_report,
+    )?;
+    write_json(
+        out_dir.join("visual_qa_summary.json"),
+        &report.visual_qa_summary,
+    )?;
+    Ok(report)
+}
+
 pub fn load_generated_mission_set(path: impl AsRef<Path>) -> Result<MissionSet> {
     let path = path.as_ref();
     let text = fs::read_to_string(path)
@@ -4830,6 +5135,488 @@ fn mission_set_as_pack(mission_set: &MissionSet) -> GeneratedMissionPack {
             })
             .collect(),
     }
+}
+
+fn required_campaign_lessons(
+    curve: MissionPackCurve,
+    requested_missions: u32,
+) -> Vec<MissionSetLesson> {
+    let sequence = match curve {
+        MissionPackCurve::Tutorial => vec![
+            MissionSetLesson::BasicRoutesAndPrep,
+            MissionSetLesson::TreeDilemma,
+            MissionSetLesson::TrenchBermShaping,
+            MissionSetLesson::RollingHazardSlope,
+            MissionSetLesson::SplitApproachPrioritization,
+            MissionSetLesson::MixedFinalTest,
+        ],
+        MissionPackCurve::Balanced => vec![
+            MissionSetLesson::BasicRoutesAndPrep,
+            MissionSetLesson::TreeDilemma,
+            MissionSetLesson::DeadGroundAndLowRoutes,
+            MissionSetLesson::RollingHazardSlope,
+            MissionSetLesson::SplitApproachPrioritization,
+            MissionSetLesson::HardCoverAndBreach,
+        ],
+    };
+    sequence
+        .into_iter()
+        .take(requested_missions as usize)
+        .collect()
+}
+
+fn required_campaign_unlocks(requested_missions: u32) -> Vec<MissionSetUnlock> {
+    MissionSetUnlock::ALL
+        .iter()
+        .copied()
+        .take(requested_missions.saturating_sub(1).min(4) as usize)
+        .collect()
+}
+
+fn campaign_set_quality_report(
+    seed: u64,
+    campaign_dir: &Path,
+    summary: &GeneratedCampaignSetSummary,
+    playtest: &GeneratedMissionPackPlaytestReport,
+    required_lessons: &[MissionSetLesson],
+    required_unlocks: &[MissionSetUnlock],
+    weak_missions: &[GeneratedMissionWeakMissionReport],
+) -> GeneratedCampaignSetQualityCampaignReport {
+    let lessons = summary
+        .mission_set
+        .missions
+        .iter()
+        .map(|slot| slot.lesson)
+        .collect::<Vec<_>>();
+    let missing_lessons = required_lessons
+        .iter()
+        .copied()
+        .filter(|lesson| !lessons.contains(lesson))
+        .collect::<Vec<_>>();
+    let unlocks = summary
+        .unlock_curve
+        .iter()
+        .flat_map(|point| point.unlocks.iter().copied())
+        .collect::<Vec<_>>();
+    let missing_unlocks = required_unlocks
+        .iter()
+        .copied()
+        .filter(|unlock| !unlocks.contains(unlock))
+        .collect::<Vec<_>>();
+    let underused_unlocks = summary
+        .unlock_curve
+        .iter()
+        .flat_map(|point| {
+            point.unlocks.iter().copied().filter(move |unlock| {
+                required_unlocks.contains(unlock)
+                    && !unlock_has_later_use(*unlock, point.after_order, &summary.mission_set)
+            })
+        })
+        .collect::<Vec<_>>();
+    let difficulty_curve = summary
+        .source_pack_summary
+        .difficulty_curve
+        .iter()
+        .map(|point| point.difficulty_score)
+        .collect::<Vec<_>>();
+    let complexity_curve = summary
+        .source_pack_summary
+        .complexity_curve
+        .iter()
+        .map(|point| point.complexity_score)
+        .collect::<Vec<_>>();
+    let difficulty_curve_is_monotonic = difficulty_curve.windows(2).all(|w| w[0] <= w[1]);
+    let complexity_curve_is_monotonic = complexity_curve.windows(2).all(|w| w[0] <= w[1] + 5);
+    let visual_warning_count = playtest
+        .missions
+        .iter()
+        .map(|mission| mission.visual_qa.warning_count)
+        .sum();
+
+    let mut notes = Vec::new();
+    if summary.mission_set.missions.len() < summary.source_pack_summary.requested_missions as usize
+    {
+        notes.push(format!(
+            "Campaign has {} mission(s), below requested {}.",
+            summary.mission_set.missions.len(),
+            summary.source_pack_summary.requested_missions
+        ));
+    }
+    if !missing_lessons.is_empty() {
+        notes.push(format!(
+            "Missing lesson role(s): {}.",
+            missing_lessons
+                .iter()
+                .map(|lesson| lesson.label())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    if !missing_unlocks.is_empty() {
+        notes.push(format!(
+            "Missing required unlock(s): {}.",
+            missing_unlocks
+                .iter()
+                .map(|unlock| unlock.label())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    if !underused_unlocks.is_empty() {
+        notes.push(format!(
+            "Unlock(s) lack clear later-use mission roles: {}.",
+            underused_unlocks
+                .iter()
+                .map(|unlock| unlock.label())
+                .collect::<Vec<_>>()
+                .join(", ")
+        ));
+    }
+    if !difficulty_curve_is_monotonic {
+        notes.push("Campaign difficulty curve has a local spike or dip.".to_string());
+    }
+    if !complexity_curve_is_monotonic {
+        notes.push("Campaign complexity curve has a local spike or dip.".to_string());
+    }
+    if playtest.average_plan_spread < 12.0 {
+        notes.push(format!(
+            "Average plan spread is low ({:.1}).",
+            playtest.average_plan_spread
+        ));
+    }
+    if visual_warning_count > playtest.mission_count {
+        notes.push(format!(
+            "Campaign has {visual_warning_count} visual QA warning(s)."
+        ));
+    }
+    if !weak_missions.is_empty() {
+        notes.push(format!(
+            "{} weak mission(s) need follow-up.",
+            weak_missions.len()
+        ));
+    }
+
+    let passed = summary.mission_set.missions.len()
+        == summary.source_pack_summary.requested_missions as usize
+        && missing_lessons.is_empty()
+        && missing_unlocks.is_empty()
+        && underused_unlocks.is_empty()
+        && difficulty_curve_is_monotonic
+        && complexity_curve_is_monotonic
+        && playtest.average_plan_spread >= 12.0
+        && visual_warning_count <= playtest.mission_count
+        && weak_missions.len() <= 1;
+    if passed {
+        notes.push("Campaign set passes the current quality gate.".to_string());
+    }
+
+    GeneratedCampaignSetQualityCampaignReport {
+        seed,
+        campaign_dir: campaign_dir.to_string_lossy().to_string(),
+        mission_set_id: summary.mission_set.id.clone(),
+        mission_count: summary.mission_set.missions.len() as u32,
+        required_lesson_count: required_lessons.len() as u32,
+        missing_lessons,
+        required_unlock_count: required_unlocks.len() as u32,
+        missing_unlocks,
+        underused_unlocks,
+        difficulty_curve_is_monotonic,
+        complexity_curve_is_monotonic,
+        average_no_prep_score: playtest.average_no_prep_score,
+        average_best_score: playtest.average_best_score,
+        average_plan_spread: playtest.average_plan_spread,
+        visual_warning_count,
+        weak_mission_count: weak_missions.len() as u32,
+        passed,
+        notes,
+    }
+}
+
+fn weak_campaign_report(
+    seed: u64,
+    campaign_dir: &Path,
+    summary: &GeneratedCampaignSetSummary,
+    campaign_report: &GeneratedCampaignSetQualityCampaignReport,
+    weak_missions: &[GeneratedMissionWeakMissionReport],
+) -> Option<GeneratedCampaignWeakReport> {
+    let mut reasons = campaign_report
+        .notes
+        .iter()
+        .filter(|note| !note.contains("passes the current quality gate"))
+        .cloned()
+        .collect::<Vec<_>>();
+    let mut recommendations = Vec::new();
+    if !campaign_report.missing_lessons.is_empty() {
+        recommendations.push(
+            "Adjust pack slot selection so tutorial lesson roles are covered in sequence."
+                .to_string(),
+        );
+    }
+    if !campaign_report.missing_unlocks.is_empty() || !campaign_report.underused_unlocks.is_empty()
+    {
+        recommendations.push(
+            "Retune mission slot themes so unlocked kits have a later mission that can use them."
+                .to_string(),
+        );
+    }
+    if !campaign_report.difficulty_curve_is_monotonic {
+        recommendations.push(
+            "Inspect difficulty_curve.json and reorder or replace the spiking slot.".to_string(),
+        );
+    }
+    if !campaign_report.complexity_curve_is_monotonic {
+        recommendations
+            .push("Inspect complexity_curve.json and avoid early complexity jumps.".to_string());
+    }
+    if campaign_report.average_plan_spread < 12.0 {
+        recommendations.push(
+            "Increase scenario sensitivity by raising enemy pressure or terrain affordance value."
+                .to_string(),
+        );
+    }
+    for weak in weak_missions {
+        recommendations.extend(weak.recommendations.iter().cloned());
+    }
+    recommendations.sort();
+    recommendations.dedup();
+    reasons.sort();
+    reasons.dedup();
+    if reasons.is_empty() && weak_missions.is_empty() {
+        return None;
+    }
+
+    Some(GeneratedCampaignWeakReport {
+        seed,
+        campaign_dir: campaign_dir.to_string_lossy().to_string(),
+        mission_set_id: summary.mission_set.id.clone(),
+        reasons,
+        recommendations,
+        weak_missions: weak_missions.to_vec(),
+    })
+}
+
+fn campaign_lesson_role_report(
+    mission_sets: &[MissionSet],
+    required_lessons: &[MissionSetLesson],
+    campaign_count: u32,
+) -> GeneratedCampaignLessonRoleReport {
+    let mut complete_campaign_count = 0;
+    let mut entries = Vec::new();
+    for lesson in MissionSetLesson::ALL {
+        let mut mission_count = 0;
+        let mut lesson_campaign_count = 0;
+        for set in mission_sets {
+            let count = set
+                .missions
+                .iter()
+                .filter(|slot| slot.lesson == lesson)
+                .count() as u32;
+            mission_count += count;
+            if count > 0 {
+                lesson_campaign_count += 1;
+            }
+        }
+        entries.push(GeneratedCampaignLessonRoleEntry {
+            lesson,
+            label: lesson.label().to_string(),
+            mission_count,
+            campaign_count: lesson_campaign_count,
+            required: required_lessons.contains(&lesson),
+        });
+    }
+    for set in mission_sets {
+        if required_lessons
+            .iter()
+            .all(|lesson| set.missions.iter().any(|slot| slot.lesson == *lesson))
+        {
+            complete_campaign_count += 1;
+        }
+    }
+
+    let mut notes = Vec::new();
+    if campaign_count == 0 {
+        notes.push("No campaign sets were generated for lesson-role validation.".to_string());
+    } else if complete_campaign_count < campaign_count {
+        notes.push(format!(
+            "{} of {} campaign set(s) cover every required lesson role.",
+            complete_campaign_count, campaign_count
+        ));
+    } else {
+        notes.push("Every generated campaign set covers the required lesson roles.".to_string());
+    }
+    for lesson in required_lessons {
+        let entry = entries
+            .iter()
+            .find(|entry| entry.lesson == *lesson)
+            .expect("lesson entry should exist");
+        if entry.campaign_count < campaign_count {
+            notes.push(format!(
+                "{} appears in {} of {} campaign set(s).",
+                lesson.label(),
+                entry.campaign_count,
+                campaign_count
+            ));
+        }
+    }
+
+    GeneratedCampaignLessonRoleReport {
+        required_lessons: required_lessons.to_vec(),
+        campaign_count,
+        complete_campaign_count,
+        lessons: entries,
+        notes,
+    }
+}
+
+fn campaign_unlock_curve_report(
+    mission_sets: &[MissionSet],
+    required_unlocks: &[MissionSetUnlock],
+    campaign_count: u32,
+) -> GeneratedCampaignUnlockCurveReport {
+    let mut complete_campaign_count = 0;
+    let mut useful_campaign_count = 0;
+    let mut entries = Vec::new();
+    for unlock in MissionSetUnlock::ALL {
+        let mut slot_count = 0;
+        let mut unlock_campaign_count = 0;
+        let mut useful_later_campaign_count = 0;
+        for set in mission_sets {
+            let unlock_points = mission_set_unlock_points(set, unlock);
+            slot_count += unlock_points.len() as u32;
+            if !unlock_points.is_empty() {
+                unlock_campaign_count += 1;
+            }
+            if unlock_points
+                .iter()
+                .any(|after_order| unlock_has_later_use(unlock, *after_order, set))
+            {
+                useful_later_campaign_count += 1;
+            }
+        }
+        entries.push(GeneratedCampaignUnlockCurveEntry {
+            unlock,
+            label: unlock.label().to_string(),
+            slot_count,
+            campaign_count: unlock_campaign_count,
+            useful_later_campaign_count,
+            required: required_unlocks.contains(&unlock),
+        });
+    }
+    for set in mission_sets {
+        let has_required_unlocks = required_unlocks
+            .iter()
+            .all(|unlock| !mission_set_unlock_points(set, *unlock).is_empty());
+        if has_required_unlocks {
+            complete_campaign_count += 1;
+        }
+        let has_useful_unlocks = required_unlocks.iter().all(|unlock| {
+            mission_set_unlock_points(set, *unlock)
+                .iter()
+                .any(|after_order| unlock_has_later_use(*unlock, *after_order, set))
+        });
+        if has_required_unlocks && has_useful_unlocks {
+            useful_campaign_count += 1;
+        }
+    }
+
+    let mut notes = Vec::new();
+    if campaign_count == 0 {
+        notes.push("No campaign sets were generated for unlock validation.".to_string());
+    } else if complete_campaign_count < campaign_count {
+        notes.push(format!(
+            "{} of {} campaign set(s) include every required unlock.",
+            complete_campaign_count, campaign_count
+        ));
+    } else {
+        notes.push("Every generated campaign set includes the required unlocks.".to_string());
+    }
+    if useful_campaign_count < campaign_count {
+        notes.push(format!(
+            "{} of {} campaign set(s) give every required unlock a later-use mission role.",
+            useful_campaign_count, campaign_count
+        ));
+    } else if campaign_count > 0 {
+        notes.push("Every required unlock has a later-use mission role.".to_string());
+    }
+    for unlock in required_unlocks {
+        let entry = entries
+            .iter()
+            .find(|entry| entry.unlock == *unlock)
+            .expect("unlock entry should exist");
+        if entry.campaign_count < campaign_count {
+            notes.push(format!(
+                "{} appears in {} of {} campaign set(s).",
+                unlock.label(),
+                entry.campaign_count,
+                campaign_count
+            ));
+        }
+        if entry.useful_later_campaign_count < campaign_count {
+            notes.push(format!(
+                "{} has a later-use mission role in {} of {} campaign set(s).",
+                unlock.label(),
+                entry.useful_later_campaign_count,
+                campaign_count
+            ));
+        }
+    }
+
+    GeneratedCampaignUnlockCurveReport {
+        required_unlocks: required_unlocks.to_vec(),
+        campaign_count,
+        complete_campaign_count,
+        useful_campaign_count,
+        unlocks: entries,
+        notes,
+    }
+}
+
+fn mission_set_unlock_points(set: &MissionSet, unlock: MissionSetUnlock) -> Vec<u32> {
+    set.missions
+        .iter()
+        .filter(|slot| slot.unlocks_after.contains(&unlock))
+        .map(|slot| slot.order)
+        .collect()
+}
+
+fn unlock_has_later_use(unlock: MissionSetUnlock, after_order: u32, set: &MissionSet) -> bool {
+    set.missions
+        .iter()
+        .filter(|slot| slot.order > after_order)
+        .any(|slot| match unlock {
+            MissionSetUnlock::SawKit => {
+                matches!(slot.theme, MissionTheme::OrchardApproach)
+                    || matches!(slot.lesson, MissionSetLesson::TreeDilemma)
+            }
+            MissionSetUnlock::SurveyKit => {
+                matches!(
+                    slot.theme,
+                    MissionTheme::DryWash | MissionTheme::RidgeTrap | MissionTheme::SplitApproach
+                ) || matches!(
+                    slot.lesson,
+                    MissionSetLesson::DeadGroundAndLowRoutes
+                        | MissionSetLesson::RollingHazardSlope
+                        | MissionSetLesson::SplitApproachPrioritization
+                        | MissionSetLesson::MixedFinalTest
+                )
+            }
+            MissionSetUnlock::Winch => {
+                matches!(slot.theme, MissionTheme::RidgeTrap)
+                    || matches!(slot.lesson, MissionSetLesson::RollingHazardSlope)
+            }
+            MissionSetUnlock::BraceKit => {
+                matches!(
+                    slot.theme,
+                    MissionTheme::OldWall | MissionTheme::SplitApproach
+                ) || matches!(
+                    slot.lesson,
+                    MissionSetLesson::TrenchBermShaping
+                        | MissionSetLesson::HardCoverAndBreach
+                        | MissionSetLesson::SplitApproachPrioritization
+                        | MissionSetLesson::MixedFinalTest
+                )
+            }
+        })
 }
 
 fn build_theme_calibration_report(
