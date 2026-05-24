@@ -113,13 +113,13 @@ fn main() -> Result<()> {
                 .next()
                 .unwrap_or_else(|| DEFAULT_MISSION_EXPORT_DIR.to_string());
             export_road_below_seed(&out_dir)?;
-            println!("Exported GamePivot mission seed to {out_dir}.");
+            println!("Exported GamePivot 3 mission seed to {out_dir}.");
             println!("Mission: The Road Below");
             println!(
-                "Files: mission_spec.ron/json, order_script.ron/json, mission_before.json, mission_after.json, scripted_work_orders.json, material_ledger.json, order_validation.json, mission_preview.png, mission_summary.txt"
+                "Files: mission_spec.ron/json, order_script.ron/json, mission_before.json, mission_after.json, scripted_work_orders.json, material_ledger.json, order_validation.json, enemy_routes_initial.json, enemy_routes_after_orders.json, enemy_route_delta.json, mission_preview.png, mission_route_preview.png, mission_route_debug.png, mission_summary.txt"
             );
         }
-        "mission-orders" => {
+        "mission-orders" | "mission-routes" => {
             let out_dir = args
                 .next()
                 .unwrap_or_else(|| DEFAULT_MISSION_EXPORT_DIR.to_string());
@@ -132,7 +132,7 @@ fn main() -> Result<()> {
                 None => road_below_basic_prep_script(),
             };
             let after = export_order_script_run(&out_dir, spec, script)?;
-            println!("Exported GamePivot 2 mission order run to {out_dir}.");
+            println!("Exported GamePivot 3 mission order and route-preview run to {out_dir}.");
             println!(
                 "Completed {} order(s), queued {} order(s), validation issue(s): {}.",
                 after.work_orders.len(),
@@ -142,6 +142,9 @@ fn main() -> Result<()> {
             println!(
                 "Prep remaining: {}s · labor remaining: {}s",
                 after.remaining_prep_seconds, after.remaining_labor_seconds
+            );
+            println!(
+                "Route files: enemy_routes_initial.json, enemy_routes_after_orders.json, enemy_route_delta.json, mission_route_preview.png, mission_route_debug.png"
             );
         }
         "help" | "--help" | "-h" => print_help(),
@@ -160,4 +163,5 @@ fn print_help() {
     eprintln!("  cargo run -p ground_cli -- validate [recipe_path] [palette_path]");
     eprintln!("  cargo run -p ground_cli -- mission-seed [out_dir]");
     eprintln!("  cargo run -p ground_cli -- mission-orders [out_dir] [mission_spec.ron|json] [order_script.ron|json]");
+    eprintln!("  cargo run -p ground_cli -- mission-routes [out_dir] [mission_spec.ron|json] [order_script.ron|json]");
 }

@@ -4,7 +4,7 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: GamePivot 2 — work orders and local materials
+## Current status: GamePivot 3 — doctrine route preview
 
 GroundLab has pivoted from art-generation milestones back toward the game workbench. The primary
 product direction is now a 2.5D tactical engineering defense game: the player is a commander /
@@ -15,7 +15,7 @@ SpriteGen remains in the repository as the terrain art forge. It still provides 
 profiles, override PNGs, sprite manifests, validation, and exportable grass/dirt/path/trench/berm/
 stone pieces. It is now supporting infrastructure rather than the main roadmap driver.
 
-GamePivot 2 builds on the `ground_game` crate with:
+GamePivot 3 builds on the `ground_game` crate with:
 
 - `MissionSpec`, `MissionMap`, and `MissionCell`
 - earth states such as normal, scraped, trench, deep trench, spoil pile, berm, unstable, and muddy
@@ -24,9 +24,13 @@ GamePivot 2 builds on the `ground_game` crate with:
 - deterministic queued work orders for dig trench, raise berm, flatten, fell tree, cut into logs, and place stakes
 - per-order crew requirements, labor cost, elapsed prep duration, tool requirements, material inputs/outputs, validation, and preview notes
 - a material ledger that records spoil/log/timber/stake changes as orders complete
+- deterministic A* route previews for enemy groups after terrain/object state changes
+- doctrine-specific route cost profiles for rushers, cover-seekers, flankers, obstacle-avoiders, push-through troops, and clearers
+- route explanations that report trench/berm/object/cover/road cells used by each projected route
+- route delta exports comparing the initial mission terrain against the post-order prepared terrain
 - a seed mission, `The Road Below`, with a small road/ridge/tree terrain problem
-- CLI export of mission spec, order script, before/after mission state, work log, material ledger, validation, ASCII maps, a PNG mission preview, and a summary
-- a `Mission Lab` tab in `ground_app` beside the older terrain forge controls, including selected-cell context actions, order queue, work log, local material panel, and validation feedback
+- CLI export of mission spec, order script, before/after mission state, work log, material ledger, validation, route previews, route delta, ASCII maps, PNG mission previews, and a summary
+- a `Mission Lab` tab in `ground_app` beside the older terrain forge controls, including selected-cell context actions, order queue, work log, local material panel, route overlay modes, and validation feedback
 
 Run the sprite workbench:
 
@@ -49,13 +53,13 @@ cargo run -p ground_sprite_cli -- promote-overrides assets/sprite_styles/cozy_up
 Export the GamePivot mission seed:
 
 ```bash
-cargo run -p ground_cli -- mission-seed exports/gamepivot_02_seed
+cargo run -p ground_cli -- mission-seed exports/gamepivot_03_seed
 ```
 
-Run the default GamePivot 2 scripted work-order scenario:
+Run the default GamePivot 3 scripted work-order and route-preview scenario:
 
 ```bash
-cargo run -p ground_cli -- mission-orders exports/gamepivot_02
+cargo run -p ground_cli -- mission-routes exports/gamepivot_03
 ```
 
 Run the mission workbench:
@@ -67,6 +71,12 @@ cargo run -p ground_app
 The full-scene terrain renderer and ArtGen outputs remain downstream infrastructure for terrain
 data, pathing, LOS, and future art-kit composition, but the active gameplay roadmap now starts with
 mission prep, work orders, local materials, and predictable terrain consequences.
+
+## Previous status: GamePivot 2 — work orders and local materials
+
+GamePivot 2 added queued work orders, per-order validation, crew/time/material costs, local
+material ledger entries, context-sensitive Mission Lab order buttons, preview cards, and the
+`mission-orders` CLI export.
 
 ## Previous status: GamePivot 1 — mission workbench seed
 

@@ -5,7 +5,7 @@ for one future game family: terrain-first prepared-ground defense.
 
 The active roadmap has pivoted to a mission-first workbench. SpriteGen remains the terrain art
 forge, while `ground_game` owns mission specs, prep-phase work orders, local materials,
-environment-object states, and future doctrine/assault simulation.
+environment-object states, doctrine route preview, and future assault simulation.
 
 ## What is custom-owned now
 
@@ -14,6 +14,7 @@ environment-object states, and future doctrine/assault simulation.
 - State-based terrain and environment objects
 - Prep-phase work order model
 - Local material stock and side-effect tracking
+- Doctrine-specific enemy route preview
 - Terrain editing brushes
 - Pixel tile recipes
 - Palette ramps and palette file format
@@ -54,7 +55,8 @@ MissionSpec
   -> order validation
   -> terrain/object/material state changes
   -> material ledger + work log
-  -> route / LOS / cover consequences
+  -> doctrine route preview + route delta reports
+  -> LOS / cover consequences
   -> future assault sandbox
 ```
 
@@ -85,7 +87,7 @@ nearby spoil and changes cover, sight, movement, and route cost.
 Custom gameplay systems:
 
 - infantry movement cost is a grid query
-- enemy routeing is A* over terrain costs
+- enemy routeing is A* over doctrine-specific terrain costs
 - line of sight is sampled over terrain height and sight blockers
 - cover is a simple semantic category on cells
 

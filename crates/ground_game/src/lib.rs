@@ -1,3 +1,5 @@
+use std::cmp::Ordering;
+use std::collections::BinaryHeap;
 use std::fs;
 use std::path::Path;
 
@@ -5,7 +7,7 @@ use anyhow::{bail, Context, Result};
 use image::{Rgba, RgbaImage};
 use serde::{Deserialize, Serialize};
 
-pub const DEFAULT_MISSION_EXPORT_DIR: &str = "exports/gamepivot_02";
+pub const DEFAULT_MISSION_EXPORT_DIR: &str = "exports/gamepivot_03";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CellCoord {
@@ -123,6 +125,29 @@ impl MissionMap {
         self.objects
             .iter_mut()
             .find(|object| object.cell == cell && predicate(&object.kind))
+    }
+
+    pub fn objects_at_cell(&self, cell: CellCoord) -> impl Iterator<Item = &EnvironmentObject> {
+        self.objects
+            .iter()
+            .filter(move |object| object.cell == cell)
+    }
+
+    pub fn neighbors4(&self, cell: CellCoord) -> Vec<CellCoord> {
+        let mut out = Vec::with_capacity(4);
+        if cell.y > 0 {
+            out.push(CellCoord::new(cell.x, cell.y - 1));
+        }
+        if cell.x + 1 < self.width {
+            out.push(CellCoord::new(cell.x + 1, cell.y));
+        }
+        if cell.y + 1 < self.height {
+            out.push(CellCoord::new(cell.x, cell.y + 1));
+        }
+        if cell.x > 0 {
+            out.push(CellCoord::new(cell.x - 1, cell.y));
+        }
+        out
     }
 }
 
@@ -488,6 +513,127 @@ pub struct MovementProfile {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DoctrineRouteSet {
+    pub mission_id: String,
+    pub routes: Vec<EnemyRoutePreview>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EnemyRoutePreview {
+    pub group_label: String,
+    pub doctrine: EnemyDoctrine,
+    pub spawn: CellCoord,
+    pub objective: CellCoord,
+    pub points: Vec<CellCoord>,
+    pub total_cost: f32,
+    pub reached_goal: bool,
+    pub explanation: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RouteDeltaReport {
+    pub mission_id: String,
+    pub groups: Vec<EnemyRouteDelta>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct EnemyRouteDelta {
+    pub group_label: String,
+    pub doctrine: EnemyDoctrine,
+    pub initial_cost: f32,
+    pub after_cost: f32,
+    pub cost_delta: f32,
+    pub shared_cells: u32,
+    pub initial_only_cells: Vec<CellCoord>,
+    pub after_only_cells: Vec<CellCoord>,
+    pub changed: bool,
+    pub explanation: String,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct DoctrineWeights {
+    trench_cost: f32,
+    berm_cost: f32,
+    obstacle_cost: f32,
+    cover_discount: f32,
+    concealment_discount: f32,
+    road_bias: f32,
+    height_cost: f32,
+}
+
+impl EnemyDoctrine {
+    fn weights(self) -> DoctrineWeights {
+        match self {
+            EnemyDoctrine::RushShortest => DoctrineWeights {
+                trench_cost: 1.3,
+                berm_cost: 1.1,
+                obstacle_cost: 1.4,
+                cover_discount: 0.0,
+                concealment_discount: 0.0,
+                road_bias: -0.18,
+                height_cost: 0.28,
+            },
+            EnemyDoctrine::PreferCover => DoctrineWeights {
+                trench_cost: 0.9,
+                berm_cost: 0.6,
+                obstacle_cost: 1.1,
+                cover_discount: 0.32,
+                concealment_discount: 0.18,
+                road_bias: 0.02,
+                height_cost: 0.24,
+            },
+            EnemyDoctrine::FlankViaConcealment => DoctrineWeights {
+                trench_cost: 0.8,
+                berm_cost: 0.7,
+                obstacle_cost: 1.0,
+                cover_discount: 0.18,
+                concealment_discount: 0.42,
+                road_bias: 0.24,
+                height_cost: 0.20,
+            },
+            EnemyDoctrine::AvoidObstacles => DoctrineWeights {
+                trench_cost: 2.2,
+                berm_cost: 2.0,
+                obstacle_cost: 2.7,
+                cover_discount: 0.0,
+                concealment_discount: 0.0,
+                road_bias: -0.05,
+                height_cost: 0.42,
+            },
+            EnemyDoctrine::PushThroughLightObstacles => DoctrineWeights {
+                trench_cost: 1.5,
+                berm_cost: 1.2,
+                obstacle_cost: 0.75,
+                cover_discount: 0.0,
+                concealment_discount: 0.0,
+                road_bias: -0.12,
+                height_cost: 0.35,
+            },
+            EnemyDoctrine::ClearObstacles => DoctrineWeights {
+                trench_cost: 1.4,
+                berm_cost: 1.1,
+                obstacle_cost: 0.45,
+                cover_discount: 0.04,
+                concealment_discount: 0.0,
+                road_bias: -0.10,
+                height_cost: 0.32,
+            },
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            EnemyDoctrine::RushShortest => "rush shortest",
+            EnemyDoctrine::PreferCover => "prefer cover",
+            EnemyDoctrine::FlankViaConcealment => "flank via concealment",
+            EnemyDoctrine::AvoidObstacles => "avoid obstacles",
+            EnemyDoctrine::PushThroughLightObstacles => "push through light obstacles",
+            EnemyDoctrine::ClearObstacles => "clear obstacles",
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct MissionState {
     pub spec: MissionSpec,
     pub map: MissionMap,
@@ -726,6 +872,10 @@ impl MissionState {
         }
         totals
     }
+
+    pub fn route_preview(&self) -> DoctrineRouteSet {
+        route_preview_for_state(self)
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -865,6 +1015,7 @@ pub struct ScriptedWorkOrder {
 pub fn road_below_spec() -> MissionSpec {
     let mut map = MissionMap::new(12, 8, MissionCell::new(1, GroundKind::Grass));
     map.spawn_cells.push(CellCoord::new(1, 7));
+    map.spawn_cells.push(CellCoord::new(0, 6));
 
     for x in 0..map.width {
         let cell = CellCoord::new(x, 4);
@@ -927,18 +1078,44 @@ pub fn road_below_spec() -> MissionSpec {
             crews: 3,
             labor_seconds_available: 480,
         },
-        enemy_groups: vec![EnemyGroupSpec {
-            label: "southern rushers".to_string(),
-            count: 12,
-            doctrine: EnemyDoctrine::RushShortest,
-            spawn: CellCoord::new(1, 7),
-            objective: CellCoord::new(10, 3),
-            movement_profile: MovementProfile {
-                base_speed: 1.0,
-                obstacle_tolerance: 0.35,
-                cover_preference: 0.1,
+        enemy_groups: vec![
+            EnemyGroupSpec {
+                label: "southern rushers".to_string(),
+                count: 12,
+                doctrine: EnemyDoctrine::RushShortest,
+                spawn: CellCoord::new(1, 7),
+                objective: CellCoord::new(10, 3),
+                movement_profile: MovementProfile {
+                    base_speed: 1.0,
+                    obstacle_tolerance: 0.35,
+                    cover_preference: 0.1,
+                },
             },
-        }],
+            EnemyGroupSpec {
+                label: "cautious riflemen".to_string(),
+                count: 8,
+                doctrine: EnemyDoctrine::PreferCover,
+                spawn: CellCoord::new(0, 6),
+                objective: CellCoord::new(10, 3),
+                movement_profile: MovementProfile {
+                    base_speed: 0.85,
+                    obstacle_tolerance: 0.2,
+                    cover_preference: 0.65,
+                },
+            },
+            EnemyGroupSpec {
+                label: "orchard skirmishers".to_string(),
+                count: 6,
+                doctrine: EnemyDoctrine::FlankViaConcealment,
+                spawn: CellCoord::new(0, 6),
+                objective: CellCoord::new(10, 3),
+                movement_profile: MovementProfile {
+                    base_speed: 0.95,
+                    obstacle_tolerance: 0.3,
+                    cover_preference: 0.45,
+                },
+            },
+        ],
         constraints: MissionConstraints {
             max_work_orders: 12,
             allow_assault_preview: false,
@@ -999,6 +1176,98 @@ pub fn run_work_order_script(spec: MissionSpec, script: &WorkOrderScript) -> Mis
     state
 }
 
+pub fn route_preview_for_state(state: &MissionState) -> DoctrineRouteSet {
+    DoctrineRouteSet {
+        mission_id: state.spec.id.clone(),
+        routes: state
+            .spec
+            .enemy_groups
+            .iter()
+            .map(|group| route_preview_for_group(&state.map, group))
+            .collect(),
+    }
+}
+
+pub fn route_delta_report(
+    mission_id: impl Into<String>,
+    initial: &DoctrineRouteSet,
+    after: &DoctrineRouteSet,
+) -> RouteDeltaReport {
+    let mut groups = Vec::new();
+    for initial_route in &initial.routes {
+        let Some(after_route) = after
+            .routes
+            .iter()
+            .find(|route| route.group_label == initial_route.group_label)
+        else {
+            continue;
+        };
+        let initial_only_cells: Vec<CellCoord> = initial_route
+            .points
+            .iter()
+            .copied()
+            .filter(|cell| !after_route.points.contains(cell))
+            .collect();
+        let after_only_cells: Vec<CellCoord> = after_route
+            .points
+            .iter()
+            .copied()
+            .filter(|cell| !initial_route.points.contains(cell))
+            .collect();
+        let shared_cells = initial_route
+            .points
+            .iter()
+            .filter(|cell| after_route.points.contains(cell))
+            .count() as u32;
+        let cost_delta = after_route.total_cost - initial_route.total_cost;
+        let changed = !initial_only_cells.is_empty()
+            || !after_only_cells.is_empty()
+            || cost_delta.abs() > 0.2;
+        let terrain_notes = after_route
+            .explanation
+            .iter()
+            .skip(1)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" ");
+        let explanation = if changed {
+            let mut text = format!(
+                "{} route changed by {:.1} cost; {} old-only cell(s), {} new-only cell(s).",
+                initial_route.group_label,
+                cost_delta,
+                initial_only_cells.len(),
+                after_only_cells.len()
+            );
+            if !terrain_notes.is_empty() {
+                text.push(' ');
+                text.push_str(&terrain_notes);
+            }
+            text
+        } else {
+            format!(
+                "{} route stayed effectively stable; cost delta {:.1}.",
+                initial_route.group_label, cost_delta
+            )
+        };
+        groups.push(EnemyRouteDelta {
+            group_label: initial_route.group_label.clone(),
+            doctrine: initial_route.doctrine,
+            initial_cost: initial_route.total_cost,
+            after_cost: after_route.total_cost,
+            cost_delta,
+            shared_cells,
+            initial_only_cells,
+            after_only_cells,
+            changed,
+            explanation,
+        });
+    }
+    RouteDeltaReport {
+        mission_id: mission_id.into(),
+        groups,
+    }
+}
+
 pub fn export_road_below_seed(out_dir: impl AsRef<Path>) -> Result<()> {
     let out_dir = out_dir.as_ref();
     fs::create_dir_all(out_dir)
@@ -1008,6 +1277,9 @@ pub fn export_road_below_seed(out_dir: impl AsRef<Path>) -> Result<()> {
     let script = road_below_basic_prep_script();
     let before = MissionState::from_spec(spec.clone());
     let after = run_work_order_script(spec.clone(), &script);
+    let initial_routes = before.route_preview();
+    let after_routes = after.route_preview();
+    let route_delta = route_delta_report(spec.id.clone(), &initial_routes, &after_routes);
 
     write_json(out_dir.join("mission_spec.json"), &spec)?;
     write_ron(out_dir.join("mission_spec.ron"), &spec)?;
@@ -1024,10 +1296,27 @@ pub fn export_road_below_seed(out_dir: impl AsRef<Path>) -> Result<()> {
         &after.order_validation,
     )?;
     write_json(out_dir.join("mission_after.json"), &after)?;
+    write_json(out_dir.join("enemy_routes_initial.json"), &initial_routes)?;
+    write_json(
+        out_dir.join("enemy_routes_after_orders.json"),
+        &after_routes,
+    )?;
+    write_json(out_dir.join("enemy_route_delta.json"), &route_delta)?;
     fs::write(out_dir.join("mission_before_map.txt"), ascii_map(&before))?;
     fs::write(out_dir.join("mission_after_map.txt"), ascii_map(&after))?;
     fs::write(out_dir.join("mission_summary.txt"), mission_summary(&after))?;
     save_mission_preview_png(out_dir.join("mission_preview.png"), &after)?;
+    save_mission_route_preview_png(
+        out_dir.join("mission_route_preview.png"),
+        &after,
+        &initial_routes,
+        &after_routes,
+    )?;
+    save_mission_route_debug_png(
+        out_dir.join("mission_route_debug.png"),
+        &after,
+        &after_routes,
+    )?;
     Ok(())
 }
 
@@ -1042,6 +1331,9 @@ pub fn export_order_script_run(
 
     let initial = MissionState::from_spec(spec.clone());
     let after = run_work_order_script(spec.clone(), &script);
+    let initial_routes = initial.route_preview();
+    let after_routes = after.route_preview();
+    let route_delta = route_delta_report(spec.id.clone(), &initial_routes, &after_routes);
 
     write_json(out_dir.join("mission_spec.json"), &spec)?;
     write_ron(out_dir.join("mission_spec.ron"), &spec)?;
@@ -1051,6 +1343,12 @@ pub fn export_order_script_run(
     write_json(out_dir.join("mission_after_orders.json"), &after)?;
     write_json(out_dir.join("work_log.json"), &after.work_orders)?;
     write_json(out_dir.join("material_ledger.json"), &after.material_ledger)?;
+    write_json(out_dir.join("enemy_routes_initial.json"), &initial_routes)?;
+    write_json(
+        out_dir.join("enemy_routes_after_orders.json"),
+        &after_routes,
+    )?;
+    write_json(out_dir.join("enemy_route_delta.json"), &route_delta)?;
     write_json(
         out_dir.join("order_validation.json"),
         &after.order_validation,
@@ -1062,6 +1360,17 @@ pub fn export_order_script_run(
     )?;
     fs::write(out_dir.join("mission_summary.txt"), mission_summary(&after))?;
     save_mission_preview_png(out_dir.join("mission_preview.png"), &after)?;
+    save_mission_route_preview_png(
+        out_dir.join("mission_route_preview.png"),
+        &after,
+        &initial_routes,
+        &after_routes,
+    )?;
+    save_mission_route_debug_png(
+        out_dir.join("mission_route_debug.png"),
+        &after,
+        &after_routes,
+    )?;
     Ok(after)
 }
 
@@ -1105,6 +1414,276 @@ pub fn save_work_order_script(path: impl AsRef<Path>, script: &WorkOrderScript) 
     } else {
         write_ron(path, script)
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+struct RouteQueueNode {
+    idx: usize,
+    f_score: f32,
+}
+
+impl PartialEq for RouteQueueNode {
+    fn eq(&self, other: &Self) -> bool {
+        self.idx == other.idx && self.f_score.to_bits() == other.f_score.to_bits()
+    }
+}
+
+impl Eq for RouteQueueNode {}
+
+impl PartialOrd for RouteQueueNode {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for RouteQueueNode {
+    fn cmp(&self, other: &Self) -> Ordering {
+        other
+            .f_score
+            .total_cmp(&self.f_score)
+            .then_with(|| self.idx.cmp(&other.idx))
+    }
+}
+
+fn route_preview_for_group(map: &MissionMap, group: &EnemyGroupSpec) -> EnemyRoutePreview {
+    let Some(start_idx) = map.index(group.spawn) else {
+        return empty_route(group, "spawn is outside the mission map");
+    };
+    let Some(goal_idx) = map.index(group.objective) else {
+        return empty_route(group, "objective is outside the mission map");
+    };
+
+    let len = map.cells.len();
+    let mut open = BinaryHeap::new();
+    let mut came_from: Vec<Option<usize>> = vec![None; len];
+    let mut g_score = vec![f32::INFINITY; len];
+    let mut best_idx = start_idx;
+    let mut best_h = route_heuristic(group.spawn, group.objective);
+
+    g_score[start_idx] = 0.0;
+    open.push(RouteQueueNode {
+        idx: start_idx,
+        f_score: best_h,
+    });
+
+    while let Some(node) = open.pop() {
+        let pos = idx_to_coord(map, node.idx);
+        let h = route_heuristic(pos, group.objective);
+        if h < best_h {
+            best_h = h;
+            best_idx = node.idx;
+        }
+        if node.idx == goal_idx {
+            let points = reconstruct_route(map, &came_from, goal_idx);
+            return EnemyRoutePreview {
+                group_label: group.label.clone(),
+                doctrine: group.doctrine,
+                spawn: group.spawn,
+                objective: group.objective,
+                total_cost: g_score[goal_idx],
+                reached_goal: true,
+                explanation: explain_route(map, group, &points, g_score[goal_idx], true),
+                points,
+            };
+        }
+
+        for neighbor in map.neighbors4(pos) {
+            let Some(n_idx) = map.index(neighbor) else {
+                continue;
+            };
+            let step = doctrine_step_cost(map, group, pos, neighbor);
+            if !step.is_finite() {
+                continue;
+            }
+            let tentative = g_score[node.idx] + step;
+            if tentative < g_score[n_idx] {
+                came_from[n_idx] = Some(node.idx);
+                g_score[n_idx] = tentative;
+                open.push(RouteQueueNode {
+                    idx: n_idx,
+                    f_score: tentative + route_heuristic(neighbor, group.objective),
+                });
+            }
+        }
+    }
+
+    let points = reconstruct_route(map, &came_from, best_idx);
+    let total_cost = g_score[best_idx];
+    EnemyRoutePreview {
+        group_label: group.label.clone(),
+        doctrine: group.doctrine,
+        spawn: group.spawn,
+        objective: group.objective,
+        total_cost,
+        reached_goal: false,
+        explanation: explain_route(map, group, &points, total_cost, false),
+        points,
+    }
+}
+
+fn empty_route(group: &EnemyGroupSpec, reason: &str) -> EnemyRoutePreview {
+    EnemyRoutePreview {
+        group_label: group.label.clone(),
+        doctrine: group.doctrine,
+        spawn: group.spawn,
+        objective: group.objective,
+        points: Vec::new(),
+        total_cost: 999_999.0,
+        reached_goal: false,
+        explanation: vec![reason.to_string()],
+    }
+}
+
+fn doctrine_step_cost(
+    map: &MissionMap,
+    group: &EnemyGroupSpec,
+    from: CellCoord,
+    to: CellCoord,
+) -> f32 {
+    let Some(from_cell) = map.cell(from) else {
+        return f32::INFINITY;
+    };
+    let Some(to_cell) = map.cell(to) else {
+        return f32::INFINITY;
+    };
+    let weights = group.doctrine.weights();
+    let height_delta = (from_cell.height - to_cell.height).abs() as f32;
+    if height_delta > 4.0 {
+        return f32::INFINITY;
+    }
+
+    let mut cost = to_cell.movement_cost.max(0.2);
+    cost += height_delta * weights.height_cost;
+    cost += match to_cell.earth_state {
+        EarthState::Trench | EarthState::DeepTrench | EarthState::Ditch => weights.trench_cost,
+        EarthState::Berm | EarthState::SpoilPile => weights.berm_cost,
+        EarthState::Muddy => 0.7,
+        EarthState::Unstable => 0.45,
+        EarthState::Scraped | EarthState::Normal => 0.0,
+    };
+
+    for object in map.objects_at_cell(to) {
+        cost += object.movement_cost_delta * weights.obstacle_cost;
+        if object.blocks_sight {
+            cost -= weights.concealment_discount;
+        }
+        if matches!(
+            object.kind,
+            EnvironmentObjectKind::Stakes(_) | EnvironmentObjectKind::Wire(_)
+        ) {
+            cost += weights.obstacle_cost;
+        }
+        if matches!(object.cover, CoverClass::Partial | CoverClass::Strong) {
+            cost -= weights.cover_discount;
+        }
+    }
+
+    match to_cell.cover {
+        CoverClass::Strong => cost -= weights.cover_discount,
+        CoverClass::Partial => cost -= weights.cover_discount * 0.7,
+        CoverClass::Light => cost -= weights.cover_discount * 0.35,
+        CoverClass::None => {}
+    }
+    if matches!(to_cell.ground, GroundKind::Road) {
+        cost += weights.road_bias;
+    }
+
+    (cost / group.movement_profile.base_speed.max(0.1)).max(0.1)
+}
+
+fn explain_route(
+    map: &MissionMap,
+    group: &EnemyGroupSpec,
+    points: &[CellCoord],
+    total_cost: f32,
+    reached_goal: bool,
+) -> Vec<String> {
+    let mut trench_cells = 0;
+    let mut berm_cells = 0;
+    let mut obstacle_cells = 0;
+    let mut covered_cells = 0;
+    let mut road_cells = 0;
+    for point in points {
+        if let Some(cell) = map.cell(*point) {
+            if matches!(
+                cell.earth_state,
+                EarthState::Trench | EarthState::DeepTrench | EarthState::Ditch
+            ) {
+                trench_cells += 1;
+            }
+            if matches!(cell.earth_state, EarthState::Berm | EarthState::SpoilPile) {
+                berm_cells += 1;
+            }
+            if matches!(cell.cover, CoverClass::Partial | CoverClass::Strong) {
+                covered_cells += 1;
+            }
+            if matches!(cell.ground, GroundKind::Road) {
+                road_cells += 1;
+            }
+        }
+        if map.objects_at_cell(*point).next().is_some() {
+            obstacle_cells += 1;
+        }
+    }
+
+    let mut notes = vec![format!(
+        "{} doctrine `{}` {} objective with {:.1} route cost over {} cell(s).",
+        group.label,
+        group.doctrine.label(),
+        if reached_goal {
+            "reached"
+        } else {
+            "did not reach"
+        },
+        total_cost,
+        points.len()
+    )];
+    if trench_cells > 0 {
+        notes.push(format!(
+            "Route crosses {trench_cells} trench/ditch cell(s), so digging is influencing movement."
+        ));
+    }
+    if berm_cells > 0 {
+        notes.push(format!(
+            "Route touches {berm_cells} berm/spoil cell(s), creating a height/cover tradeoff."
+        ));
+    }
+    if obstacle_cells > 0 {
+        notes.push(format!(
+            "Route touches {obstacle_cells} object/obstacle cell(s)."
+        ));
+    }
+    if covered_cells > 0 {
+        notes.push(format!(
+            "Route uses {covered_cells} covered cell(s), relevant for cover-seeking doctrines."
+        ));
+    }
+    if road_cells > 0 {
+        notes.push(format!("Route uses {road_cells} road cell(s)."));
+    }
+    notes
+}
+
+fn route_heuristic(a: CellCoord, b: CellCoord) -> f32 {
+    a.manhattan(b) as f32 * 0.1
+}
+
+fn idx_to_coord(map: &MissionMap, idx: usize) -> CellCoord {
+    CellCoord::new(idx as u32 % map.width, idx as u32 / map.width)
+}
+
+fn reconstruct_route(
+    map: &MissionMap,
+    came_from: &[Option<usize>],
+    mut idx: usize,
+) -> Vec<CellCoord> {
+    let mut out = vec![idx_to_coord(map, idx)];
+    while let Some(prev) = came_from[idx] {
+        idx = prev;
+        out.push(idx_to_coord(map, idx));
+    }
+    out.reverse();
+    out
 }
 
 fn build_work_order(
@@ -1664,6 +2243,65 @@ pub fn save_mission_preview_png(path: impl AsRef<Path>, state: &MissionState) ->
     }
 
     let cell_px = 24;
+    let image = mission_preview_image(state, cell_px);
+    image
+        .save(path)
+        .with_context(|| format!("failed to save {}", path.display()))
+}
+
+pub fn save_mission_route_preview_png(
+    path: impl AsRef<Path>,
+    state: &MissionState,
+    initial_routes: &DoctrineRouteSet,
+    after_routes: &DoctrineRouteSet,
+) -> Result<()> {
+    let path = path.as_ref();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let cell_px = 24;
+    let mut image = mission_preview_image(state, cell_px);
+    for route in &initial_routes.routes {
+        draw_route_path(&mut image, route, cell_px, Rgba([70, 130, 222, 150]), 3);
+    }
+    for route in &after_routes.routes {
+        draw_route_path(&mut image, route, cell_px, Rgba([238, 196, 78, 205]), 5);
+    }
+    image
+        .save(path)
+        .with_context(|| format!("failed to save {}", path.display()))
+}
+
+pub fn save_mission_route_debug_png(
+    path: impl AsRef<Path>,
+    state: &MissionState,
+    routes: &DoctrineRouteSet,
+) -> Result<()> {
+    let path = path.as_ref();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+
+    let cell_px = 24;
+    let mut image = mission_preview_image(state, cell_px);
+    let colors = [
+        Rgba([242, 183, 62, 220]),
+        Rgba([99, 205, 139, 220]),
+        Rgba([220, 108, 92, 220]),
+        Rgba([123, 171, 242, 220]),
+        Rgba([205, 127, 226, 220]),
+        Rgba([230, 230, 120, 220]),
+    ];
+    for (index, route) in routes.routes.iter().enumerate() {
+        draw_route_path(&mut image, route, cell_px, colors[index % colors.len()], 4);
+    }
+    image
+        .save(path)
+        .with_context(|| format!("failed to save {}", path.display()))
+}
+
+fn mission_preview_image(state: &MissionState, cell_px: u32) -> RgbaImage {
     let mut image = RgbaImage::new(state.map.width * cell_px, state.map.height * cell_px);
     for y in 0..state.map.height {
         for x in 0..state.map.width {
@@ -1725,8 +2363,93 @@ pub fn save_mission_preview_png(path: impl AsRef<Path>, state: &MissionState) ->
     }
 
     image
-        .save(path)
-        .with_context(|| format!("failed to save {}", path.display()))
+}
+
+fn draw_route_path(
+    image: &mut RgbaImage,
+    route: &EnemyRoutePreview,
+    cell_px: u32,
+    color: Rgba<u8>,
+    thickness: u32,
+) {
+    if route.points.is_empty() {
+        return;
+    }
+
+    for window in route.points.windows(2) {
+        let a = route_cell_center(window[0], cell_px);
+        let b = route_cell_center(window[1], cell_px);
+        draw_route_segment(image, a, b, color, thickness);
+    }
+    for point in &route.points {
+        let (cx, cy) = route_cell_center(*point, cell_px);
+        let radius = thickness + 1;
+        blend_preview_rect(
+            image,
+            cx.saturating_sub(radius),
+            cy.saturating_sub(radius),
+            radius * 2 + 1,
+            radius * 2 + 1,
+            color,
+        );
+    }
+}
+
+fn route_cell_center(cell: CellCoord, cell_px: u32) -> (u32, u32) {
+    (
+        cell.x * cell_px + cell_px / 2,
+        cell.y * cell_px + cell_px / 2,
+    )
+}
+
+fn draw_route_segment(
+    image: &mut RgbaImage,
+    a: (u32, u32),
+    b: (u32, u32),
+    color: Rgba<u8>,
+    thickness: u32,
+) {
+    let half = thickness / 2 + 1;
+    if a.1 == b.1 {
+        let x0 = a.0.min(b.0).saturating_sub(half);
+        let x1 = a.0.max(b.0) + half;
+        blend_preview_rect(
+            image,
+            x0,
+            a.1.saturating_sub(half),
+            x1.saturating_sub(x0) + 1,
+            half * 2 + 1,
+            color,
+        );
+    } else if a.0 == b.0 {
+        let y0 = a.1.min(b.1).saturating_sub(half);
+        let y1 = a.1.max(b.1) + half;
+        blend_preview_rect(
+            image,
+            a.0.saturating_sub(half),
+            y0,
+            half * 2 + 1,
+            y1.saturating_sub(y0) + 1,
+            color,
+        );
+    } else {
+        blend_preview_rect(
+            image,
+            a.0.saturating_sub(half),
+            a.1.saturating_sub(half),
+            half * 2 + 1,
+            half * 2 + 1,
+            color,
+        );
+        blend_preview_rect(
+            image,
+            b.0.saturating_sub(half),
+            b.1.saturating_sub(half),
+            half * 2 + 1,
+            half * 2 + 1,
+            color,
+        );
+    }
 }
 
 fn preview_cell_color(cell: &MissionCell) -> Rgba<u8> {
@@ -1755,6 +2478,29 @@ fn fill_preview_rect(
     for y in y0..(y0 + height).min(image.height()) {
         for x in x0..(x0 + width).min(image.width()) {
             image.put_pixel(x, y, color);
+        }
+    }
+}
+
+fn blend_preview_rect(
+    image: &mut RgbaImage,
+    x0: u32,
+    y0: u32,
+    width: u32,
+    height: u32,
+    color: Rgba<u8>,
+) {
+    let alpha = color[3] as f32 / 255.0;
+    for y in y0..(y0 + height).min(image.height()) {
+        for x in x0..(x0 + width).min(image.width()) {
+            let dst = image.get_pixel(x, y);
+            let blended = Rgba([
+                (color[0] as f32 * alpha + dst[0] as f32 * (1.0 - alpha)).round() as u8,
+                (color[1] as f32 * alpha + dst[1] as f32 * (1.0 - alpha)).round() as u8,
+                (color[2] as f32 * alpha + dst[2] as f32 * (1.0 - alpha)).round() as u8,
+                255,
+            ]);
+            image.put_pixel(x, y, blended);
         }
     }
 }
@@ -1857,5 +2603,26 @@ mod tests {
         assert!(state.material_ledger.iter().any(|entry| {
             entry.order_kind == WorkOrderKind::RaiseBerm && entry.net.earth_spoil < 0
         }));
+    }
+
+    #[test]
+    fn doctrine_route_preview_exports_changed_routes_after_prep() {
+        let spec = road_below_spec();
+        let initial = MissionState::from_spec(spec.clone());
+        let after = run_work_order_script(spec.clone(), &road_below_basic_prep_script());
+
+        let initial_routes = initial.route_preview();
+        let after_routes = after.route_preview();
+        let delta = route_delta_report(spec.id, &initial_routes, &after_routes);
+
+        assert_eq!(initial_routes.routes.len(), 3);
+        assert_eq!(after_routes.routes.len(), 3);
+        assert!(after_routes.routes.iter().all(|route| route.reached_goal));
+        assert!(after_routes
+            .routes
+            .iter()
+            .all(|route| !route.explanation.is_empty()));
+        assert_eq!(delta.groups.len(), 3);
+        assert!(delta.groups.iter().any(|group| group.changed));
     }
 }

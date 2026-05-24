@@ -47,6 +47,22 @@ This milestone keeps combat paused. The goal is to make prep-phase engineering v
 select terrain/object, preview a work order, queue it, run it, and inspect the terrain/object/material
 side effects.
 
+## GamePivot 3 — Doctrine route preview
+
+Implemented in this drop.
+
+- added deterministic doctrine route previews on `MissionState`
+- added per-doctrine path cost profiles for shortest-path rushers, cover-seekers, concealment flankers, obstacle-avoiders, push-through troops, and obstacle clearers
+- route costs now react to movement cost, height changes, trenches/ditches, berms/spoil, local objects, cover, concealment, and roads
+- Road Below now includes multiple enemy groups so the same terrain can produce different likely routes
+- `mission-seed`, `mission-orders`, and `mission-routes` export initial routes, post-order routes, route deltas, and PNG route previews/debug images
+- route reports include per-group explanations for route cost, terrain features crossed, object cells touched, cover use, and road use
+- Mission Lab now has route overlay modes for initial, current, delta, and none
+- added route-preview regression coverage for the Road Below scripted prep sequence
+
+This milestone still avoids moving enemies, combat, waves, morale, damage, or assault simulation.
+Its job is only to answer whether prep-phase terrain work changes likely enemy approach routes.
+
 ## Milestone 0 — Project seed
 
 Implemented.

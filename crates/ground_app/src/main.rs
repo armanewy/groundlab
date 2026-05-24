@@ -72,10 +72,37 @@ impl CanvasView {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum RouteOverlayMode {
+    None,
+    Initial,
+    Current,
+    Delta,
+}
+
+impl RouteOverlayMode {
+    const ALL: [RouteOverlayMode; 4] = [
+        RouteOverlayMode::Current,
+        RouteOverlayMode::Delta,
+        RouteOverlayMode::Initial,
+        RouteOverlayMode::None,
+    ];
+
+    fn label(self) -> &'static str {
+        match self {
+            RouteOverlayMode::None => "none",
+            RouteOverlayMode::Initial => "initial",
+            RouteOverlayMode::Current => "current",
+            RouteOverlayMode::Delta => "delta",
+        }
+    }
+}
+
 struct GroundLabApp {
     active_panel: WorkbenchPanel,
     mission_state: MissionState,
     selected_mission_cell: CellCoord,
+    route_overlay_mode: RouteOverlayMode,
     paths: WorkbenchAssetPaths,
     recipe_path_text: String,
     palette_path_text: String,
@@ -121,6 +148,7 @@ impl GroundLabApp {
             active_panel: WorkbenchPanel::MissionLab,
             mission_state: MissionState::road_below_seed(),
             selected_mission_cell: CellCoord::new(5, 4),
+            route_overlay_mode: RouteOverlayMode::Current,
             recipe_path_text: paths.recipe_path.to_string_lossy().to_string(),
             palette_path_text: paths.palette_path.to_string_lossy().to_string(),
             file_snapshot: FileSnapshot::capture(&paths),
@@ -159,7 +187,7 @@ impl GroundLabApp {
             dirty_assets: true,
             dirty_preview: true,
             last_preview_size: [1, 1],
-            status: "Ready. GamePivot 2 work orders and local materials are active.".to_string(),
+            status: "Ready. GamePivot 3 doctrine route previews are active.".to_string(),
         };
         app.refresh_if_dirty(&cc.egui_ctx);
         app
@@ -292,7 +320,7 @@ impl GroundLabApp {
     fn show_mission_controls(&mut self, ui: &mut egui::Ui) {
         self.show_panel_tabs(ui);
         ui.heading("Mission Lab");
-        ui.label("GamePivot 2: queued work orders, local materials, and prep costs");
+        ui.label("GamePivot 3: work orders now drive doctrine-specific route previews");
         ui.separator();
 
         ui.strong(&self.mission_state.spec.title);
@@ -310,6 +338,29 @@ impl GroundLabApp {
             self.mission_state.spec.objective.defend_cell.y,
             self.mission_state.spec.objective.objective_health
         ));
+
+        ui.separator();
+        ui.strong("Route preview");
+        egui::ComboBox::from_label("Overlay")
+            .selected_text(self.route_overlay_mode.label())
+            .show_ui(ui, |ui| {
+                for mode in RouteOverlayMode::ALL {
+                    ui.selectable_value(&mut self.route_overlay_mode, mode, mode.label());
+                }
+            });
+        let current_routes = self.mission_state.route_preview();
+        for route in &current_routes.routes {
+            ui.small(format!(
+                "{} · {:?} · {} cell(s) · cost {:.1}",
+                route.group_label,
+                route.doctrine,
+                route.points.len(),
+                route.total_cost
+            ));
+            if let Some(note) = route.explanation.first() {
+                ui.small(note);
+            }
+        }
 
         ui.separator();
         ui.strong("Tools");
@@ -1334,11 +1385,61 @@ impl GroundLabApp {
                 }
             }
         }
+        self.draw_mission_route_overlay(&painter, rect, cell_size);
 
         ui.add_space(8.0);
         ui.label(
-            "This is a data-first mission view. It is intentionally not the final 2.5D renderer.",
+            "Blue route = initial plan. Gold/red route = current terrain after applied work orders. This is still a data-first mission view.",
         );
+    }
+
+    fn draw_mission_route_overlay(
+        &self,
+        painter: &egui::Painter,
+        rect: egui::Rect,
+        cell_size: f32,
+    ) {
+        match self.route_overlay_mode {
+            RouteOverlayMode::None => {}
+            RouteOverlayMode::Initial => {
+                let initial = MissionState::road_below_seed().route_preview();
+                draw_route_set_on_mission(
+                    painter,
+                    rect,
+                    cell_size,
+                    &initial,
+                    RouteOverlayMode::Initial,
+                );
+            }
+            RouteOverlayMode::Current => {
+                let current = self.mission_state.route_preview();
+                draw_route_set_on_mission(
+                    painter,
+                    rect,
+                    cell_size,
+                    &current,
+                    RouteOverlayMode::Current,
+                );
+            }
+            RouteOverlayMode::Delta => {
+                let initial = MissionState::road_below_seed().route_preview();
+                let current = self.mission_state.route_preview();
+                draw_route_set_on_mission(
+                    painter,
+                    rect,
+                    cell_size,
+                    &initial,
+                    RouteOverlayMode::Initial,
+                );
+                draw_route_set_on_mission(
+                    painter,
+                    rect,
+                    cell_size,
+                    &current,
+                    RouteOverlayMode::Current,
+                );
+            }
+        }
     }
 }
 
@@ -1441,6 +1542,65 @@ fn mission_object_state_label(object: &EnvironmentObject) -> &'static str {
         EnvironmentObjectKind::Wire(_) => "wire",
         EnvironmentObjectKind::Stakes(_) => "stakes",
         EnvironmentObjectKind::FightingPosition(_) => "fighting position",
+    }
+}
+
+fn draw_route_set_on_mission(
+    painter: &egui::Painter,
+    rect: egui::Rect,
+    cell_size: f32,
+    routes: &ground_game::DoctrineRouteSet,
+    mode: RouteOverlayMode,
+) {
+    for (index, route) in routes.routes.iter().enumerate() {
+        if route.points.is_empty() {
+            continue;
+        }
+        let color = mission_route_color(index, mode);
+        for window in route.points.windows(2) {
+            let a = mission_route_point(rect, cell_size, window[0]);
+            let b = mission_route_point(rect, cell_size, window[1]);
+            painter.line_segment([a, b], egui::Stroke::new(5.0, color));
+        }
+        if let Some(first) = route.points.first().copied() {
+            painter.circle_filled(
+                mission_route_point(rect, cell_size, first),
+                4.5,
+                egui::Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 230),
+            );
+        }
+        if let Some(last) = route.points.last().copied() {
+            painter.circle_filled(
+                mission_route_point(rect, cell_size, last),
+                5.5,
+                egui::Color32::from_rgba_unmultiplied(245, 229, 124, 230),
+            );
+        }
+    }
+}
+
+fn mission_route_point(rect: egui::Rect, cell_size: f32, cell: CellCoord) -> egui::Pos2 {
+    egui::pos2(
+        rect.left() + cell.x as f32 * cell_size + cell_size * 0.5,
+        rect.top() + cell.y as f32 * cell_size + cell_size * 0.5,
+    )
+}
+
+fn mission_route_color(index: usize, mode: RouteOverlayMode) -> egui::Color32 {
+    let initial = [
+        egui::Color32::from_rgba_unmultiplied(78, 142, 230, 140),
+        egui::Color32::from_rgba_unmultiplied(96, 170, 238, 135),
+        egui::Color32::from_rgba_unmultiplied(116, 190, 246, 135),
+    ];
+    let current = [
+        egui::Color32::from_rgba_unmultiplied(238, 196, 78, 190),
+        egui::Color32::from_rgba_unmultiplied(102, 210, 142, 185),
+        egui::Color32::from_rgba_unmultiplied(226, 108, 86, 185),
+    ];
+    match mode {
+        RouteOverlayMode::Initial => initial[index % initial.len()],
+        RouteOverlayMode::Current | RouteOverlayMode::Delta => current[index % current.len()],
+        RouteOverlayMode::None => egui::Color32::TRANSPARENT,
     }
 }
 
