@@ -307,7 +307,7 @@ impl GroundLabApp {
             dirty_assets: true,
             dirty_preview: true,
             last_preview_size: [1, 1],
-            status: "Ready. ProcGen 7 mission-pack playtest tools are active.".to_string(),
+            status: "Ready. ProcGen 7.1 pack quality tools are active.".to_string(),
         };
         app.refresh_if_dirty(&cc.egui_ctx);
         app
@@ -441,7 +441,7 @@ impl GroundLabApp {
         self.show_panel_tabs(ui);
         ui.heading("Mission Lab");
         ui.label(
-            "ProcGen 7: generated mission packs, playtest reports, and playable candidate browser",
+            "ProcGen 7.1: generated mission packs, quality reports, and playable candidate browser",
         );
         ui.separator();
 

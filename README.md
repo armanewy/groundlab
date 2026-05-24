@@ -4,7 +4,7 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: ProcGen 7 — generated mission pack playtest pass
+## Current status: ProcGen 7.1 — full pack quality gate
 
 GroundLab has pivoted again from manually tuning one mission toward generating compact tactical
 terrain problems in batches. The primary product direction is still a 2.5D tactical engineering
@@ -17,7 +17,7 @@ SpriteGen remains in the repository as the terrain art forge. It still provides 
 profiles, override PNGs, sprite manifests, validation, and exportable grass/dirt/path/trench/berm/
 stone pieces. It is now supporting infrastructure rather than the main roadmap driver.
 
-GamePivot 8 and ProcGen 1-7 build on the `ground_game` crate with:
+GamePivot 8 and ProcGen 1-7.1 build on the `ground_game` crate with:
 
 - `MissionSpec`, `MissionMap`, and `MissionCell`
 - earth states such as normal, scraped, trench, deep trench, spoil pile, berm, unstable, and muddy
@@ -71,6 +71,7 @@ GamePivot 8 and ProcGen 1-7 build on the `ground_game` crate with:
 - per-mission pack playtest bundles with scenario comparisons, route/hazard summaries, visual renders, and visual QA
 - visual QA metrics for terrain-feature coverage, fallback sprite count, placeholder object count, route overlay legibility, objective/spawn visibility, and feature visibility
 - a Mission Lab mission-pack panel for loading `mission_pack.ron`, stepping previous/next through pack slots, and loading any pack mission into the playable loop
+- a multi-seed mission-pack quality gate that generates packs across seed matrices and aggregates pack stability, theme acceptance drift, difficulty/complexity curve quality, visual QA, and weak mission diagnostics
 - a Mission Lab file loader for opening generated `mission.ron` candidates directly from disk
 - assault summary and debrief exports for debugging why the plan worked or failed
 - per-cell influence summaries for crossed cells, delayed cells, damaging cells, defender pressure, breach cells, effective obstacles, and unused defenses
@@ -212,6 +213,31 @@ exports/procgen_07_playtest/
       visual_qa.json
 ```
 
+Run the ProcGen 7.1 multi-seed pack quality gate:
+
+```bash
+cargo run -p ground_cli -- quality-gate-mission-packs exports/procgen_07_1 --seed 99418113 --seed-count 3 --missions 6 --candidates-per-theme 20 --curve tutorial --render-visuals
+```
+
+Quality-gate output includes:
+
+```txt
+exports/procgen_07_1/
+  seed_matrix_summary.json
+  pack_quality_report.json
+  theme_stability_report.json
+  difficulty_curve_report.json
+  complexity_curve_report.json
+  visual_qa_summary.json
+  weak_mission_reports/
+  generated_pack_contact_sheets/
+  packs/
+    seed_*/
+      mission_pack.ron
+      pack_playtest_summary.json
+      per_mission_playtest/
+```
+
 Render one mission directly as a high-oblique visual preview:
 
 ```bash
@@ -263,10 +289,17 @@ cargo run -p ground_app
 The full-scene terrain renderer and ArtGen outputs remain downstream infrastructure for terrain
 data, pathing, LOS, and art-kit composition. ProcGen 6 reconnects that asset pipeline to generated
 missions through deterministic visual previews, ProcGen 6.1 separates beauty/routes/debug outputs
-while improving generated mission composition, and ProcGen 7 replays generated mission packs through
-the balance/debrief harness with visual QA. The active gameplay roadmap still emphasizes seeded
-mission generation, automatic evaluation, ranking, playable candidate export, and pack-level
-playtest reporting.
+while improving generated mission composition, ProcGen 7 replays generated mission packs through the
+balance/debrief harness with visual QA, and ProcGen 7.1 runs that harness across multiple seeds to
+report pack stability. The active gameplay roadmap still emphasizes seeded mission generation,
+automatic evaluation, ranking, playable candidate export, pack-level playtest reporting, and
+multi-seed quality gates.
+
+## Previous status: ProcGen 7 — generated mission pack playtest pass
+
+ProcGen 7 added `pack_playtest_summary.json`, per-mission playtest bundles, visual QA metrics,
+`playtest-mission-pack`, and Mission Lab pack loading so generated packs can be evaluated as
+playable sets instead of only as accepted candidate lists.
 
 ## Previous status: ProcGen 6.1 — generated mission visual composition polish
 

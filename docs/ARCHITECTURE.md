@@ -13,6 +13,8 @@ mission pack selection with difficulty/complexity curves. Generated missions now
 theme bindings and can be rendered through effective SpriteGen assets as high-oblique beauty,
 route-overlay, and debug mission previews. Generated mission packs can also be replayed through the
 balance/debrief harness with per-mission visual QA so pack quality is evaluated as a playable set.
+ProcGen 7.1 runs that same pack pipeline across seed matrices and aggregates stability, theme drift,
+curve quality, visual QA, and weak-mission diagnostics.
 `ground_app` now treats Mission Lab as the primary tactical prep surface rather than a generic
 terrain editor panel, and Road Below starts as a playable briefing-to-debrief slice. The same
 mission loop now evaluates generated Road-Below-like candidates so GroundLab can batch-generate,
@@ -43,6 +45,8 @@ score, reject, and export compact terrain-defense problems.
   contact sheets
 - Pack playtest reports, per-mission balance replays, visual readability QA, and Mission Lab pack
   loading
+- Multi-seed pack quality gates with stability reports, theme acceptance drift, curve diagnostics,
+  visual QA summaries, and weak-mission recommendation exports
 - Mission visual theme bindings, high-oblique generated mission beauty previews, visual route/debug
   overlays, generated feature maps, and visual asset reports
 - Terrain editing brushes
@@ -121,6 +125,7 @@ MissionGeneratorSpec + MissionTheme
   -> theme-to-sprite-profile visual binding
   -> high-oblique mission visual previews + visual asset reports
   -> pack-level playtest report + per-mission visual QA
+  -> multi-seed pack quality gate + weak-mission diagnostics
   -> Mission Lab inspection / playable retry
 ```
 

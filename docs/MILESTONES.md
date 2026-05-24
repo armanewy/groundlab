@@ -385,6 +385,29 @@ Implemented in this drop.
 This milestone does not add new mechanics, themes, combat systems, or renderer work. It makes a
 generated pack inspectable as a playable set instead of only a list of accepted candidates.
 
+## ProcGen 7.1 — Full pack quality gate
+
+Implemented in this drop.
+
+- added `GeneratedMissionPackQualityGateReport`, pack-quality rows, theme-stability reports,
+  difficulty/complexity curve reports, visual QA summaries, and weak-mission diagnostics
+- added `cargo run -p ground_cli -- quality-gate-mission-packs [out_dir] [--seed N]
+  [--seed-count N] [--missions N] [--candidates-per-theme N] [--curve balanced|tutorial]`
+- the quality gate generates one mission pack per seed under `packs/seed_{seed}/`, preserving the
+  normal pack manifest, visual sheet, playtest summary, and per-mission playtest folders
+- exports `seed_matrix_summary.json`, `pack_quality_report.json`, `theme_stability_report.json`,
+  `difficulty_curve_report.json`, `complexity_curve_report.json`, and `visual_qa_summary.json`
+- copies each generated pack contact sheet and visual sheet into `generated_pack_contact_sheets/`
+  for quick scanning across the seed matrix
+- exports one JSON file per weak mission under `weak_mission_reports/` with reasons and
+  recommendations for low plan spread, no-prep outperforming prep, route-overlay legibility,
+  terrain-feature visibility, missing/fallback sprites, and invalid objective/spawn visibility
+- aggregates per-theme acceptance drift and top rejection reasons across the generated seed matrix
+
+This milestone does not add new gameplay, new themes, campaign progression, or renderer work. It
+turns ProcGen packs into a repeatable quality gate so generator reliability can be judged across
+many seeds before adding campaign/set packaging.
+
 ## Milestone 0 — Project seed
 
 Implemented.

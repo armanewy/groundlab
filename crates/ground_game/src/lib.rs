@@ -9,6 +9,7 @@ use ground_core::{
     TerrainSpriteKind, TerrainSpriteRecipe, DEFAULT_SPRITE_STYLE_PATH,
 };
 use image::{Rgba, RgbaImage};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_MISSION_EXPORT_DIR: &str = "exports/gamepivot_05_1";
@@ -1228,6 +1229,111 @@ pub struct GeneratedMissionVisualQa {
     pub terrain_feature_visibility: f32,
     pub warning_count: u32,
     pub notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionPackQualityGateReport {
+    pub seed: u64,
+    pub seed_count: u32,
+    pub requested_missions: u32,
+    pub candidate_count_per_theme: u32,
+    pub curve: MissionPackCurve,
+    pub pack_count: u32,
+    pub passed_pack_count: u32,
+    pub average_acceptance_rate: f32,
+    pub average_plan_spread: f32,
+    pub packs: Vec<GeneratedMissionPackQualityPackReport>,
+    pub theme_stability_report: GeneratedMissionThemeStabilityReport,
+    pub difficulty_curve_report: GeneratedMissionCurveQualityReport,
+    pub complexity_curve_report: GeneratedMissionCurveQualityReport,
+    pub visual_qa_summary: GeneratedMissionVisualQaSummary,
+    pub weak_missions: Vec<GeneratedMissionWeakMissionReport>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionPackQualityPackReport {
+    pub seed: u64,
+    pub pack_dir: String,
+    pub mission_count: u32,
+    pub total_generated_count: u32,
+    pub total_accepted_count: u32,
+    pub acceptance_rate: f32,
+    pub unique_theme_count: u32,
+    pub repeated_theme_count: u32,
+    pub difficulty_curve_is_monotonic: bool,
+    pub complexity_curve_is_monotonic: bool,
+    pub average_no_prep_score: f32,
+    pub average_best_score: f32,
+    pub average_plan_spread: f32,
+    pub visual_warning_count: u32,
+    pub weak_mission_count: u32,
+    pub passed: bool,
+    pub notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionThemeStabilityReport {
+    pub themes: Vec<GeneratedMissionThemeStabilityEntry>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionThemeStabilityEntry {
+    pub theme: MissionTheme,
+    pub theme_slug: String,
+    pub generated_count: u32,
+    pub accepted_count: u32,
+    pub acceptance_rate: f32,
+    pub target_acceptance_min: f32,
+    pub target_acceptance_max: f32,
+    pub pack_slot_count: u32,
+    pub weak_mission_count: u32,
+    pub most_common_rejection: Option<GeneratedMissionRejectionKind>,
+    pub recommendations: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionCurveQualityReport {
+    pub curve_kind: String,
+    pub pack_count: u32,
+    pub monotonic_pack_count: u32,
+    pub average_start_score: f32,
+    pub average_end_score: f32,
+    pub average_step_delta: f32,
+    pub max_upward_spike: i32,
+    pub max_downward_dip: i32,
+    pub notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionVisualQaSummary {
+    pub mission_count: u32,
+    pub average_feature_coverage: f32,
+    pub average_terrain_feature_visibility: f32,
+    pub average_route_overlay_legibility: f32,
+    pub total_fallback_sprite_count: u32,
+    pub total_placeholder_object_count: u32,
+    pub mission_warning_count: u32,
+    pub notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct GeneratedMissionWeakMissionReport {
+    pub pack_seed: u64,
+    pub order: u32,
+    pub title: String,
+    pub mission_id: String,
+    pub theme: MissionTheme,
+    pub theme_slug: String,
+    pub mission_path: String,
+    pub no_prep_score: i32,
+    pub best_score: i32,
+    pub best_minus_no_prep: i32,
+    pub best_minus_worst: i32,
+    pub visual_warning_count: u32,
+    pub reasons: Vec<String>,
+    pub recommendations: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -3208,6 +3314,193 @@ pub fn load_generated_mission_pack(path: impl AsRef<Path>) -> Result<GeneratedMi
     }
 }
 
+pub fn export_generated_mission_pack_quality_gate(
+    out_dir: impl AsRef<Path>,
+    base_generator: MissionGeneratorSpec,
+    seed_count: u32,
+    requested_missions: u32,
+    candidate_count_per_theme: u32,
+    curve: MissionPackCurve,
+) -> Result<GeneratedMissionPackQualityGateReport> {
+    let out_dir = out_dir.as_ref();
+    fs::create_dir_all(out_dir)
+        .with_context(|| format!("failed to create {}", out_dir.display()))?;
+    let packs_dir = out_dir.join("packs");
+    let contact_sheets_dir = out_dir.join("generated_pack_contact_sheets");
+    let weak_missions_dir = out_dir.join("weak_mission_reports");
+    fs::create_dir_all(&packs_dir)
+        .with_context(|| format!("failed to create {}", packs_dir.display()))?;
+    fs::create_dir_all(&contact_sheets_dir)
+        .with_context(|| format!("failed to create {}", contact_sheets_dir.display()))?;
+    fs::create_dir_all(&weak_missions_dir)
+        .with_context(|| format!("failed to create {}", weak_missions_dir.display()))?;
+
+    let mut packs = Vec::new();
+    let mut weak_missions = Vec::new();
+    let mut theme_accumulators: HashMap<MissionTheme, ThemeStabilityAccumulator> = HashMap::new();
+    let mut difficulty_curves = Vec::new();
+    let mut complexity_curves = Vec::new();
+    let mut visual_qas = Vec::new();
+
+    for index in 0..seed_count {
+        let seed = quality_gate_seed(base_generator.seed, index);
+        let mut generator = base_generator.clone();
+        generator.seed = seed;
+        let pack_dir = packs_dir.join(format!("seed_{seed:016x}"));
+        let summary = export_generated_mission_pack_with_curve(
+            &pack_dir,
+            generator,
+            requested_missions,
+            candidate_count_per_theme,
+            curve,
+        )?;
+        let playtest: GeneratedMissionPackPlaytestReport =
+            read_json(pack_dir.join("pack_playtest_summary.json"))?;
+        let theme_report: GeneratedMissionThemeBatchReport =
+            read_json(PathBuf::from(&summary.source_batch_dir).join("theme_summary.json"))?;
+
+        copy_file_if_exists(
+            pack_dir.join("mission_pack_contact_sheet.png"),
+            contact_sheets_dir.join(format!("seed_{seed:016x}_contact_sheet.png")),
+        )?;
+        copy_file_if_exists(
+            pack_dir.join("mission_pack_visual_sheet.png"),
+            contact_sheets_dir.join(format!("seed_{seed:016x}_visual_sheet.png")),
+        )?;
+
+        for theme_summary in &theme_report.theme_summaries {
+            let accumulator = theme_accumulators.entry(theme_summary.theme).or_default();
+            accumulator.generated_count += theme_summary.generated_count;
+            accumulator.accepted_count += theme_summary.accepted_count;
+        }
+        for rejected in &theme_report.all_rejected_candidates {
+            let accumulator = theme_accumulators.entry(rejected.theme).or_default();
+            for kind in &rejected.rejection_kinds {
+                *accumulator.rejection_counts.entry(*kind).or_default() += 1;
+            }
+        }
+        for mission in &summary.pack.missions {
+            theme_accumulators
+                .entry(mission.theme)
+                .or_default()
+                .pack_slot_count += 1;
+        }
+
+        difficulty_curves.push(
+            summary
+                .difficulty_curve
+                .iter()
+                .map(|point| point.difficulty_score)
+                .collect::<Vec<_>>(),
+        );
+        complexity_curves.push(
+            summary
+                .complexity_curve
+                .iter()
+                .map(|point| point.complexity_score)
+                .collect::<Vec<_>>(),
+        );
+
+        let mut pack_weak_missions = Vec::new();
+        for mission in &playtest.missions {
+            visual_qas.push(mission.visual_qa.clone());
+            if let Some(weak) = weak_mission_report(seed, mission) {
+                theme_accumulators
+                    .entry(mission.theme)
+                    .or_default()
+                    .weak_mission_count += 1;
+                let weak_path = weak_missions_dir.join(format!(
+                    "seed_{seed:016x}_mission_{:02}_{}.json",
+                    weak.order,
+                    sanitize_path_component(&weak.theme_slug)
+                ));
+                write_json(weak_path, &weak)?;
+                pack_weak_missions.push(weak.clone());
+                weak_missions.push(weak);
+            }
+        }
+
+        let pack_report =
+            pack_quality_report(seed, &pack_dir, &summary, &playtest, &pack_weak_missions);
+        packs.push(pack_report);
+    }
+
+    let pack_count = packs.len() as u32;
+    let passed_pack_count = packs.iter().filter(|pack| pack.passed).count() as u32;
+    let theme_stability_report = theme_stability_report(theme_accumulators);
+    let difficulty_curve_report = curve_quality_report("difficulty", &difficulty_curves, |curve| {
+        curve.windows(2).all(|w| w[0] <= w[1])
+    });
+    let complexity_curve_report = curve_quality_report("complexity", &complexity_curves, |curve| {
+        curve.windows(2).all(|w| w[0] <= w[1] + 5)
+    });
+    let visual_qa_summary = visual_qa_summary(&visual_qas);
+    let average_acceptance_rate = average_f32(packs.iter().map(|pack| pack.acceptance_rate));
+    let average_plan_spread = average_f32(packs.iter().map(|pack| pack.average_plan_spread));
+
+    let mut notes = Vec::new();
+    if pack_count == 0 {
+        notes.push("No packs were generated for the quality gate.".to_string());
+    }
+    if passed_pack_count < pack_count {
+        notes.push(format!(
+            "{} of {} pack(s) passed the current quality gate.",
+            passed_pack_count, pack_count
+        ));
+    } else if pack_count > 0 {
+        notes.push("All generated packs passed the current quality gate.".to_string());
+    }
+    if !weak_missions.is_empty() {
+        notes.push(format!(
+            "{} weak mission diagnostic(s) were exported for follow-up tuning.",
+            weak_missions.len()
+        ));
+    }
+    notes.extend(theme_stability_report.notes.iter().cloned());
+    notes.extend(difficulty_curve_report.notes.iter().cloned());
+    notes.extend(complexity_curve_report.notes.iter().cloned());
+    notes.extend(visual_qa_summary.notes.iter().cloned());
+
+    let report = GeneratedMissionPackQualityGateReport {
+        seed: base_generator.seed,
+        seed_count,
+        requested_missions,
+        candidate_count_per_theme,
+        curve,
+        pack_count,
+        passed_pack_count,
+        average_acceptance_rate,
+        average_plan_spread,
+        packs,
+        theme_stability_report,
+        difficulty_curve_report,
+        complexity_curve_report,
+        visual_qa_summary,
+        weak_missions,
+        notes,
+    };
+
+    write_json(out_dir.join("seed_matrix_summary.json"), &report)?;
+    write_json(out_dir.join("pack_quality_report.json"), &report.packs)?;
+    write_json(
+        out_dir.join("theme_stability_report.json"),
+        &report.theme_stability_report,
+    )?;
+    write_json(
+        out_dir.join("difficulty_curve_report.json"),
+        &report.difficulty_curve_report,
+    )?;
+    write_json(
+        out_dir.join("complexity_curve_report.json"),
+        &report.complexity_curve_report,
+    )?;
+    write_json(
+        out_dir.join("visual_qa_summary.json"),
+        &report.visual_qa_summary,
+    )?;
+    Ok(report)
+}
+
 pub fn export_theme_calibration_report(
     out_dir: impl AsRef<Path>,
     base_generator: MissionGeneratorSpec,
@@ -3832,6 +4125,388 @@ fn sanitize_path_component(value: &str) -> String {
     } else {
         sanitized
     }
+}
+
+#[derive(Default)]
+struct ThemeStabilityAccumulator {
+    generated_count: u32,
+    accepted_count: u32,
+    pack_slot_count: u32,
+    weak_mission_count: u32,
+    rejection_counts: HashMap<GeneratedMissionRejectionKind, u32>,
+}
+
+fn quality_gate_seed(base_seed: u64, index: u32) -> u64 {
+    base_seed.wrapping_add((index as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15))
+}
+
+fn pack_quality_report(
+    seed: u64,
+    pack_dir: &Path,
+    summary: &GeneratedMissionPackSummary,
+    playtest: &GeneratedMissionPackPlaytestReport,
+    weak_missions: &[GeneratedMissionWeakMissionReport],
+) -> GeneratedMissionPackQualityPackReport {
+    let acceptance_rate = ratio(summary.total_accepted_count, summary.total_generated_count);
+    let visual_warning_count = playtest
+        .missions
+        .iter()
+        .map(|mission| mission.visual_qa.warning_count)
+        .sum();
+    let mut notes = Vec::new();
+    if summary.pack.missions.len() < summary.requested_missions as usize {
+        notes.push(format!(
+            "Pack has {} mission(s), below requested {}.",
+            summary.pack.missions.len(),
+            summary.requested_missions
+        ));
+    }
+    if summary.pack_diversity_report.repeated_theme_count > 0 {
+        notes.push(format!(
+            "Pack repeats {} theme slot(s).",
+            summary.pack_diversity_report.repeated_theme_count
+        ));
+    }
+    if !summary.pack_diversity_report.difficulty_curve_is_monotonic {
+        notes.push("Difficulty curve has a local spike or dip.".to_string());
+    }
+    if !summary.pack_diversity_report.complexity_curve_is_monotonic {
+        notes.push("Complexity curve has a local spike or dip.".to_string());
+    }
+    if playtest.average_plan_spread < 12.0 {
+        notes.push(format!(
+            "Average plan spread is low ({:.1}).",
+            playtest.average_plan_spread
+        ));
+    }
+    if visual_warning_count > 0 {
+        notes.push(format!(
+            "Pack has {visual_warning_count} visual QA warning(s)."
+        ));
+    }
+    if !weak_missions.is_empty() {
+        notes.push(format!(
+            "{} weak mission(s) need follow-up.",
+            weak_missions.len()
+        ));
+    }
+    let passed = summary.pack.missions.len() == summary.requested_missions as usize
+        && summary.pack_diversity_report.repeated_theme_count == 0
+        && summary.pack_diversity_report.difficulty_curve_is_monotonic
+        && summary.pack_diversity_report.complexity_curve_is_monotonic
+        && playtest.average_plan_spread >= 12.0
+        && visual_warning_count <= playtest.mission_count
+        && weak_missions.len() <= 1;
+    if passed {
+        notes.push("Pack passes the current quality gate.".to_string());
+    }
+
+    GeneratedMissionPackQualityPackReport {
+        seed,
+        pack_dir: pack_dir.to_string_lossy().to_string(),
+        mission_count: summary.pack.missions.len() as u32,
+        total_generated_count: summary.total_generated_count,
+        total_accepted_count: summary.total_accepted_count,
+        acceptance_rate,
+        unique_theme_count: summary.pack_diversity_report.unique_theme_count,
+        repeated_theme_count: summary.pack_diversity_report.repeated_theme_count,
+        difficulty_curve_is_monotonic: summary.pack_diversity_report.difficulty_curve_is_monotonic,
+        complexity_curve_is_monotonic: summary.pack_diversity_report.complexity_curve_is_monotonic,
+        average_no_prep_score: playtest.average_no_prep_score,
+        average_best_score: playtest.average_best_score,
+        average_plan_spread: playtest.average_plan_spread,
+        visual_warning_count,
+        weak_mission_count: weak_missions.len() as u32,
+        passed,
+        notes,
+    }
+}
+
+fn weak_mission_report(
+    pack_seed: u64,
+    mission: &GeneratedMissionPackPlaytestMission,
+) -> Option<GeneratedMissionWeakMissionReport> {
+    let mut reasons = Vec::new();
+    let mut recommendations = Vec::new();
+    if mission.best_minus_no_prep <= 0 {
+        reasons.push("Best scripted prep does not outperform no-prep.".to_string());
+        recommendations.push(
+            "Increase enemy pressure or terrain affordances so prep changes the outcome."
+                .to_string(),
+        );
+    }
+    if mission.best_minus_worst < 10 {
+        reasons.push("Scripted plan spread is too narrow.".to_string());
+        recommendations.push(
+            "Tune constraints, materials, or route pressure so bad and good plans separate more."
+                .to_string(),
+        );
+    }
+    if mission.visual_qa.fallback_sprite_count > 0 {
+        reasons.push("Visual render used missing/fallback terrain sprites.".to_string());
+        recommendations.push(
+            "Inspect visual_asset_report.json and add or override the missing pieces.".to_string(),
+        );
+    }
+    if mission.visual_qa.route_overlay_legibility < 0.55 {
+        reasons.push("Route overlay legibility is low.".to_string());
+        recommendations.push(
+            "Reduce route clutter or increase route separation for this theme grammar.".to_string(),
+        );
+    }
+    if !mission.visual_qa.objective_visible || !mission.visual_qa.spawn_visible {
+        reasons.push("Objective or spawn visibility failed visual QA.".to_string());
+        recommendations
+            .push("Keep objective and spawn cells inside the generated map.".to_string());
+    }
+    if mission.visual_qa.terrain_feature_visibility < 0.10 {
+        reasons.push("Terrain feature visibility is low.".to_string());
+        recommendations.push(
+            "Increase visible paths, earthworks, stone, or object affordances for the mission."
+                .to_string(),
+        );
+    }
+    if reasons.is_empty() {
+        return None;
+    }
+
+    Some(GeneratedMissionWeakMissionReport {
+        pack_seed,
+        order: mission.order,
+        title: mission.title.clone(),
+        mission_id: mission.mission_id.clone(),
+        theme: mission.theme,
+        theme_slug: mission.theme_slug.clone(),
+        mission_path: mission.mission_path.clone(),
+        no_prep_score: mission.no_prep_score,
+        best_score: mission.best_score,
+        best_minus_no_prep: mission.best_minus_no_prep,
+        best_minus_worst: mission.best_minus_worst,
+        visual_warning_count: mission.visual_qa.warning_count,
+        reasons,
+        recommendations,
+    })
+}
+
+fn theme_stability_report(
+    accumulators: HashMap<MissionTheme, ThemeStabilityAccumulator>,
+) -> GeneratedMissionThemeStabilityReport {
+    let mut themes = Vec::new();
+    let mut notes = Vec::new();
+    for theme in MissionTheme::GENERATABLE {
+        let accumulator = accumulators.get(&theme);
+        let generated_count = accumulator
+            .map(|entry| entry.generated_count)
+            .unwrap_or_default();
+        let accepted_count = accumulator
+            .map(|entry| entry.accepted_count)
+            .unwrap_or_default();
+        let pack_slot_count = accumulator
+            .map(|entry| entry.pack_slot_count)
+            .unwrap_or_default();
+        let weak_mission_count = accumulator
+            .map(|entry| entry.weak_mission_count)
+            .unwrap_or_default();
+        let acceptance_rate = ratio(accepted_count, generated_count);
+        let (target_min, target_max, _) = theme_calibration_target(theme);
+        let rejection_reasons = accumulator
+            .map(|entry| {
+                rejection_histogram_from_counts(
+                    &entry.rejection_counts,
+                    generated_count.saturating_sub(accepted_count),
+                )
+            })
+            .unwrap_or_default();
+        let most_common_rejection = rejection_reasons.first().map(|entry| entry.kind);
+        let recommendations = theme_calibration_recommendations(
+            theme,
+            acceptance_rate,
+            target_min,
+            target_max,
+            &rejection_reasons,
+        );
+        if generated_count == 0 {
+            notes.push(format!("{} generated no candidates.", theme.label()));
+        } else if acceptance_rate < target_min {
+            notes.push(format!(
+                "{} acceptance is below target ({:.0}% vs {:.0}%).",
+                theme.label(),
+                acceptance_rate * 100.0,
+                target_min * 100.0
+            ));
+        } else if acceptance_rate > target_max {
+            notes.push(format!(
+                "{} acceptance is above target ({:.0}% vs {:.0}%).",
+                theme.label(),
+                acceptance_rate * 100.0,
+                target_max * 100.0
+            ));
+        }
+        if pack_slot_count == 0 {
+            notes.push(format!(
+                "{} did not appear in any generated pack slot.",
+                theme.label()
+            ));
+        }
+        if weak_mission_count > 0 {
+            notes.push(format!(
+                "{} contributed {weak_mission_count} weak mission diagnostic(s).",
+                theme.label()
+            ));
+        }
+
+        themes.push(GeneratedMissionThemeStabilityEntry {
+            theme,
+            theme_slug: theme.slug().to_string(),
+            generated_count,
+            accepted_count,
+            acceptance_rate,
+            target_acceptance_min: target_min,
+            target_acceptance_max: target_max,
+            pack_slot_count,
+            weak_mission_count,
+            most_common_rejection,
+            recommendations,
+        });
+    }
+    if notes.is_empty() {
+        notes.push("Theme stability is inside current target bands.".to_string());
+    }
+    GeneratedMissionThemeStabilityReport { themes, notes }
+}
+
+fn rejection_histogram_from_counts(
+    counts: &HashMap<GeneratedMissionRejectionKind, u32>,
+    total_rejected_count: u32,
+) -> Vec<RejectionReasonHistogramEntry> {
+    let mut entries = counts
+        .iter()
+        .map(|(kind, count)| RejectionReasonHistogramEntry {
+            kind: *kind,
+            count: *count,
+            ratio: ratio(*count, total_rejected_count),
+        })
+        .collect::<Vec<_>>();
+    entries.sort_by(|a, b| {
+        b.count
+            .cmp(&a.count)
+            .then_with(|| format!("{:?}", a.kind).cmp(&format!("{:?}", b.kind)))
+    });
+    entries
+}
+
+fn curve_quality_report(
+    curve_kind: &str,
+    curves: &[Vec<i32>],
+    monotonic: impl Fn(&[i32]) -> bool,
+) -> GeneratedMissionCurveQualityReport {
+    let pack_count = curves.len() as u32;
+    let monotonic_pack_count = curves.iter().filter(|curve| monotonic(curve)).count() as u32;
+    let average_start_score = average_i32(curves.iter().filter_map(|curve| curve.first().copied()));
+    let average_end_score = average_i32(curves.iter().filter_map(|curve| curve.last().copied()));
+    let step_deltas = curves
+        .iter()
+        .flat_map(|curve| curve.windows(2).map(|window| window[1] - window[0]))
+        .collect::<Vec<_>>();
+    let average_step_delta = average_i32(step_deltas.iter().copied());
+    let max_upward_spike = step_deltas.iter().copied().max().unwrap_or(0);
+    let max_downward_dip = step_deltas.iter().copied().min().unwrap_or(0);
+    let mut notes = Vec::new();
+    if pack_count == 0 {
+        notes.push(format!("No {curve_kind} curves were generated."));
+    } else if monotonic_pack_count < pack_count {
+        notes.push(format!(
+            "{} of {} pack(s) have a non-monotonic {curve_kind} curve.",
+            pack_count - monotonic_pack_count,
+            pack_count
+        ));
+    } else {
+        notes.push(format!(
+            "All generated packs have monotonic {curve_kind} curves."
+        ));
+    }
+    if max_upward_spike > 30 {
+        notes.push(format!(
+            "Largest upward {curve_kind} spike is {max_upward_spike}; inspect pack ordering."
+        ));
+    }
+    if max_downward_dip < -20 {
+        notes.push(format!(
+            "Largest downward {curve_kind} dip is {max_downward_dip}; inspect pack ordering."
+        ));
+    }
+
+    GeneratedMissionCurveQualityReport {
+        curve_kind: curve_kind.to_string(),
+        pack_count,
+        monotonic_pack_count,
+        average_start_score,
+        average_end_score,
+        average_step_delta,
+        max_upward_spike,
+        max_downward_dip,
+        notes,
+    }
+}
+
+fn visual_qa_summary(qas: &[GeneratedMissionVisualQa]) -> GeneratedMissionVisualQaSummary {
+    let mission_count = qas.len() as u32;
+    let average_feature_coverage = average_f32(qas.iter().map(|qa| qa.visual_feature_coverage));
+    let average_terrain_feature_visibility =
+        average_f32(qas.iter().map(|qa| qa.terrain_feature_visibility));
+    let average_route_overlay_legibility =
+        average_f32(qas.iter().map(|qa| qa.route_overlay_legibility));
+    let total_fallback_sprite_count = qas.iter().map(|qa| qa.fallback_sprite_count).sum();
+    let total_placeholder_object_count = qas.iter().map(|qa| qa.placeholder_object_count).sum();
+    let mission_warning_count = qas.iter().filter(|qa| qa.warning_count > 0).count() as u32;
+    let mut notes = Vec::new();
+    if mission_count == 0 {
+        notes.push("No visual QA records were generated.".to_string());
+    }
+    if total_fallback_sprite_count > 0 {
+        notes.push(format!(
+            "{total_fallback_sprite_count} missing/fallback sprite reference(s) were reported."
+        ));
+    }
+    if mission_warning_count > 0 {
+        notes.push(format!(
+            "{mission_warning_count} mission visual(s) have QA warnings."
+        ));
+    }
+    if average_feature_coverage < 0.08 && mission_count > 0 {
+        notes.push("Average terrain-feature coverage is low across the seed matrix.".to_string());
+    }
+    if average_route_overlay_legibility < 0.60 && mission_count > 0 {
+        notes.push("Average route overlay legibility is low across the seed matrix.".to_string());
+    }
+    if notes.is_empty() {
+        notes.push("Visual QA is inside current quality bands.".to_string());
+    }
+    GeneratedMissionVisualQaSummary {
+        mission_count,
+        average_feature_coverage,
+        average_terrain_feature_visibility,
+        average_route_overlay_legibility,
+        total_fallback_sprite_count,
+        total_placeholder_object_count,
+        mission_warning_count,
+        notes,
+    }
+}
+
+fn copy_file_if_exists(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<()> {
+    let src = src.as_ref();
+    if !src.exists() {
+        return Ok(());
+    }
+    let dst = dst.as_ref();
+    if let Some(parent) = dst.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    fs::copy(src, dst)
+        .with_context(|| format!("failed to copy {} to {}", src.display(), dst.display()))?;
+    Ok(())
 }
 
 fn build_theme_calibration_report(
@@ -9968,6 +10643,13 @@ fn write_json(path: impl AsRef<Path>, value: &impl Serialize) -> Result<()> {
     }
     let text = serde_json::to_string_pretty(value)?;
     fs::write(path, text).with_context(|| format!("failed to write {}", path.display()))
+}
+
+fn read_json<T: DeserializeOwned>(path: impl AsRef<Path>) -> Result<T> {
+    let path = path.as_ref();
+    let text =
+        fs::read_to_string(path).with_context(|| format!("failed to read {}", path.display()))?;
+    serde_json::from_str(&text).with_context(|| format!("failed to parse {}", path.display()))
 }
 
 fn write_ron(path: impl AsRef<Path>, value: &impl Serialize) -> Result<()> {
