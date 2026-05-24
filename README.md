@@ -4,20 +4,20 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: ArtGen 3.0 — oblique berm sprite kit
+## Current status: ArtGen 3.0b — berm visual polish
 
 GroundLab's active visual work has pivoted away from the large editable scene renderer. The current
 focus is a dedicated, fast terrain sprite generator that produces simple, cozy, top-down pixel
 terrain primitives from swappable style profiles, palettes, motif libraries, and art rules. It does
 not require reference images.
 
-ArtGen 3.0 keeps grass/dirt/path generation as the top-surface foundation and preserves the polished
-connected trench topology from ArtGen 2.1b. It adds the first raised-terrain counterpart: an oblique
-berm/mound sprite kit with top, front face, lips, caps, corners, contact shadow, spoil, and grass
-fringe pieces. The goal of this pass is not final berm art or full berm topology; it is to prove the
-generator can create raised earth pieces that participate in the same high-oblique 2.5D sprite
-contract as trenches, with explicit sprite role, anchor, footprint, z-bias, occlusion intent, and
-projection metadata.
+ArtGen 3.0b keeps grass/dirt/path generation as the top-surface foundation and preserves the
+polished connected trench topology from ArtGen 2.1b. It focuses the first raised-terrain kit on
+visual polish: the berm front face now uses an irregular mounded silhouette, darker grounded
+underside, stronger contact shadow, and better top/face integration before any berm topology is
+generated. The goal of this pass is not final berm art or full berm masks; it is to make raised
+earth pieces participate in the same high-oblique 2.5D sprite contract as trenches, with explicit
+sprite role, anchor, footprint, z-bias, occlusion intent, and projection metadata.
 
 The style profiles remain data-driven under `assets/sprite_styles/`. The current built-in profiles
 are:
@@ -30,7 +30,7 @@ Each profile has a `style.ron` for palette/rule/projection tuning and a `motifs.
 pixel-cluster motifs. The Forge app can switch profiles from a dropdown, and the CLI can export with
 an explicit profile path.
 
-ArtGen 3.0 generates:
+ArtGen 3.0b generates:
 
 - tileable grass variants
 - tileable dirt variants
@@ -48,7 +48,7 @@ ArtGen 3.0 generates:
 - worst-offending trench neighbor pairs in `trench_neighbor_pairs.json`
 - oblique berm top, front-face, lip, end-cap, corner, contact-shadow, spoil, and grass-fringe sprites
 - berm straight, caps, corner, shadow, and mask-debug previews
-- berm validation metrics for piece coverage, role coverage, face/top contrast, shadow continuity, cap presence, and anchor validity
+- berm validation metrics for piece coverage, role coverage, face/top contrast, face rectangularity, silhouette variance, base shadow strength, cap taper, corner continuity, shadow continuity, cap presence, and anchor validity
 - `sprite_manifest.ron` / `sprite_manifest.json` with role, anchor, footprint, z-bias, occlusion, and projection metadata
 - neighbor seam heatmap
 - contact sheets
@@ -66,7 +66,7 @@ cargo run -p ground_sprite_app
 Export the sprite bundle:
 
 ```bash
-cargo run -p ground_sprite_cli -- export exports/artgen_03_0 assets/sprite_styles/cozy_upland/style.ron
+cargo run -p ground_sprite_cli -- export exports/artgen_03_0b assets/sprite_styles/cozy_upland/style.ron
 ```
 
 The full-scene terrain renderer remains in the repository as downstream infrastructure for terrain

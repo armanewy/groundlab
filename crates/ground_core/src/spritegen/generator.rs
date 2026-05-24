@@ -1588,52 +1588,94 @@ fn generate_berm_face_front(recipe: &TerrainSpriteRecipe, variant: u32) -> Pixel
     let rules = &recipe.style.berm;
     let palette = &recipe.style.palette;
     let width = projection.cell_width_px * 2;
-    let height = (projection.face_height_px + 22).max(36);
+    let height = (projection.face_height_px + 28).max(42);
     let seed = sprite_seed(recipe.seed, variant, 0x3b21);
     let mut image = PixelImage::transparent(width, height);
     let top = palette
         .dirt_mid
-        .darken(0.04 + rules.face_shadow_strength * 0.10);
+        .blend(palette.grass_dark, rules.top_grass_blend * 0.20)
+        .lighten(0.03)
+        .darken(rules.face_shadow_strength * 0.05);
     let mid = palette
         .dirt_dark
-        .darken(0.04 + rules.face_shadow_strength * 0.18);
+        .blend(palette.dirt_mid, 0.24)
+        .darken(0.04 + rules.face_shadow_strength * 0.14);
     let bottom = palette
         .dirt_shadow
-        .darken(0.14 + rules.face_shadow_strength * 0.34);
+        .darken(0.18 + rules.face_shadow_strength * 0.42);
+    let crevice = palette
+        .dirt_shadow
+        .darken(0.24 + rules.face_shadow_strength * 0.28);
 
     for y in 0..height {
-        let t = y as f32 / height.max(1) as f32;
         for x in 0..width {
-            let top_edge = trench_noise(seed ^ 0x3b22, x / 5, 0);
-            let bottom_edge = trench_noise(seed ^ 0x3b26, x / 6, 1);
-            let top_jitter = (top_edge * rules.edge_irregularity_px as f32).round() as i32;
-            let bottom_cut = height as i32
-                - 2
-                - (bottom_edge * (rules.edge_irregularity_px + 2) as f32).round() as i32;
-            if y as i32 + top_jitter < 1 || y as i32 > bottom_cut {
+            let xf = x as f32 / width.max(1) as f32;
+            let side = (xf - 0.5).abs();
+            let shoulder = side.powf(1.55);
+            let top_noise = trench_noise(seed ^ 0x3b22, x / 5, 0);
+            let bottom_noise = trench_noise(seed ^ 0x3b26, x / 4, 1);
+            let long_top_noise = trench_noise(seed ^ 0x3b2a, x / 11, 0);
+            let long_bottom_noise = trench_noise(seed ^ 0x3b2b, x / 13, 1);
+            let dent_noise = trench_noise(seed ^ 0x3b27, x / 9, y / 4);
+            let top_edge = 3.0
+                + shoulder * 8.0
+                + top_noise * (rules.edge_irregularity_px + 2).max(1) as f32
+                + long_top_noise * 3.5
+                - dent_noise.max(0.0) * 2.0;
+            let bottom_edge = height as f32 - 3.0 - shoulder * 11.0
+                + bottom_noise * (rules.edge_irregularity_px + 4).max(1) as f32
+                + long_bottom_noise * 4.5
+                + dent_noise.min(0.0) * 2.5;
+            let top_edge = top_edge.clamp(0.0, height as f32 - 9.0);
+            let bottom_edge = bottom_edge.clamp(top_edge + 12.0, height as f32 - 1.0);
+            let yf = y as f32 + 0.5;
+            if yf < top_edge || yf > bottom_edge {
                 continue;
             }
-            let side = (x as f32 / width.max(1) as f32 - 0.5).abs();
-            let color = if t < 0.18 {
+            let local_t = ((yf - top_edge) / (bottom_edge - top_edge).max(1.0)).clamp(0.0, 1.0);
+            let shoulder_shadow = (shoulder * 0.16).clamp(0.0, 0.18);
+            let mound_rounding = (1.0 - (local_t - 0.42).abs() * 2.2).clamp(0.0, 1.0);
+            let color = if local_t < 0.16 {
                 top
-            } else if t > 0.68 {
+            } else if local_t > 0.70 {
                 bottom
             } else {
-                mid.darken(side * 0.12)
+                mid.lighten(mound_rounding * rules.mound_height_strength * 0.04)
+                    .darken(shoulder_shadow)
             };
-            let alpha = if y as i32 > bottom_cut - 3 { 205 } else { 240 };
+            let edge_fade = (yf - top_edge)
+                .min(bottom_edge - yf)
+                .mul_add(0.24, 0.62)
+                .clamp(0.48, 1.0);
+            let alpha = if local_t > 0.84 {
+                (edge_fade * 216.0) as u8
+            } else {
+                (edge_fade * 244.0) as u8
+            };
             image.set(x, y, color.with_alpha(alpha));
+            if local_t < 0.09 && !(x + y + variant).is_multiple_of(5) {
+                image.blend_pixel(x, y, crevice, 0.28);
+            }
+            if local_t > 0.78 {
+                image.blend_pixel(
+                    x,
+                    y,
+                    Rgba8::BLACK,
+                    (0.10 + rules.face_shadow_strength * 0.16) * local_t,
+                );
+            }
         }
     }
-    blend_rect(
-        &mut image,
-        0,
-        height * 2 / 3,
-        width,
-        height / 3,
-        Rgba8::BLACK,
-        0.24,
-    );
+    for x in 0..width {
+        let ground_noise = trench_noise(seed ^ 0x3b28, x / 4, 0);
+        let y0 = (height as f32 * 0.78 + ground_noise * 3.0) as i32;
+        let shadow_h = 4 + (hash(seed ^ 0x3b29 ^ x as u64) % 4) as i32;
+        for y in y0..(y0 + shadow_h) {
+            if image.in_bounds(x as i32, y) {
+                image.blend_pixel(x, y as u32, Rgba8::BLACK, 0.18);
+            }
+        }
+    }
 
     let count = ((width * height) as f32 * rules.spoil_density / 44.0)
         .round()
@@ -1671,14 +1713,15 @@ fn generate_berm_lip(recipe: &TerrainSpriteRecipe, variant: u32, front: bool) ->
     let mut x = 0;
     while x < width {
         let seg = 8 + (hash(seed ^ x as u64 ^ 0x3b33) % 20) as u32;
-        let gap = 1 + (hash(seed ^ x as u64 ^ 0x3b34) % 4) as u32;
+        let gap = 1 + (hash(seed ^ x as u64 ^ 0x3b34) % 6) as u32;
         let jitter = (hash(seed ^ x as u64 ^ 0x3b35)
             % (rules.edge_irregularity_px.max(1) * 2 + 1) as u64) as i32
             - rules.edge_irregularity_px as i32;
         let y0 = (band_y as i32 + jitter).clamp(0, height as i32 - 1) as u32;
-        let h = 3 + (hash(seed ^ x as u64 ^ 0x3b36) % 4) as u32;
+        let h = 4 + (hash(seed ^ x as u64 ^ 0x3b36) % 5) as u32;
         for xx in x..(x + seg).min(width) {
             for yy in y0..(y0 + h).min(height) {
+                let taper = ((xx - x).min(x + seg - xx) as f32 / seg.max(1) as f32).clamp(0.0, 0.5);
                 let color = if yy == y0 {
                     lip
                 } else if yy > y0 + h / 2 {
@@ -1686,7 +1729,16 @@ fn generate_berm_lip(recipe: &TerrainSpriteRecipe, variant: u32, front: bool) ->
                 } else {
                     palette.dirt_mid
                 };
-                image.set(xx, yy, color.with_alpha(242));
+                let alpha = (190.0 + taper * 110.0).clamp(150.0, 246.0) as u8;
+                image.set(xx, yy, color.with_alpha(alpha));
+            }
+        }
+        if front && seg > 12 {
+            let drip_x = x + seg / 2;
+            for dy in 0..(2 + seg % 3) {
+                if drip_x < width && y0 + h + dy < height {
+                    image.blend_pixel(drip_x, y0 + h + dy, shadow, 0.32);
+                }
             }
         }
         x = x.saturating_add(seg + gap);
@@ -1723,7 +1775,8 @@ fn generate_berm_end_cap(recipe: &TerrainSpriteRecipe, variant: u32, left: bool)
         .dirt_light
         .blend(palette.grass_light, rules.top_grass_blend * 0.36);
     let body = palette.dirt_mid;
-    let shadow = palette.dirt_dark.darken(0.16);
+    let shadow = palette.dirt_dark.darken(0.22);
+    let base = palette.dirt_shadow.darken(0.10);
 
     for y in 0..height {
         let yf = y as f32 / height.max(1) as f32;
@@ -1734,19 +1787,27 @@ fn generate_berm_end_cap(recipe: &TerrainSpriteRecipe, variant: u32, left: bool)
                 1.0 - x as f32 / width.max(1) as f32
             };
             let n = trench_noise(seed ^ 0x3b43, y / 4, x / 4);
-            let center = 0.48 + n * 0.06;
-            let half = 0.12 + xf * 0.32;
-            if (yf - center).abs() > half {
+            let center = 0.52 + n * 0.05;
+            let taper = xf.powf(0.74);
+            let half_top = 0.08 + taper * 0.24;
+            let half_bottom = 0.13 + taper * 0.32;
+            let top_edge = center - half_top + n * 0.035;
+            let bottom_edge = center + half_bottom - (1.0 - taper) * 0.08 + n * 0.04;
+            if yf < top_edge || yf > bottom_edge {
                 continue;
             }
-            let color = if yf < center - half * 0.25 {
+            let local_t = ((yf - top_edge) / (bottom_edge - top_edge).max(0.01)).clamp(0.0, 1.0);
+            let color = if local_t < 0.28 {
                 top
-            } else if yf > center + half * 0.35 {
+            } else if local_t > 0.70 {
+                base.blend(shadow, 0.44)
+            } else if local_t > 0.52 {
                 shadow
             } else {
                 body
             };
-            image.set(x, y, color.with_alpha(((0.45 + xf * 0.55) * 245.0) as u8));
+            let edge_fade = (taper * 0.70 + 0.26).clamp(0.20, 1.0);
+            image.set(x, y, color.with_alpha((edge_fade * 242.0) as u8));
         }
     }
     for i in 0..8 {
@@ -1774,16 +1835,21 @@ fn generate_berm_corner(recipe: &TerrainSpriteRecipe, variant: u32, inner: bool)
     let top = palette
         .dirt_light
         .blend(palette.grass_light, rules.top_grass_blend * 0.34);
-    let body = palette.dirt_mid;
-    let shadow = palette.dirt_dark.darken(0.12);
+    let body = palette
+        .dirt_mid
+        .blend(palette.grass_mid, rules.top_grass_blend * 0.12);
+    let shadow = palette.dirt_dark.darken(0.18);
     let arm = (size / 3).max(14);
     let center = size / 2;
     for y in 0..size {
         for x in 0..size {
-            let horizontal =
-                y >= center.saturating_sub(arm / 2) && y <= center + arm / 2 && x <= center + arm;
-            let vertical =
-                x >= center.saturating_sub(arm / 2) && x <= center + arm / 2 && y <= center + arm;
+            let n = trench_noise(seed ^ 0x3b53, x / 3, y / 3);
+            let horizontal = y >= center.saturating_sub(arm / 2)
+                && y <= center + arm / 2 + (n * 3.0) as u32
+                && x <= center + arm;
+            let vertical = x >= center.saturating_sub(arm / 2)
+                && x <= center + arm / 2 + (n * 3.0) as u32
+                && y <= center + arm;
             let l_shape = if inner {
                 horizontal || vertical
             } else {
@@ -1792,13 +1858,13 @@ fn generate_berm_corner(recipe: &TerrainSpriteRecipe, variant: u32, inner: bool)
             if !l_shape {
                 continue;
             }
-            let n = trench_noise(seed ^ 0x3b53, x / 3, y / 3);
-            let color = if y < center.saturating_sub(arm / 2) + 4
-                || x < center.saturating_sub(arm / 2) + 4
+            let distal = x.max(y) as f32 / size.max(1) as f32;
+            let color = if y < center.saturating_sub(arm / 2) + 5
+                || x < center.saturating_sub(arm / 2) + 5
             {
                 top
-            } else if y > center + arm / 3 || x > center + arm / 3 {
-                shadow
+            } else if y > center + arm / 3 || x > center + arm / 3 || distal > 0.78 {
+                shadow.blend(body, 0.18)
             } else {
                 body
             };
@@ -1824,9 +1890,9 @@ fn generate_berm_contact_shadow(recipe: &TerrainSpriteRecipe, variant: u32) -> P
         for x in 0..width {
             let xf = (x as f32 / width.max(1) as f32 - 0.5).abs();
             let organic = trench_noise(seed ^ 0x3b62, x / 4, y / 3) * 0.07;
-            let alpha = ((1.0 - xf * 1.45).max(0.0) * (1.0 - yf * 0.82).powf(1.35) + organic)
+            let alpha = ((1.0 - xf * 1.35).max(0.0) * (1.0 - yf * 0.68).powf(1.18) + organic)
                 * strength
-                * 0.70;
+                * 0.94;
             if alpha > 0.016 {
                 image.set(
                     x,

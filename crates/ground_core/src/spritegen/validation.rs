@@ -55,6 +55,11 @@ pub struct BermSpriteValidationSummary {
     pub berm_piece_coverage: usize,
     pub berm_role_coverage: usize,
     pub berm_face_top_contrast: f32,
+    pub berm_face_rectangularity_score: f32,
+    pub berm_silhouette_variance: f32,
+    pub berm_base_shadow_strength: f32,
+    pub berm_cap_taper_score: f32,
+    pub berm_corner_continuity_score: f32,
     pub berm_shadow_continuity: f32,
     pub berm_cap_presence: bool,
     pub berm_oblique_anchor_validity: f32,
@@ -610,6 +615,17 @@ fn validate_berm_sprites(
     let top_luma = top.map(average_luma).unwrap_or(0.0);
     let face_luma = face.map(average_luma).unwrap_or(0.0);
     let berm_face_top_contrast = ((top_luma - face_luma).abs() / 255.0).min(1.0);
+    let (berm_face_rectangularity_score, berm_silhouette_variance) =
+        face.map(silhouette_rectangularity).unwrap_or((1.0, 0.0));
+    let berm_base_shadow_strength = face.map(base_shadow_strength).unwrap_or(0.0);
+    let berm_cap_taper_score = cap_taper_score(
+        first_kind(sprites, TerrainSpriteKind::BermEndCapLeft),
+        first_kind(sprites, TerrainSpriteKind::BermEndCapRight),
+    );
+    let berm_corner_continuity_score = corner_continuity_score(
+        first_kind(sprites, TerrainSpriteKind::BermCornerInner),
+        first_kind(sprites, TerrainSpriteKind::BermCornerOuter),
+    );
     let berm_shadow_continuity = shadow.map(alpha_coverage).unwrap_or(0.0);
     let berm_cap_presence = first_kind(sprites, TerrainSpriteKind::BermEndCapLeft).is_some()
         && first_kind(sprites, TerrainSpriteKind::BermEndCapRight).is_some()
@@ -644,6 +660,44 @@ fn validate_berm_sprites(
             message: "berm contact shadow has low alpha coverage".to_string(),
         });
     }
+    if berm_face_rectangularity_score > 0.82 {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Warning,
+            sprite_id: first_kind(sprites, TerrainSpriteKind::BermFaceFront)
+                .map(|sprite| sprite.id.clone()),
+            message: "berm front face is too rectangular".to_string(),
+        });
+    }
+    if berm_silhouette_variance < 0.045 {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Warning,
+            sprite_id: first_kind(sprites, TerrainSpriteKind::BermFaceFront)
+                .map(|sprite| sprite.id.clone()),
+            message: "berm front face silhouette is too uniform".to_string(),
+        });
+    }
+    if berm_base_shadow_strength < 0.05 {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Warning,
+            sprite_id: first_kind(sprites, TerrainSpriteKind::BermFaceFront)
+                .map(|sprite| sprite.id.clone()),
+            message: "berm front face lacks a strong base shadow".to_string(),
+        });
+    }
+    if berm_cap_taper_score < 0.08 {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Warning,
+            sprite_id: None,
+            message: "berm end caps do not taper enough".to_string(),
+        });
+    }
+    if berm_corner_continuity_score < 0.14 {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Warning,
+            sprite_id: None,
+            message: "berm corners have weak continuity".to_string(),
+        });
+    }
     if !berm_cap_presence {
         issues.push(TerrainSpriteValidationIssue {
             severity: TerrainSpriteValidationSeverity::Error,
@@ -656,6 +710,11 @@ fn validate_berm_sprites(
         berm_piece_coverage,
         berm_role_coverage,
         berm_face_top_contrast,
+        berm_face_rectangularity_score,
+        berm_silhouette_variance,
+        berm_base_shadow_strength,
+        berm_cap_taper_score,
+        berm_corner_continuity_score,
         berm_shadow_continuity,
         berm_cap_presence,
         berm_oblique_anchor_validity,
@@ -724,6 +783,156 @@ fn alpha_coverage(sprite: &GeneratedTerrainSprite) -> f32 {
         .filter(|pixel| pixel.a > 8)
         .count() as f32
         / total
+}
+
+fn silhouette_rectangularity(sprite: &GeneratedTerrainSprite) -> (f32, f32) {
+    let image = &sprite.image;
+    let mut min_x = image.width;
+    let mut max_x = 0;
+    let mut min_y = image.height;
+    let mut max_y = 0;
+    let mut alpha_count = 0u32;
+    let mut tops = Vec::new();
+    let mut bottoms = Vec::new();
+
+    for x in 0..image.width {
+        let mut top = None;
+        let mut bottom = None;
+        for y in 0..image.height {
+            if image.get(x, y).a > 8 {
+                min_x = min_x.min(x);
+                max_x = max_x.max(x);
+                min_y = min_y.min(y);
+                max_y = max_y.max(y);
+                alpha_count += 1;
+                top.get_or_insert(y);
+                bottom = Some(y);
+            }
+        }
+        if let (Some(top), Some(bottom)) = (top, bottom) {
+            tops.push(top as f32);
+            bottoms.push(bottom as f32);
+        }
+    }
+
+    if alpha_count == 0 || tops.len() < 2 {
+        return (1.0, 0.0);
+    }
+    let bbox_area = ((max_x - min_x + 1) * (max_y - min_y + 1)).max(1) as f32;
+    let fill_ratio = alpha_count as f32 / bbox_area;
+    let top_var = normalized_stddev(&tops, image.height);
+    let bottom_var = normalized_stddev(&bottoms, image.height);
+    let silhouette_variance = ((top_var + bottom_var) * 0.5).min(1.0);
+    let rectangularity =
+        (fill_ratio * (1.0 - silhouette_variance * 2.2).clamp(0.32, 1.0)).clamp(0.0, 1.0);
+    (rectangularity, silhouette_variance)
+}
+
+fn normalized_stddev(values: &[f32], denominator: u32) -> f32 {
+    if values.is_empty() {
+        return 0.0;
+    }
+    let mean = values.iter().sum::<f32>() / values.len() as f32;
+    let variance = values
+        .iter()
+        .map(|value| {
+            let delta = value - mean;
+            delta * delta
+        })
+        .sum::<f32>()
+        / values.len() as f32;
+    variance.sqrt() / denominator.max(1) as f32
+}
+
+fn base_shadow_strength(sprite: &GeneratedTerrainSprite) -> f32 {
+    let image = &sprite.image;
+    let top_luma = region_luma(image, 0, image.height / 3);
+    let bottom_luma = region_luma(image, image.height * 2 / 3, image.height);
+    ((top_luma - bottom_luma) / 255.0).clamp(0.0, 1.0)
+}
+
+fn region_luma(image: &crate::pixel_image::PixelImage, y0: u32, y1: u32) -> f32 {
+    let mut total = 0.0;
+    let mut count = 0.0;
+    for y in y0.min(image.height)..y1.min(image.height) {
+        for x in 0..image.width {
+            let pixel = image.get(x, y);
+            if pixel.a > 8 {
+                total += pixel.luma() as f32;
+                count += 1.0;
+            }
+        }
+    }
+    if count == 0.0 {
+        0.0
+    } else {
+        total / count
+    }
+}
+
+fn cap_taper_score(
+    left: Option<&GeneratedTerrainSprite>,
+    right: Option<&GeneratedTerrainSprite>,
+) -> f32 {
+    let mut scores = Vec::new();
+    if let Some(left) = left {
+        scores.push(one_sided_taper_score(left, true));
+    }
+    if let Some(right) = right {
+        scores.push(one_sided_taper_score(right, false));
+    }
+    if scores.is_empty() {
+        0.0
+    } else {
+        scores.iter().sum::<f32>() / scores.len() as f32
+    }
+}
+
+fn one_sided_taper_score(sprite: &GeneratedTerrainSprite, left_cap: bool) -> f32 {
+    let image = &sprite.image;
+    let band = (image.width / 4).max(1);
+    let outer = if left_cap {
+        alpha_coverage_region(image, 0, band)
+    } else {
+        alpha_coverage_region(image, image.width.saturating_sub(band), image.width)
+    };
+    let inner = if left_cap {
+        alpha_coverage_region(image, image.width.saturating_sub(band), image.width)
+    } else {
+        alpha_coverage_region(image, 0, band)
+    };
+    (inner - outer).clamp(0.0, 1.0)
+}
+
+fn alpha_coverage_region(image: &crate::pixel_image::PixelImage, x0: u32, x1: u32) -> f32 {
+    let mut total = 0.0;
+    let mut alpha = 0.0;
+    for y in 0..image.height {
+        for x in x0.min(image.width)..x1.min(image.width) {
+            total += 1.0;
+            if image.get(x, y).a > 8 {
+                alpha += 1.0;
+            }
+        }
+    }
+    if total == 0.0 {
+        0.0
+    } else {
+        alpha / total
+    }
+}
+
+fn corner_continuity_score(
+    inner: Option<&GeneratedTerrainSprite>,
+    outer: Option<&GeneratedTerrainSprite>,
+) -> f32 {
+    let inner = inner.map(alpha_coverage).unwrap_or(0.0);
+    let outer = outer.map(alpha_coverage).unwrap_or(0.0);
+    if inner == 0.0 || outer == 0.0 {
+        0.0
+    } else {
+        (inner.min(outer) / inner.max(outer)).clamp(0.0, 1.0) * inner.min(outer).min(1.0)
+    }
 }
 
 fn summarize(sprite: &GeneratedTerrainSprite) -> TerrainSpriteValidationSummary {

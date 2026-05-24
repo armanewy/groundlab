@@ -315,6 +315,23 @@ Implemented in this drop.
 This is the raised-terrain counterpart to the trench work. It does not add full berm topology,
 stone, props, scene rendering, or terrain editor integration.
 
+## ArtGen 3.0b — Berm visual polish
+
+Implemented in this drop.
+
+- keeps the 3.0 berm piece categories and metadata contract intact
+- does not add berm masks, berm topology, stone, props, scene rendering, or terrain editor integration
+- front-face generation now uses an irregular mound silhouette instead of a full rectangular strip
+- face shading adds a darker lower band, crevice under the top lip, and stronger base grounding
+- end caps taper more naturally into the surrounding grass instead of reading as pasted wedges
+- lips use chunkier broken segments with small vertical slumps
+- contact shadow is stronger and broader under the mound
+- berm validation now reports rectangularity, silhouette variance, base shadow strength, cap taper, and corner continuity
+- sprite CLI/app default export target is `exports/artgen_03_0b`
+
+This is the raised-terrain equivalent of the trench 2.0b polish pass. Berm topology should wait
+until the straight/cap/corner previews read as mounded earth rather than a flat retaining wall.
+
 ## Milestone 5 — Custom renderer/runtime
 
 - introduce `ground_render`
