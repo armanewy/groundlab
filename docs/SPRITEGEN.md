@@ -2,8 +2,9 @@
 
 GroundLab's active visual milestone is now a dedicated terrain sprite generator, not the large
 editable scene renderer. The generator first produces cozy top-surface terrain primitives: grass,
-dirt, grass-to-dirt transitions, and connected dirt path masks. ArtGen 2.1 then extends that
-foundation with connected oblique trench masks for the desired high-oblique 2.5D terrain grammar.
+dirt, grass-to-dirt transitions, and connected dirt path masks. ArtGen 2.1b then extends that
+foundation with polished connected oblique trench masks for the desired high-oblique 2.5D terrain
+grammar.
 
 The generator does not require reference images. It uses:
 
@@ -20,11 +21,13 @@ The generator does not require reference images. It uses:
 - seam/noise validation
 - art-kit-compatible PNG piece export
 
-ArtGen 2.1 keeps the ArtGen 1.2b path topology, ArtGen 1.3 style profiles, ArtGen 1.4
+ArtGen 2.1b keeps the ArtGen 1.2b path topology, ArtGen 1.3 style profiles, ArtGen 1.4
 projection-aware sprite contract, and ArtGen 2.0b trench polish. Grass/dirt/path pieces are still
 top-surface material primitives, and trench pieces now include both the base role pieces and
 `trench_mask_00` through `trench_mask_15` for connected straights, ends, corners, T-junctions, and
-crosses:
+crosses. The 2.1b polish pass suppresses shared internal lips/walls, resolves junction centers,
+blends endpoint caps into the trench body, exports focused topology previews, and writes worst
+neighbor-pair diagnostics:
 
 ```txt
 sprite role
@@ -69,13 +72,13 @@ cargo run -p ground_sprite_app
 Export the deterministic bundle:
 
 ```bash
-cargo run -p ground_sprite_cli -- export exports/artgen_02_1 assets/sprite_styles/cozy_upland/style.ron
+cargo run -p ground_sprite_cli -- export exports/artgen_02_1b assets/sprite_styles/cozy_upland/style.ron
 ```
 
 Export output:
 
 ```txt
-exports/artgen_02_1/
+exports/artgen_02_1b/
   manifest.ron
   sprite_manifest.ron
   sprite_manifest.json
@@ -90,12 +93,20 @@ exports/artgen_02_1/
   trench_autotile_sheet.png
   trench_preview_sparse.png
   trench_preview_dense.png
+  trench_preview_dense_clean.png
   trench_preview_loop.png
   trench_preview_junctions.png
+  trench_preview_single_masks.png
+  trench_preview_dead_ends.png
+  trench_preview_corners.png
   trench_mask_debug.png
   trench_neighbor_seam_heatmap.png
   trench_lip_continuity_heatmap.png
   trench_floor_continuity_heatmap.png
+  trench_neighbor_seam_heatmap_edges.png
+  trench_lip_continuity_heatmap_edges.png
+  trench_floor_continuity_heatmap_edges.png
+  trench_neighbor_pairs.json
   path_autotile_sheet.png
   path_preview_random.png
   path_preview_random_sparse.png

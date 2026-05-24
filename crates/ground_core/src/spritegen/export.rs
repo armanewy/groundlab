@@ -12,11 +12,14 @@ use crate::spritegen::{
     build_path_preview_random, build_path_preview_sparse, build_repeat_preview, build_seam_heatmap,
     build_single_repeat_preview, build_sprite_contact_sheet, build_transition_edges_preview,
     build_transition_repeat_preview, build_trench_autotile_sheet, build_trench_contact_sheet,
-    build_trench_floor_continuity_heatmap, build_trench_lip_continuity_heatmap,
-    build_trench_mask_debug_preview, build_trench_neighbor_seam_heatmap,
-    build_trench_oblique_caps_preview, build_trench_oblique_corner_preview,
-    build_trench_oblique_shadow_preview, build_trench_oblique_straight_preview,
-    build_trench_preview_dense, build_trench_preview_junctions, build_trench_preview_loop,
+    build_trench_floor_continuity_edge_heatmap, build_trench_floor_continuity_heatmap,
+    build_trench_lip_continuity_edge_heatmap, build_trench_lip_continuity_heatmap,
+    build_trench_mask_debug_preview, build_trench_neighbor_seam_edge_heatmap,
+    build_trench_neighbor_seam_heatmap, build_trench_oblique_caps_preview,
+    build_trench_oblique_corner_preview, build_trench_oblique_shadow_preview,
+    build_trench_oblique_straight_preview, build_trench_preview_corners,
+    build_trench_preview_dead_ends, build_trench_preview_dense, build_trench_preview_dense_clean,
+    build_trench_preview_junctions, build_trench_preview_loop, build_trench_preview_single_masks,
     build_trench_preview_sparse, build_variant_repeat_preview, generate_terrain_sprites,
     validate_terrain_sprites, GeneratedTerrainSprite, TerrainSpriteBundleManifest,
     TerrainSpriteKind, TerrainSpritePieceManifest, TerrainSpriteRecipe,
@@ -135,10 +138,18 @@ pub fn export_terrain_sprite_bundle(
     build_trench_mask_debug_preview(&recipe).save_png(out_dir.join("trench_mask_debug.png"))?;
     build_trench_autotile_sheet(&sprites, &recipe)
         .save_png(out_dir.join("trench_autotile_sheet.png"))?;
+    build_trench_preview_single_masks(&sprites, &recipe)
+        .save_png(out_dir.join("trench_preview_single_masks.png"))?;
     build_trench_preview_sparse(&sprites, &recipe)
         .save_png(out_dir.join("trench_preview_sparse.png"))?;
     build_trench_preview_dense(&sprites, &recipe)
         .save_png(out_dir.join("trench_preview_dense.png"))?;
+    build_trench_preview_dense_clean(&sprites, &recipe)
+        .save_png(out_dir.join("trench_preview_dense_clean.png"))?;
+    build_trench_preview_dead_ends(&sprites, &recipe)
+        .save_png(out_dir.join("trench_preview_dead_ends.png"))?;
+    build_trench_preview_corners(&sprites, &recipe)
+        .save_png(out_dir.join("trench_preview_corners.png"))?;
     build_trench_preview_loop(&sprites, &recipe)
         .save_png(out_dir.join("trench_preview_loop.png"))?;
     build_trench_preview_junctions(&sprites, &recipe)
@@ -149,6 +160,12 @@ pub fn export_terrain_sprite_bundle(
         .save_png(out_dir.join("trench_lip_continuity_heatmap.png"))?;
     build_trench_floor_continuity_heatmap(&sprites, &recipe)
         .save_png(out_dir.join("trench_floor_continuity_heatmap.png"))?;
+    build_trench_neighbor_seam_edge_heatmap(&sprites, &recipe)
+        .save_png(out_dir.join("trench_neighbor_seam_heatmap_edges.png"))?;
+    build_trench_lip_continuity_edge_heatmap(&sprites, &recipe)
+        .save_png(out_dir.join("trench_lip_continuity_heatmap_edges.png"))?;
+    build_trench_floor_continuity_edge_heatmap(&sprites, &recipe)
+        .save_png(out_dir.join("trench_floor_continuity_heatmap_edges.png"))?;
     build_path_mask_debug_preview(&recipe).save_png(out_dir.join("path_preview_mask_debug.png"))?;
     build_path_neighbor_seam_heatmap(&sprites, &recipe)
         .save_png(out_dir.join("path_neighbor_seam_heatmap.png"))?;
@@ -161,6 +178,10 @@ pub fn export_terrain_sprite_bundle(
     build_palette_preview(&recipe).save_png(out_dir.join("palette_preview.png"))?;
 
     let validation = validate_terrain_sprites(&sprites);
+    fs::write(
+        out_dir.join("trench_neighbor_pairs.json"),
+        serde_json::to_string_pretty(&validation.trench.worst_trench_neighbor_pairs)?,
+    )?;
     fs::write(
         out_dir.join("validation.json"),
         serde_json::to_string_pretty(&validation)?,

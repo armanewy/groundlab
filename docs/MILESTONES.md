@@ -280,6 +280,23 @@ This is the first visual stress-test milestone for target-derived editing. It pr
 scene is no longer the only export and gives additive/removal edits concrete artifacts for judging
 patch blending quality.
 
+## ArtGen 2.1b — Trench topology polish
+
+Implemented in this drop.
+
+- active visual work remains in Pixel Terrain Forge instead of the full-scene renderer
+- trench mask generation still exports `trench_mask_00` through `trench_mask_15`
+- connected trench openings suppress shared internal lips and walls
+- endpoint caps draw only on true dead ends and are blended into the trench body
+- T-junctions and crosses receive a central floor resolver before edge/lip detail
+- corner, dead-end, dense-clean, and single-mask preview exports added
+- neighbor-seam, lip-continuity, and floor-continuity edge heatmaps added
+- `trench_neighbor_pairs.json` lists the worst connected mask pairs for follow-up polish
+- sprite CLI/app default export target is `exports/artgen_02_1b`
+
+This is a narrow topology pass. It does not add berms, stone, props, scene rendering, or terrain
+editor integration.
+
 ## Milestone 5 — Custom renderer/runtime
 
 - introduce `ground_render`

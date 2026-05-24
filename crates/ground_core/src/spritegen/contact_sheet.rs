@@ -613,6 +613,74 @@ pub fn build_trench_preview_junctions(
     build_trench_preview_for_pattern(sprites, recipe, PathPreviewPattern::Junctions)
 }
 
+pub fn build_trench_preview_single_masks(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    build_trench_autotile_sheet(sprites, recipe)
+}
+
+pub fn build_trench_preview_dead_ends(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    let width = 8;
+    let height = 5;
+    let mut map = vec![false; (width * height) as usize];
+    for x in 1..4 {
+        set_path(&mut map, width, x, 1);
+    }
+    for y in 1..4 {
+        set_path(&mut map, width, 5, y);
+    }
+    for x in 1..7 {
+        set_path(&mut map, width, x, 3);
+    }
+    build_trench_preview_from_map(sprites, recipe, width, height, &map)
+}
+
+pub fn build_trench_preview_corners(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    let width = 8;
+    let height = 5;
+    let mut map = vec![false; (width * height) as usize];
+    for x in 1..4 {
+        set_path(&mut map, width, x, 1);
+    }
+    for y in 1..4 {
+        set_path(&mut map, width, 3, y);
+    }
+    for x in 4..7 {
+        set_path(&mut map, width, x, 3);
+    }
+    for y in 1..=3 {
+        set_path(&mut map, width, 6, y);
+    }
+    build_trench_preview_from_map(sprites, recipe, width, height, &map)
+}
+
+pub fn build_trench_preview_dense_clean(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    let width = 10;
+    let height = 6;
+    let mut map = vec![false; (width * height) as usize];
+    for x in 1..9 {
+        set_path(&mut map, width, x, 2);
+    }
+    for y in 1..5 {
+        set_path(&mut map, width, 2, y);
+        set_path(&mut map, width, 7, y);
+    }
+    for x in 2..8 {
+        set_path(&mut map, width, x, 4);
+    }
+    build_trench_preview_from_map(sprites, recipe, width, height, &map)
+}
+
 pub fn build_trench_neighbor_seam_heatmap(
     sprites: &[GeneratedTerrainSprite],
     recipe: &TerrainSpriteRecipe,
@@ -628,6 +696,27 @@ pub fn build_trench_lip_continuity_heatmap(
 }
 
 pub fn build_trench_floor_continuity_heatmap(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    build_trench_continuity_heatmap(sprites, recipe, TrenchContinuityMode::Floor)
+}
+
+pub fn build_trench_neighbor_seam_edge_heatmap(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    build_trench_continuity_heatmap(sprites, recipe, TrenchContinuityMode::Neighbor)
+}
+
+pub fn build_trench_lip_continuity_edge_heatmap(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+) -> PixelImage {
+    build_trench_continuity_heatmap(sprites, recipe, TrenchContinuityMode::Lip)
+}
+
+pub fn build_trench_floor_continuity_edge_heatmap(
     sprites: &[GeneratedTerrainSprite],
     recipe: &TerrainSpriteRecipe,
 ) -> PixelImage {
@@ -670,12 +759,22 @@ fn build_trench_preview_for_pattern(
     recipe: &TerrainSpriteRecipe,
     pattern: PathPreviewPattern,
 ) -> PixelImage {
-    let projection = &recipe.style.projection;
-    let cell_w = projection.cell_width_px;
-    let cell_h = projection.cell_height_px;
     let width = 10;
     let height = 6;
     let map = sample_path_map(width, height, pattern);
+    build_trench_preview_from_map(sprites, recipe, width, height, &map)
+}
+
+fn build_trench_preview_from_map(
+    sprites: &[GeneratedTerrainSprite],
+    recipe: &TerrainSpriteRecipe,
+    width: u32,
+    height: u32,
+    map: &[bool],
+) -> PixelImage {
+    let projection = &recipe.style.projection;
+    let cell_w = projection.cell_width_px;
+    let cell_h = projection.cell_height_px;
     let mask_h = (projection.cell_height_px + projection.face_height_px + 12).max(cell_h);
     let mut preview = PixelImage::new(
         width * cell_w,
@@ -705,7 +804,7 @@ fn build_trench_preview_for_pattern(
             if !map[(y * width + x) as usize] {
                 continue;
             }
-            let mask = path_neighbor_mask(&map, width, height, x, y);
+            let mask = path_neighbor_mask(map, width, height, x, y);
             if let Some(sprite) = trench_mask_sprite(sprites, mask) {
                 preview.blit(&sprite.image, x * cell_w, y * cell_h);
             }
@@ -741,13 +840,13 @@ fn build_trench_continuity_heatmap(
             } else {
                 0.0
             };
-            image.set(ox + x, oy, heat(v));
+            paint_heat_block(&mut image, ox + x, oy, 1, 4, v);
             let v = if mask & 4 != 0 {
                 trench_connected_edge_score(sprite, sprites, mask, 4, x, mode, recipe)
             } else {
                 0.0
             };
-            image.set(ox + x, oy + cell_h - 1, heat(v));
+            paint_heat_block(&mut image, ox + x, oy + cell_h.saturating_sub(4), 1, 4, v);
         }
         for y in 0..cell_h.min(sprite.image.height) {
             let v = if mask & 8 != 0 {
@@ -755,13 +854,13 @@ fn build_trench_continuity_heatmap(
             } else {
                 0.0
             };
-            image.set(ox, oy + y, heat(v));
+            paint_heat_block(&mut image, ox, oy + y, 4, 1, v);
             let v = if mask & 2 != 0 {
                 trench_connected_edge_score(sprite, sprites, mask, 2, y, mode, recipe)
             } else {
                 0.0
             };
-            image.set(ox + cell_w - 1, oy + y, heat(v));
+            paint_heat_block(&mut image, ox + cell_w.saturating_sub(4), oy + y, 4, 1, v);
         }
     }
     scale_nearest(&image, recipe.style.display_scale.max(1))
@@ -1360,9 +1459,16 @@ fn trench_connected_edge_score(
         .min(neighbor.image.height)
         .max(1);
     let width = sprite.image.width.min(neighbor.image.width).max(1);
+    let center_x = width / 2;
+    let center_y = surface_h / 2;
+    let open_w = (width as f32 * 0.34).round() as u32;
+    let open_h = (surface_h as f32 * 0.34).round() as u32;
     let (a, b) = match direction {
         1 => {
             let x = offset.min(width - 1);
+            if x < center_x.saturating_sub(open_w / 2) || x > center_x + open_w / 2 {
+                return 0.0;
+            }
             let band = match mode {
                 TrenchContinuityMode::Neighbor => 0,
                 TrenchContinuityMode::Lip => 2.min(surface_h - 1),
@@ -1377,6 +1483,9 @@ fn trench_connected_edge_score(
         }
         4 => {
             let x = offset.min(width - 1);
+            if x < center_x.saturating_sub(open_w / 2) || x > center_x + open_w / 2 {
+                return 0.0;
+            }
             let band = match mode {
                 TrenchContinuityMode::Neighbor => 0,
                 TrenchContinuityMode::Lip => 2.min(surface_h - 1),
@@ -1389,6 +1498,9 @@ fn trench_connected_edge_score(
         }
         8 => {
             let y = offset.min(surface_h - 1);
+            if y < center_y.saturating_sub(open_h / 2) || y > center_y + open_h / 2 {
+                return 0.0;
+            }
             let band = match mode {
                 TrenchContinuityMode::Neighbor => 0,
                 TrenchContinuityMode::Lip => 2.min(width - 1),
@@ -1401,6 +1513,9 @@ fn trench_connected_edge_score(
         }
         2 => {
             let y = offset.min(surface_h - 1);
+            if y < center_y.saturating_sub(open_h / 2) || y > center_y + open_h / 2 {
+                return 0.0;
+            }
             let band = match mode {
                 TrenchContinuityMode::Neighbor => 0,
                 TrenchContinuityMode::Lip => 2.min(width - 1),
@@ -1451,6 +1566,15 @@ fn dominant_color(image: &PixelImage) -> Rgba8 {
         best = current;
     }
     best
+}
+
+fn paint_heat_block(image: &mut PixelImage, x0: u32, y0: u32, width: u32, height: u32, value: f32) {
+    let color = heat((value * 1.65).clamp(0.0, 1.0));
+    for y in y0..(y0 + height).min(image.height) {
+        for x in x0..(x0 + width).min(image.width) {
+            image.set(x, y, color);
+        }
+    }
 }
 
 fn heat(v: f32) -> Rgba8 {

@@ -38,6 +38,15 @@ pub struct TrenchSpriteValidationSummary {
     pub trench_cap_coverage: usize,
     pub trench_corner_coverage: usize,
     pub trench_junction_coverage: usize,
+    pub worst_trench_neighbor_pairs: Vec<TrenchNeighborPairScore>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct TrenchNeighborPairScore {
+    pub mask_a: u8,
+    pub edge: String,
+    pub mask_b: u8,
+    pub score: f32,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -201,7 +210,7 @@ pub fn validate_terrain_sprites(
         });
     }
     let trench_neighbor_score = trench_neighbor_seam_score(sprites);
-    if trench_neighbor_score > 0.46 {
+    if trench_neighbor_score > 0.20 {
         issues.push(TerrainSpriteValidationIssue {
             severity: TerrainSpriteValidationSeverity::Warning,
             sprite_id: None,
@@ -364,6 +373,7 @@ fn validate_trench_sprites(
     let trench_floor_continuity_score = trench_mask_band_continuity_score(sprites, 0.50);
     let trench_lip_continuity_score = trench_mask_band_continuity_score(sprites, 0.18);
     let trench_wall_alignment_score = trench_mask_band_continuity_score(sprites, 0.78);
+    let worst_trench_neighbor_pairs = worst_trench_neighbor_pairs(sprites);
     let trench_cap_coverage = [0_u8, 1, 2, 4, 8]
         .into_iter()
         .filter(|mask| {
@@ -454,6 +464,20 @@ fn validate_trench_sprites(
             message: "trench junction mask coverage is incomplete".to_string(),
         });
     }
+    if trench_floor_continuity_score > 0.12 {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Warning,
+            sprite_id: None,
+            message: "trench floor continuity score is high".to_string(),
+        });
+    }
+    if trench_lip_continuity_score > 0.12 {
+        issues.push(TerrainSpriteValidationIssue {
+            severity: TerrainSpriteValidationSeverity::Warning,
+            sprite_id: None,
+            message: "trench lip continuity score is high".to_string(),
+        });
+    }
 
     TrenchSpriteValidationSummary {
         trench_piece_coverage,
@@ -473,6 +497,7 @@ fn validate_trench_sprites(
         trench_cap_coverage,
         trench_corner_coverage,
         trench_junction_coverage,
+        worst_trench_neighbor_pairs,
     }
 }
 
@@ -761,6 +786,44 @@ fn trench_mask_band_continuity_score(sprites: &[GeneratedTerrainSprite], band: f
     }
 }
 
+fn worst_trench_neighbor_pairs(sprites: &[GeneratedTerrainSprite]) -> Vec<TrenchNeighborPairScore> {
+    let mut pairs = Vec::new();
+    for sprite in sprites.iter().filter(|sprite| sprite.kind.is_trench_mask()) {
+        let Some(mask) = sprite.kind.trench_mask() else {
+            continue;
+        };
+        for (direction, opposite, edge) in [
+            (1_u8, 4_u8, "north"),
+            (2_u8, 8_u8, "east"),
+            (4_u8, 1_u8, "south"),
+            (8_u8, 2_u8, "west"),
+        ] {
+            if mask & direction == 0 {
+                continue;
+            }
+            let Some(neighbor) = sprites
+                .iter()
+                .find(|candidate| candidate.kind.trench_mask() == Some(opposite))
+            else {
+                continue;
+            };
+            pairs.push(TrenchNeighborPairScore {
+                mask_a: mask,
+                edge: edge.to_string(),
+                mask_b: opposite,
+                score: trench_edge_difference(sprite, neighbor, direction, 0.0),
+            });
+        }
+    }
+    pairs.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    pairs.truncate(8);
+    pairs
+}
+
 fn path_edge_difference(
     sprite: &GeneratedTerrainSprite,
     neighbor: &GeneratedTerrainSprite,
@@ -806,6 +869,10 @@ fn trench_edge_difference(
     let mut count = 0.0;
     match direction {
         1 | 4 => {
+            let center = width / 2;
+            let open = (width as f32 * 0.34).round() as u32;
+            let start = center.saturating_sub(open / 2);
+            let end = (center + open / 2).min(width - 1);
             let y_a = if direction == 1 { 0 } else { surface_h - 1 };
             let y_b = if direction == 1 { surface_h - 1 } else { 0 };
             let offset = (surface_h as f32 * band).round() as u32;
@@ -819,7 +886,7 @@ fn trench_edge_difference(
             } else {
                 (y_b + offset).min(surface_h - 1)
             };
-            for x in 0..width {
+            for x in start..=end {
                 total += sprite
                     .image
                     .get(x, ya)
@@ -828,6 +895,10 @@ fn trench_edge_difference(
             }
         }
         2 | 8 => {
+            let center = surface_h / 2;
+            let open = (surface_h as f32 * 0.34).round() as u32;
+            let start = center.saturating_sub(open / 2);
+            let end = (center + open / 2).min(surface_h - 1);
             let x_a = if direction == 8 { 0 } else { width - 1 };
             let x_b = if direction == 8 { width - 1 } else { 0 };
             let offset = (width as f32 * band * 0.5).round() as u32;
@@ -841,7 +912,7 @@ fn trench_edge_difference(
             } else {
                 (x_b + offset).min(width - 1)
             };
-            for y in 0..surface_h {
+            for y in start..=end {
                 total += sprite
                     .image
                     .get(xa, y)

@@ -438,6 +438,16 @@ pub fn generate_trench_mask_tile(recipe: &TerrainSpriteRecipe, mask: u8) -> Pixe
             }
         }
     }
+    normalize_trench_opening_bands(&mut image, recipe, mask, width, surface_h, floor);
+    suppress_trench_openings(
+        mask,
+        width,
+        surface_h,
+        &mut top_edge,
+        &mut bottom_edge,
+        &mut left_edge,
+        &mut right_edge,
+    );
 
     for x in 0..width {
         let Some(edge_y) = bottom_edge[x as usize] else {
@@ -484,7 +494,100 @@ pub fn generate_trench_mask_tile(recipe: &TerrainSpriteRecipe, mask: u8) -> Pixe
     draw_trench_mask_side_lips(&mut image, recipe, seed ^ 0x3407, &right_edge, false);
     draw_trench_mask_caps(&mut image, recipe, mask, seed ^ 0x3408);
     draw_trench_mask_spoil(&mut image, recipe, mask, seed ^ 0x3409);
+    draw_trench_mask_center_resolver(&mut image, recipe, mask, seed ^ 0x340a);
     image
+}
+
+fn normalize_trench_opening_bands(
+    image: &mut PixelImage,
+    recipe: &TerrainSpriteRecipe,
+    mask: u8,
+    width: u32,
+    surface_h: u32,
+    floor: Rgba8,
+) {
+    let cx = width / 2;
+    let cy = surface_h / 2;
+    let open_w = (width as f32 * 0.34).round() as u32;
+    let open_h = (surface_h as f32 * 0.34).round() as u32;
+    let band = (recipe.style.projection.face_height_px / 5).clamp(4, 9);
+    if mask & 1 != 0 {
+        fill_opening_band(image, cx.saturating_sub(open_w / 2), 0, open_w, band, floor);
+    }
+    if mask & 4 != 0 {
+        fill_opening_band(
+            image,
+            cx.saturating_sub(open_w / 2),
+            surface_h.saturating_sub(band),
+            open_w,
+            band,
+            floor,
+        );
+    }
+    if mask & 8 != 0 {
+        fill_opening_band(image, 0, cy.saturating_sub(open_h / 2), band, open_h, floor);
+    }
+    if mask & 2 != 0 {
+        fill_opening_band(
+            image,
+            width.saturating_sub(band),
+            cy.saturating_sub(open_h / 2),
+            band,
+            open_h,
+            floor,
+        );
+    }
+}
+
+fn fill_opening_band(
+    image: &mut PixelImage,
+    x0: u32,
+    y0: u32,
+    width: u32,
+    height: u32,
+    color: Rgba8,
+) {
+    for y in y0..(y0 + height).min(image.height) {
+        for x in x0..(x0 + width).min(image.width) {
+            image.set(x, y, color.with_alpha(245));
+        }
+    }
+}
+
+fn suppress_trench_openings(
+    mask: u8,
+    width: u32,
+    surface_h: u32,
+    top_edge: &mut [Option<u32>],
+    bottom_edge: &mut [Option<u32>],
+    left_edge: &mut [Option<u32>],
+    right_edge: &mut [Option<u32>],
+) {
+    let cx = width / 2;
+    let cy = surface_h / 2;
+    let open_w = (width as f32 * 0.34).round() as u32;
+    let open_h = (surface_h as f32 * 0.34).round() as u32;
+    if mask & 1 != 0 {
+        clear_edge_span(top_edge, cx.saturating_sub(open_w / 2), cx + open_w / 2);
+    }
+    if mask & 4 != 0 {
+        clear_edge_span(bottom_edge, cx.saturating_sub(open_w / 2), cx + open_w / 2);
+    }
+    if mask & 8 != 0 {
+        clear_edge_span(left_edge, cy.saturating_sub(open_h / 2), cy + open_h / 2);
+    }
+    if mask & 2 != 0 {
+        clear_edge_span(right_edge, cy.saturating_sub(open_h / 2), cy + open_h / 2);
+    }
+}
+
+fn clear_edge_span(edges: &mut [Option<u32>], start: u32, end: u32) {
+    let end = end.min(edges.len().saturating_sub(1) as u32);
+    for index in start.min(end)..=end {
+        if let Some(edge) = edges.get_mut(index as usize) {
+            *edge = None;
+        }
+    }
 }
 
 fn draw_trench_mask_lip_segments(
@@ -589,46 +692,105 @@ fn draw_trench_mask_caps(
     let cap_color = palette.dirt_mid.lighten(0.08);
     let shadow = palette.dirt_shadow.darken(0.20);
     let degree = mask.count_ones();
-    let endpoint_cap = if degree == 1 {
-        match mask {
-            1 => Some(4),
-            2 => Some(8),
-            4 => Some(1),
-            8 => Some(2),
-            _ => None,
-        }
+    if degree != 1 {
+        return;
+    }
+    let cap_crosses_vertical_trench = mask == 1 || mask == 4;
+    let rx = if cap_crosses_vertical_trench {
+        cap_w
     } else {
-        None
+        cap_w / 2
     };
-    for (bit, center_x, center_y, horizontal) in [
-        (1_u8, cx, cy - cap_h * 2, true),
-        (2_u8, cx + cap_w * 2, cy, false),
-        (4_u8, cx, cy + cap_h * 2, true),
-        (8_u8, cx - cap_w * 2, cy, false),
-    ] {
-        if endpoint_cap != Some(bit) && degree != 0 {
-            continue;
+    let ry = if cap_crosses_vertical_trench {
+        cap_h / 2
+    } else {
+        cap_h
+    };
+    for y in cy - ry..=cy + ry {
+        for x in cx - rx..=cx + rx {
+            if !image.in_bounds(x, y) {
+                continue;
+            }
+            let dx = (x - cx).abs() as f32 / rx.max(1) as f32;
+            let dy = (y - cy).abs() as f32 / ry.max(1) as f32;
+            if dx * dx + dy * dy > 1.08 {
+                continue;
+            }
+            let noise = trench_noise(seed ^ mask as u64, x.max(0) as u32 / 3, y.max(0) as u32 / 3);
+            let color = if dy > 0.55 || noise < -0.45 {
+                shadow.blend(cap_color, 0.32)
+            } else {
+                cap_color
+            };
+            let alpha = if dx * dx + dy * dy > 0.72 { 0.28 } else { 0.54 };
+            image.blend_pixel(x as u32, y as u32, color, alpha);
         }
-        let rx = if horizontal { cap_w } else { cap_w / 2 };
-        let ry = if horizontal { cap_h / 2 } else { cap_h };
-        for y in center_y - ry..=center_y + ry {
-            for x in center_x - rx..=center_x + rx {
-                if !image.in_bounds(x, y) {
-                    continue;
-                }
-                let dx = (x - center_x).abs() as f32 / rx.max(1) as f32;
-                let dy = (y - center_y).abs() as f32 / ry.max(1) as f32;
-                if dx * dx + dy * dy > 1.12 {
-                    continue;
-                }
-                let noise =
-                    trench_noise(seed ^ bit as u64, x.max(0) as u32 / 3, y.max(0) as u32 / 3);
-                let color = if dy > 0.55 || noise < -0.45 {
-                    shadow.blend(cap_color, 0.32)
-                } else {
-                    cap_color
-                };
-                image.blend_pixel(x as u32, y as u32, color, 0.44);
+    }
+}
+
+fn draw_trench_mask_center_resolver(
+    image: &mut PixelImage,
+    recipe: &TerrainSpriteRecipe,
+    mask: u8,
+    seed: u64,
+) {
+    let degree = mask.count_ones();
+    if degree < 2 {
+        return;
+    }
+    let projection = &recipe.style.projection;
+    let palette = &recipe.style.palette;
+    let surface_h = projection.cell_height_px.max(recipe.tile_size * 2);
+    let cx = image.width as i32 / 2;
+    let cy = surface_h as i32 / 2;
+    let floor = palette
+        .dirt_shadow
+        .darken(recipe.style.trench.floor_darkness * 0.64);
+    let floor_hi = palette
+        .dirt_dark
+        .darken(recipe.style.trench.floor_darkness * 0.34);
+    let lip_shadow = palette.dirt_dark.darken(0.10);
+    let radius_x = if degree >= 3 {
+        (image.width as f32 * 0.23) as i32
+    } else {
+        (image.width as f32 * 0.17) as i32
+    }
+    .max(12);
+    let radius_y = if degree >= 3 {
+        (surface_h as f32 * 0.23) as i32
+    } else {
+        (surface_h as f32 * 0.17) as i32
+    }
+    .max(10);
+
+    for y in cy - radius_y..=cy + radius_y {
+        for x in cx - radius_x..=cx + radius_x {
+            if !image.in_bounds(x, y) {
+                continue;
+            }
+            let dx = (x - cx) as f32 / radius_x.max(1) as f32;
+            let dy = (y - cy) as f32 / radius_y.max(1) as f32;
+            if dx * dx + dy * dy > 1.0 {
+                continue;
+            }
+            let noise = trench_noise(seed ^ 0x41, x.max(0) as u32 / 4, y.max(0) as u32 / 4);
+            let color = if noise > 0.40 { floor_hi } else { floor };
+            let alpha = if degree >= 3 { 0.72 } else { 0.54 };
+            image.blend_pixel(x as u32, y as u32, color, alpha);
+        }
+    }
+
+    let outer_alpha = if degree >= 3 { 0.30 } else { 0.22 };
+    for y in cy - radius_y - 2..=cy + radius_y + 2 {
+        for x in cx - radius_x - 2..=cx + radius_x + 2 {
+            if !image.in_bounds(x, y) {
+                continue;
+            }
+            let dx = (x - cx) as f32 / radius_x.max(1) as f32;
+            let dy = (y - cy) as f32 / radius_y.max(1) as f32;
+            let d = dx * dx + dy * dy;
+            if (0.92..=1.22).contains(&d) {
+                image.blend_pixel(x as u32, y as u32, lip_shadow, outer_alpha);
             }
         }
     }
