@@ -11,9 +11,10 @@ use ground_game::{
     export_generated_mission_pack_quality_gate, export_generated_mission_pack_with_curve,
     export_generated_mission_theme_batch, export_hazard_sandbox_run, export_mission_balance_run,
     export_mission_visuals, export_order_script_run, export_road_below_seed,
-    export_theme_calibration_report, load_mission_spec, load_work_order_script,
-    road_below_basic_prep_script, road_below_hazard_prep_script, road_below_spec,
-    MissionGeneratorSpec, MissionPackCurve, MissionTheme, DEFAULT_MISSION_EXPORT_DIR,
+    export_theme_calibration_report, export_visual_lock_benchmark, load_mission_spec,
+    load_work_order_script, road_below_basic_prep_script, road_below_hazard_prep_script,
+    road_below_spec, MissionGeneratorSpec, MissionPackCurve, MissionTheme,
+    DEFAULT_MISSION_EXPORT_DIR,
 };
 
 fn main() -> Result<()> {
@@ -635,6 +636,52 @@ fn main() -> Result<()> {
                 "Campaign quality files: campaign_set_matrix_summary.json, campaign_quality_report.json, lesson_role_report.json, unlock_curve_report.json, campaign_difficulty_curve_report.json, campaign_complexity_curve_report.json, weak_campaign_reports/*, campaign_contact_sheets/*"
             );
         }
+        "visual-lock-benchmark" => {
+            let out_dir = args
+                .next()
+                .unwrap_or_else(|| "exports/visual_lock_01".to_string());
+            let mut seed = 99_418_113;
+            let mut count = 8;
+            let mut theme = MissionTheme::RidgeTrap;
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--seed" => {
+                        let Some(value) = args.next() else {
+                            bail!("--seed requires a value");
+                        };
+                        seed = value.parse()?;
+                    }
+                    "--count" => {
+                        let Some(value) = args.next() else {
+                            bail!("--count requires a value");
+                        };
+                        count = value.parse()?;
+                    }
+                    "--theme" => {
+                        let Some(value) = args.next() else {
+                            bail!("--theme requires a value");
+                        };
+                        theme = value.parse().map_err(|err: String| anyhow::anyhow!(err))?;
+                    }
+                    other => bail!("unknown visual-lock-benchmark option: {other}"),
+                }
+            }
+            let mut generator = MissionGeneratorSpec::road_below(seed);
+            generator.theme = theme;
+            let report = export_visual_lock_benchmark(&out_dir, generator, count)?;
+            println!("Exported Visual Lock 1 benchmark to {out_dir}.");
+            println!(
+                "{} [{}] | seed {} | score {} | best plan {}.",
+                report.title,
+                report.theme_slug,
+                report.seed,
+                report.accepted_score,
+                report.best_plan_label
+            );
+            println!(
+                "Visual lock files: benchmark_visual_beauty.png, benchmark_visual_routes.png, benchmark_visual_debug.png, benchmark_visual_audit.json, benchmark_visual_asset_report.json, benchmark_feature_map.json, benchmark_prepared_visual_beauty.png"
+            );
+        }
         "render-mission" => {
             let out_dir = args
                 .next()
@@ -736,6 +783,7 @@ fn print_help() {
         "  cargo run -p ground_cli -- playtest-campaign-set [out_dir] [mission_set.ron|json]"
     );
     eprintln!("  cargo run -p ground_cli -- quality-gate-campaign-sets [out_dir] [--seed 99418113] [--seed-count 3] [--missions 6] [--candidates-per-theme 20] [--curve balanced|tutorial] [--render-visuals]");
+    eprintln!("  cargo run -p ground_cli -- visual-lock-benchmark [out_dir] [--theme ridge_trap] [--seed 99418113] [--count 8]");
     eprintln!("  cargo run -p ground_cli -- render-mission [out_dir] [mission_spec.ron|json]");
     eprintln!(
         "  cargo run -p ground_cli -- calibrate-themes [out_dir] [--count 200] [--seed 99418113]"

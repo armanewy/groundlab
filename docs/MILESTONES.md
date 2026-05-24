@@ -1,11 +1,12 @@
 # GroundLab milestones
 
-## Current pivot — Tactical engineering defense workbench
+## Current pivot — Visual lock before more systems
 
-GroundLab's active roadmap has pivoted from ArtGen expansion to a game-first mission workbench.
-SpriteGen remains the terrain art forge, but the main product is now a 2.5D level-based tactical
-engineering defense game built around prep-phase work orders, local materials, state-based terrain
-destruction, route/LOS consequences, and predictable enemy doctrine.
+GroundLab's active roadmap is paused on new game/procgen/campaign expansion while the generated
+mission art direction is locked. SpriteGen remains the terrain art forge, and Mission Lab remains
+the 2.5D tactical engineering defense workbench, but the current priority is making one generated
+mission beauty render read as a coherent high-oblique pixel-art terrain scene rather than a
+schematic board.
 
 ## GamePivot 1 — Mission workbench seed
 
@@ -464,6 +465,29 @@ Implemented in this drop.
 This milestone does not add mechanics, themes, UI skinning, campaign economy, or renderer work. It
 turns generated mission sets into a repeatable campaign-level quality gate before adding presentation
 or progression systems on top.
+
+## Visual Lock 1 — Generated mission art direction benchmark
+
+Implemented in this drop.
+
+- added `cargo run -p ground_cli -- visual-lock-benchmark [out_dir] [--theme ridge_trap]
+  [--seed N] [--count N]`
+- the benchmark command generates a fixed candidate batch under `source_candidates/`, selects the
+  first accepted candidate, and preserves its mission/evaluation inputs
+- exports `benchmark_visual_beauty.png`, `benchmark_visual_routes.png`,
+  `benchmark_visual_debug.png`, `benchmark_visual_preview.png`,
+  `benchmark_visual_asset_report.json`, and `benchmark_feature_map.json`
+- applies the selected candidate's best known prep script when available and exports prepared-state
+  beauty/routes/debug renders plus order validation and material ledger artifacts
+- exports `benchmark_visual_audit.json` with dominant scene features, sprite role summaries,
+  placeholder/fallback/override counts, and visual priority notes
+- improves the mission visual renderer's benchmark framing, scale, contact shadows, perimeter
+  treatment, objective prop rendering in beauty mode, and feature accents for paths, trenches,
+  berms, and stone
+
+This milestone intentionally freezes new mechanics, themes, campaign packaging, UI shell work, and
+SpriteGen material-family expansion. Its purpose is to judge one generated mission in visual context
+and expose the highest-impact art/composition problems before more systems are added.
 
 ## Milestone 0 — Project seed
 

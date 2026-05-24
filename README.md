@@ -4,14 +4,15 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: ProcGen 8.1 — campaign set quality gate + unlock validation
+## Current status: Visual Lock 1 — generated mission art direction benchmark
 
-GroundLab has pivoted again from manually tuning one mission toward generating compact tactical
-terrain problems in batches. The primary product direction is still a 2.5D tactical engineering
-defense game: the player is a commander / engineer who reads a compact level, issues prep-phase work
-orders, transforms terrain and local objects, then tests those choices against predictable enemy
-doctrine. The workbench now uses that loop as an evaluation harness for generated mission
-candidates.
+GroundLab has paused new systems, campaign layers, mechanics, and SpriteGen family expansion to
+lock a minimum generated-mission art bar. The primary product direction is still a 2.5D tactical
+engineering defense game: the player is a commander / engineer who reads a compact level, issues
+prep-phase work orders, transforms terrain and local objects, then tests those choices against
+predictable enemy doctrine. The current benchmark takes one accepted generated mission, renders
+beauty/routes/debug views, applies the best known prep script, and audits the visual asset usage so
+art direction can be judged in gameplay context instead of isolated sprites or schematic boards.
 
 SpriteGen remains in the repository as the terrain art forge. It still provides swappable style
 profiles, override PNGs, sprite manifests, validation, and exportable grass/dirt/path/trench/berm/
@@ -82,6 +83,9 @@ GamePivot 8 and ProcGen 1-8.1 build on the `ground_game` crate with:
 - lesson-role reports that check route/prep basics, tree/material dilemmas, trench/berm shaping, rolling hazards, split approaches, and mixed-final slots
 - unlock-curve reports that check whether saw kit, survey kit, winch, and brace kit appear and have later mission roles where they matter
 - weak campaign reports that preserve actionable reasons and recommendations per failed seed
+- a Visual Lock benchmark exporter that selects one accepted generated mission from a fixed seed/theme batch
+- benchmark beauty/routes/debug visual exports for the initial mission and the prepared mission state
+- a visual audit that records generated/effective/override/fallback sprite usage, placeholder object counts, dominant scene features, sprite role summaries, and highest-priority visual notes
 - a Mission Lab file loader for opening generated `mission.ron` candidates directly from disk
 - assault summary and debrief exports for debugging why the plan worked or failed
 - per-cell influence summaries for crossed cells, delayed cells, damaging cells, defender pressure, breach cells, effective obstacles, and unused defenses
@@ -321,6 +325,37 @@ exports/procgen_08_1/
       per_mission_playtest/
 ```
 
+Export the Visual Lock 1 generated-mission benchmark:
+
+```bash
+cargo run -p ground_cli -- visual-lock-benchmark exports/visual_lock_01 --theme ridge_trap --seed 99418113 --count 8
+```
+
+Visual Lock output includes:
+
+```txt
+exports/visual_lock_01/
+  benchmark_mission.ron
+  benchmark_mission.json
+  benchmark_candidate_evaluation.json
+  benchmark_visual_beauty.png
+  benchmark_visual_routes.png
+  benchmark_visual_debug.png
+  benchmark_visual_preview.png
+  benchmark_visual_asset_report.json
+  benchmark_feature_map.json
+  benchmark_prepared_visual_beauty.png
+  benchmark_prepared_visual_routes.png
+  benchmark_prepared_visual_debug.png
+  benchmark_prepared_visual_asset_report.json
+  benchmark_prepared_feature_map.json
+  benchmark_prepared_order_script.ron
+  benchmark_prepared_order_validation.json
+  benchmark_prepared_material_ledger.json
+  benchmark_visual_audit.json
+  source_candidates/
+```
+
 Render one mission directly as a high-oblique visual preview:
 
 ```bash
@@ -371,14 +406,17 @@ cargo run -p ground_app
 
 The full-scene terrain renderer and ArtGen outputs remain downstream infrastructure for terrain
 data, pathing, LOS, and art-kit composition. ProcGen 6 reconnects that asset pipeline to generated
-missions through deterministic visual previews, ProcGen 6.1 separates beauty/routes/debug outputs
-while improving generated mission composition, ProcGen 7 replays generated mission packs through the
-balance/debrief harness with visual QA, ProcGen 7.1 runs that harness across multiple seeds to
-report pack stability, ProcGen 8 packages selected packs into playable mission sets with lessons,
-unlock curves, save templates, and Mission Lab slot navigation, and ProcGen 8.1 quality-gates those
-sets across campaign seeds. The active gameplay roadmap still emphasizes seeded mission generation,
-automatic evaluation, ranking, playable candidate export, pack-level playtest reporting, quality
-gates, mission-set packaging, and campaign reliability.
+missions through deterministic visual previews, ProcGen 6.1 separates beauty/routes/debug outputs,
+ProcGen 7 and 7.1 validate generated packs, and ProcGen 8/8.1 package and quality-gate campaign
+sets. The active work is now visually narrower: use the generated-content pipeline only as a source
+of fixed benchmark missions, then improve the high-oblique beauty render until it no longer reads as
+a debug board.
+
+## Previous status: ProcGen 8.1 — campaign set quality gate + unlock validation
+
+ProcGen 8.1 added multi-seed campaign-set quality gates, lesson-role coverage, unlock usefulness
+diagnostics, campaign-level difficulty/complexity curves, visual QA aggregation, and weak-campaign
+recommendation exports.
 
 ## Previous status: ProcGen 8 — generated campaign / mission set packaging
 

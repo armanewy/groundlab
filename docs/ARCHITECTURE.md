@@ -3,8 +3,9 @@
 GroundLab is intentionally not a general engine. It is a custom terrain/art/simulation workbench
 for one future game family: terrain-first prepared-ground defense.
 
-The active roadmap has pivoted to generated mission candidates. SpriteGen remains the terrain art
-forge, while `ground_game` owns mission specs, prep-phase work orders, local materials,
+The active roadmap has paused generated-campaign and game-system expansion for Visual Lock 1.
+SpriteGen remains the terrain art forge, while `ground_game` owns mission specs, prep-phase work
+orders, local materials,
 environment-object states, doctrine route preview, deterministic assault sandbox, assault
 readability/debrief artifacts, the first deterministic rolling hazard sandbox, mission balance
 scenario comparison, seeded mission generation/ranking with structured rejection diagnostics across
@@ -18,7 +19,10 @@ curve quality, visual QA, and weak-mission diagnostics. ProcGen 8 packages those
 mission sets with ordered lessons, capability unlock metadata, save templates, per-slot mission
 folders, campaign playtest exports, and Mission Lab mission-set navigation. ProcGen 8.1 runs
 campaign sets across seed matrices and aggregates lesson coverage, unlock usefulness, campaign
-difficulty/complexity curves, visual QA, and weak-campaign diagnostics.
+difficulty/complexity curves, visual QA, and weak-campaign diagnostics. Visual Lock 1 uses that
+pipeline only as a source of fixed benchmark missions, then exports initial/prepared beauty,
+route-overlay, debug, asset-report, feature-map, and audit artifacts to guide art-direction work in
+gameplay context.
 `ground_app` now treats Mission Lab as the primary tactical prep surface rather than a generic
 terrain editor panel, and Road Below starts as a playable briefing-to-debrief slice. The same
 mission loop now evaluates generated Road-Below-like candidates so GroundLab can batch-generate,
@@ -57,6 +61,8 @@ score, reject, and export compact terrain-defense problems.
   campaign-level curve reports, visual QA aggregation, and weak-campaign recommendation exports
 - Mission visual theme bindings, high-oblique generated mission beauty previews, visual route/debug
   overlays, generated feature maps, and visual asset reports
+- Visual Lock benchmark export, prepared-state benchmark rendering, dominant-feature audit, sprite
+  role summaries, and placeholder/fallback/override diagnostics
 - Terrain editing brushes
 - Pixel tile recipes
 - Palette ramps and palette file format
@@ -138,6 +144,9 @@ MissionGeneratorSpec + MissionTheme
   -> mission slot lessons + capability unlock curve
   -> campaign playtest replay + mission-set save template
   -> campaign-set quality gate + unlock/lesson diagnostics
+  -> visual-lock benchmark candidate selection
+  -> initial/prepared beauty, route, debug, feature-map, and asset-report exports
+  -> benchmark_visual_audit.json for art-direction decisions
   -> Mission Lab inspection / playable retry
 ```
 
@@ -166,6 +175,21 @@ MissionSpec + MissionVisualTheme
   -> generated_feature_map.json + visual_asset_report.json
   -> generated mission browser and mission-pack visual sheets
   -> pack visual QA reports
+```
+
+Visual Lock benchmark flow:
+
+```txt
+MissionGeneratorSpec + fixed seed/theme
+  -> source candidate batch
+  -> first accepted generated mission
+  -> benchmark_mission.ron/json + candidate evaluation
+  -> initial beauty/routes/debug visual exports
+  -> best known prep script, when available
+  -> prepared beauty/routes/debug visual exports
+  -> visual asset reports + generated feature maps
+  -> benchmark_visual_audit.json
+  -> targeted art/composition polish without adding new gameplay systems
 ```
 
 The important design rule is that generated art remains deterministic and metadata-rich. Tiles are

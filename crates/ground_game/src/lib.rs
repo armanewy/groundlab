@@ -1693,6 +1693,52 @@ pub struct GeneratedMissionObjectCount {
     pub count: u32,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VisualLockBenchmarkReport {
+    pub mission_id: String,
+    pub title: String,
+    pub theme: MissionTheme,
+    pub theme_slug: String,
+    pub seed: u64,
+    pub accepted_score: i32,
+    pub best_plan_label: String,
+    pub source_batch_dir: String,
+    pub source_candidate_dir: String,
+    pub benchmark_mission_path: String,
+    pub initial: VisualLockStageAudit,
+    pub prepared: Option<VisualLockStageAudit>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VisualLockStageAudit {
+    pub stage: String,
+    pub beauty_path: String,
+    pub routes_path: String,
+    pub debug_path: String,
+    pub asset_report_path: String,
+    pub feature_map_path: String,
+    pub asset_report: MissionVisualAssetReport,
+    pub feature_map: GeneratedMissionFeatureMap,
+    pub dominant_features: Vec<VisualLockDominantFeature>,
+    pub sprite_role_summary: Vec<VisualLockSpriteRoleSummary>,
+    pub visual_priority_notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VisualLockDominantFeature {
+    pub label: String,
+    pub count: u32,
+    pub ratio: f32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VisualLockSpriteRoleSummary {
+    pub role: String,
+    pub piece_count: u32,
+    pub pieces: Vec<String>,
+}
+
 #[derive(Clone, Debug)]
 struct GeneratedMissionArtifact {
     spec: MissionSpec,
@@ -3140,6 +3186,99 @@ pub fn export_generated_mission_batch(
     );
     write_json(out_dir.join("browser_index.json"), &browser_index)?;
     write_json(out_dir.join("generator_summary.json"), &report)?;
+    Ok(report)
+}
+
+pub fn export_visual_lock_benchmark(
+    out_dir: impl AsRef<Path>,
+    generator: MissionGeneratorSpec,
+    count: u32,
+) -> Result<VisualLockBenchmarkReport> {
+    let out_dir = out_dir.as_ref();
+    fs::create_dir_all(out_dir)
+        .with_context(|| format!("failed to create {}", out_dir.display()))?;
+    let source_batch_dir = out_dir.join("source_candidates");
+    let batch_report = export_generated_mission_batch(&source_batch_dir, generator, count)?;
+    let selected = batch_report
+        .ranked_candidates
+        .first()
+        .cloned()
+        .with_context(|| {
+            format!(
+                "visual lock benchmark found no accepted candidates in {} generated mission(s)",
+                batch_report.generated_count
+            )
+        })?;
+    let mission_path = selected
+        .mission_path
+        .as_ref()
+        .context("accepted visual lock candidate has no mission path")?;
+    let source_candidate_dir = selected
+        .candidate_dir
+        .clone()
+        .unwrap_or_else(|| source_batch_dir.to_string_lossy().to_string());
+    let spec = load_mission_spec(mission_path)?;
+    save_mission_spec(out_dir.join("benchmark_mission.ron"), &spec)?;
+    write_json(out_dir.join("benchmark_mission.json"), &spec)?;
+    write_json(
+        out_dir.join("benchmark_candidate_evaluation.json"),
+        &selected,
+    )?;
+
+    let initial_state = MissionState::from_spec(spec.clone());
+    let initial = export_visual_lock_stage(out_dir, "benchmark", &initial_state)?;
+
+    let mut notes = vec![
+        "Visual Lock 1 uses one accepted generated mission as the fixed art-direction benchmark."
+            .to_string(),
+        "The initial render judges the generated mission as authored; the prepared render shows the same mission after the best scripted prep plan when available."
+            .to_string(),
+    ];
+    let prepared = if let Some(script) = visual_lock_best_script(&selected.best_plan_label) {
+        let prepared_state = run_work_order_script(spec.clone(), &script);
+        let prepared_audit =
+            export_visual_lock_stage(out_dir, "benchmark_prepared", &prepared_state)?;
+        write_json(
+            out_dir.join("benchmark_prepared_order_script.json"),
+            &script,
+        )?;
+        write_ron(out_dir.join("benchmark_prepared_order_script.ron"), &script)?;
+        write_json(
+            out_dir.join("benchmark_prepared_order_validation.json"),
+            &prepared_state.order_validation,
+        )?;
+        write_json(
+            out_dir.join("benchmark_prepared_material_ledger.json"),
+            &prepared_state.material_ledger,
+        )?;
+        Some(prepared_audit)
+    } else {
+        notes.push(format!(
+            "No matching scripted prep plan was found for '{}'; prepared visual omitted.",
+            selected.best_plan_label
+        ));
+        None
+    };
+
+    let report = VisualLockBenchmarkReport {
+        mission_id: selected.mission_id,
+        title: selected.title,
+        theme: selected.theme,
+        theme_slug: selected.theme_slug,
+        seed: selected.seed,
+        accepted_score: selected.tactical_interest_score,
+        best_plan_label: selected.best_plan_label,
+        source_batch_dir: source_batch_dir.to_string_lossy().to_string(),
+        source_candidate_dir,
+        benchmark_mission_path: out_dir
+            .join("benchmark_mission.ron")
+            .to_string_lossy()
+            .to_string(),
+        initial,
+        prepared,
+        notes,
+    };
+    write_json(out_dir.join("benchmark_visual_audit.json"), &report)?;
     Ok(report)
 }
 
@@ -10261,6 +10400,207 @@ fn copy_visual_alias(src: impl AsRef<Path>, dst: impl AsRef<Path>) -> Result<()>
     Ok(())
 }
 
+fn export_visual_lock_stage(
+    out_dir: &Path,
+    prefix: &str,
+    state: &MissionState,
+) -> Result<VisualLockStageAudit> {
+    let beauty_path = out_dir.join(format!("{prefix}_visual_beauty.png"));
+    let routes_path = out_dir.join(format!("{prefix}_visual_routes.png"));
+    let debug_path = out_dir.join(format!("{prefix}_visual_debug.png"));
+    let asset_report_path = out_dir.join(format!("{prefix}_visual_asset_report.json"));
+    let feature_map_path = out_dir.join(format!("{prefix}_feature_map.json"));
+
+    let asset_report = save_mission_visual_beauty_png(&beauty_path, state)?;
+    if prefix == "benchmark" {
+        copy_visual_alias(&beauty_path, out_dir.join("benchmark_visual_preview.png"))?;
+    }
+    save_mission_visual_routes_png(&routes_path, state)?;
+    save_mission_visual_debug_png(&debug_path, state)?;
+    let feature_map = mission_visual_feature_map(state);
+    write_json(&asset_report_path, &asset_report)?;
+    write_json(&feature_map_path, &feature_map)?;
+
+    Ok(visual_lock_stage_audit(VisualLockStageAuditParts {
+        stage: prefix,
+        beauty_path,
+        routes_path,
+        debug_path,
+        asset_report_path,
+        feature_map_path,
+        asset_report,
+        feature_map,
+    }))
+}
+
+struct VisualLockStageAuditParts<'a> {
+    stage: &'a str,
+    beauty_path: PathBuf,
+    routes_path: PathBuf,
+    debug_path: PathBuf,
+    asset_report_path: PathBuf,
+    feature_map_path: PathBuf,
+    asset_report: MissionVisualAssetReport,
+    feature_map: GeneratedMissionFeatureMap,
+}
+
+fn visual_lock_stage_audit(parts: VisualLockStageAuditParts<'_>) -> VisualLockStageAudit {
+    let VisualLockStageAuditParts {
+        stage,
+        beauty_path,
+        routes_path,
+        debug_path,
+        asset_report_path,
+        feature_map_path,
+        asset_report,
+        feature_map,
+    } = parts;
+    let dominant_features = visual_lock_dominant_features(&feature_map);
+    let sprite_role_summary = visual_lock_sprite_role_summary(&asset_report);
+    let visual_priority_notes =
+        visual_lock_priority_notes(stage, &asset_report, &feature_map, &dominant_features);
+    VisualLockStageAudit {
+        stage: stage.to_string(),
+        beauty_path: beauty_path.to_string_lossy().to_string(),
+        routes_path: routes_path.to_string_lossy().to_string(),
+        debug_path: debug_path.to_string_lossy().to_string(),
+        asset_report_path: asset_report_path.to_string_lossy().to_string(),
+        feature_map_path: feature_map_path.to_string_lossy().to_string(),
+        asset_report,
+        feature_map,
+        dominant_features,
+        sprite_role_summary,
+        visual_priority_notes,
+    }
+}
+
+fn visual_lock_dominant_features(
+    feature_map: &GeneratedMissionFeatureMap,
+) -> Vec<VisualLockDominantFeature> {
+    let total_cells = (feature_map.width * feature_map.height).max(1);
+    let mut out = feature_map
+        .features
+        .iter()
+        .map(|feature| VisualLockDominantFeature {
+            label: feature.feature.clone(),
+            count: feature.cell_count,
+            ratio: feature.cell_count as f32 / total_cells as f32,
+        })
+        .chain(
+            feature_map
+                .object_counts
+                .iter()
+                .map(|object| VisualLockDominantFeature {
+                    label: format!("object:{}", object.object),
+                    count: object.count,
+                    ratio: object.count as f32 / total_cells as f32,
+                }),
+        )
+        .collect::<Vec<_>>();
+    out.sort_by(|a, b| b.count.cmp(&a.count).then_with(|| a.label.cmp(&b.label)));
+    out
+}
+
+fn visual_lock_sprite_role_summary(
+    report: &MissionVisualAssetReport,
+) -> Vec<VisualLockSpriteRoleSummary> {
+    let mut roles: HashMap<String, Vec<String>> = HashMap::new();
+    for piece in &report.effective_sprite_pieces_used {
+        roles
+            .entry(visual_lock_sprite_role(piece).to_string())
+            .or_default()
+            .push(piece.clone());
+    }
+    let mut out = roles
+        .into_iter()
+        .map(|(role, mut pieces)| {
+            pieces.sort();
+            pieces.dedup();
+            VisualLockSpriteRoleSummary {
+                role,
+                piece_count: pieces.len() as u32,
+                pieces,
+            }
+        })
+        .collect::<Vec<_>>();
+    out.sort_by(|a, b| a.role.cmp(&b.role));
+    out
+}
+
+fn visual_lock_sprite_role(piece: &str) -> &'static str {
+    if piece.starts_with("grass") {
+        "grass/top surface"
+    } else if piece.starts_with("path") || piece.starts_with("dirt") {
+        "path/dirt surface"
+    } else if piece.starts_with("trench") {
+        "trench/recessed terrain"
+    } else if piece.starts_with("berm") {
+        "berm/raised terrain"
+    } else if piece.starts_with("stone") {
+        "stone/hard elevation"
+    } else if piece.contains("shadow") {
+        "contact shadow"
+    } else {
+        "other"
+    }
+}
+
+fn visual_lock_priority_notes(
+    stage: &str,
+    report: &MissionVisualAssetReport,
+    feature_map: &GeneratedMissionFeatureMap,
+    dominant_features: &[VisualLockDominantFeature],
+) -> Vec<String> {
+    let mut notes = Vec::new();
+    if report.overridden_sprite_count == 0 {
+        notes.push(
+            "All visible terrain pieces are generated; no override art is active.".to_string(),
+        );
+    }
+    if !report.missing_visual_pieces.is_empty() {
+        notes.push(format!(
+            "{} missing terrain piece kind(s) are using fallback art.",
+            report.missing_visual_pieces.len()
+        ));
+    }
+    if !report.placeholder_object_sprites.is_empty() {
+        notes.push(format!(
+            "Object silhouettes still use placeholder classes: {}.",
+            report.placeholder_object_sprites.join(", ")
+        ));
+    }
+    if let Some(top) = dominant_features.first() {
+        notes.push(format!(
+            "Dominant visual feature is '{}' at {:.0}% of map cells.",
+            top.label,
+            top.ratio * 100.0
+        ));
+    }
+    for feature_name in ["trench_network", "berm_network", "stone_region"] {
+        let count = feature_map
+            .features
+            .iter()
+            .find(|feature| feature.feature == feature_name)
+            .map(|feature| feature.cell_count)
+            .unwrap_or(0);
+        if count == 0 {
+            notes.push(format!(
+                "{feature_name} is absent in the {stage} render; judge that role in prepared or alternate benchmarks."
+            ));
+        }
+    }
+    if notes.is_empty() {
+        notes.push("Visual lock audit did not find obvious asset-pipeline issues.".to_string());
+    }
+    notes
+}
+
+fn visual_lock_best_script(best_plan_label: &str) -> Option<WorkOrderScript> {
+    road_below_balance_scripts()
+        .into_iter()
+        .find(|script| script.label == best_plan_label)
+}
+
 pub fn mission_visual_feature_map(state: &MissionState) -> GeneratedMissionFeatureMap {
     let features = vec![
         generated_feature_summary(state, "grass_region", |cell| {
@@ -10440,12 +10780,12 @@ struct MissionVisualProjection {
 
 impl MissionVisualProjection {
     fn new(map: &MissionMap) -> Self {
-        let tile_w = 76;
-        let tile_h = 48;
-        let height_step = 14;
-        let margin = 96;
+        let tile_w = 92;
+        let tile_h = 58;
+        let height_step = 18;
+        let margin = 128;
         let width = (map.width + map.height) * tile_w / 2 + margin * 2;
-        let height = (map.width + map.height) * tile_h / 2 + margin * 2 + 72;
+        let height = (map.width + map.height) * tile_h / 2 + margin * 2 + 96;
         Self {
             tile_w,
             tile_h,
@@ -10531,6 +10871,7 @@ fn mission_visual_image(
                     preview_cell_color(cell),
                 );
             }
+            draw_visual_cell_accent(&mut image, state, coord, cell, &projection);
             if matches!(overlay, MissionVisualOverlay::Debug) {
                 draw_diamond_outline(
                     &mut image,
@@ -10544,7 +10885,9 @@ fn mission_visual_image(
     }
 
     draw_visual_objects(&mut image, state, &projection);
-    if !matches!(overlay, MissionVisualOverlay::Beauty) {
+    if matches!(overlay, MissionVisualOverlay::Beauty) {
+        draw_visual_objective_prop(&mut image, state, &projection);
+    } else {
         draw_visual_mission_markers(&mut image, state, &projection);
     }
     if matches!(
@@ -10678,7 +11021,15 @@ fn draw_visual_feature_shadow(
     if let Some(kind) = shadow_kind {
         if let Some(sprite) = mission_visual_sprite(sprites, kind) {
             notes.used_pieces.insert(kind.id().to_string());
-            draw_diamond_sprite_offset(image, &sprite.image, projection, coord, cell.height, 8, 10);
+            draw_diamond_sprite_offset(
+                image,
+                &sprite.image,
+                projection,
+                coord,
+                cell.height,
+                10,
+                14,
+            );
         } else {
             notes.missing.insert(format!("{kind:?}"));
         }
@@ -10688,9 +11039,9 @@ fn draw_visual_feature_shadow(
             projection,
             coord,
             cell.height,
-            8,
-            12,
-            Rgba([2, 4, 3, 24]),
+            10,
+            16,
+            Rgba([2, 4, 3, 34]),
         );
     }
 }
@@ -10845,6 +11196,183 @@ fn draw_visual_cell_faces(
         for step in 0..face_h {
             draw_rgba_line(image, x0, y0 + step as i32, x1, y1 + step as i32, color, 1);
         }
+    }
+}
+
+fn draw_visual_cell_accent(
+    image: &mut RgbaImage,
+    state: &MissionState,
+    coord: CellCoord,
+    cell: &MissionCell,
+    projection: &MissionVisualProjection,
+) {
+    match cell.earth_state {
+        EarthState::Trench | EarthState::DeepTrench | EarthState::Ditch => {
+            draw_visual_trench_accent(image, state, coord, cell, projection);
+        }
+        EarthState::Berm | EarthState::SpoilPile => {
+            draw_visual_berm_accent(image, coord, cell, projection);
+        }
+        _ if cell.ground == GroundKind::Road => {
+            draw_visual_path_accent(image, state, coord, cell, projection);
+        }
+        _ if cell.ground == GroundKind::Rock => {
+            draw_visual_stone_accent(image, coord, cell, projection);
+        }
+        _ => {}
+    }
+    if visual_outer_perimeter_cell(state, coord) {
+        draw_visual_perimeter_fringe(image, state, coord, cell, projection);
+    }
+}
+
+fn draw_visual_path_accent(
+    image: &mut RgbaImage,
+    state: &MissionState,
+    coord: CellCoord,
+    cell: &MissionCell,
+    projection: &MissionVisualProjection,
+) {
+    let mask = cardinal_mask_for_cells(state, coord, |cell| cell.ground == GroundKind::Road);
+    let (cx, cy) = projection.center(coord, cell.height);
+    let hw = projection.tile_w as i32 / 2;
+    let hh = projection.tile_h as i32 / 2;
+    let road_shadow = Rgba([73, 45, 28, 92]);
+    let road_high = Rgba([156, 103, 60, 88]);
+    for (bit, tx, ty) in [
+        (1, cx, cy - hh / 2),
+        (2, cx + hw / 2, cy),
+        (4, cx, cy + hh / 2),
+        (8, cx - hw / 2, cy),
+    ] {
+        if mask & bit != 0 {
+            draw_rgba_line(image, cx, cy, tx, ty, road_shadow, 6);
+            draw_rgba_line(image, cx, cy - 1, tx, ty - 1, road_high, 2);
+        }
+    }
+    if mask == 0 {
+        fill_rgba_rect(image, cx - 8, cy - 3, 16, 6, road_shadow);
+    }
+}
+
+fn draw_visual_trench_accent(
+    image: &mut RgbaImage,
+    state: &MissionState,
+    coord: CellCoord,
+    cell: &MissionCell,
+    projection: &MissionVisualProjection,
+) {
+    let mask = cardinal_mask_for_cells(state, coord, |cell| {
+        matches!(
+            cell.earth_state,
+            EarthState::Trench | EarthState::DeepTrench | EarthState::Ditch
+        )
+    });
+    let (cx, cy) = projection.center(coord, cell.height);
+    let hw = projection.tile_w as i32 / 2;
+    let hh = projection.tile_h as i32 / 2;
+    let floor = Rgba([31, 23, 19, 120]);
+    let lip = Rgba([142, 91, 47, 120]);
+    if mask & 10 != 0 {
+        draw_rgba_line(image, cx - hw / 3, cy, cx + hw / 3, cy, floor, 5);
+    }
+    if mask & 5 != 0 {
+        draw_rgba_line(image, cx, cy - hh / 3, cx, cy + hh / 3, floor, 5);
+    }
+    draw_rgba_line(
+        image,
+        cx - hw / 3,
+        cy + hh / 3,
+        cx + hw / 3,
+        cy + hh / 3,
+        lip,
+        2,
+    );
+}
+
+fn draw_visual_berm_accent(
+    image: &mut RgbaImage,
+    coord: CellCoord,
+    cell: &MissionCell,
+    projection: &MissionVisualProjection,
+) {
+    let (cx, cy) = projection.center(coord, cell.height);
+    let hw = projection.tile_w as i32 / 2;
+    let hh = projection.tile_h as i32 / 2;
+    draw_rgba_line(
+        image,
+        cx - hw / 3,
+        cy - hh / 4,
+        cx + hw / 4,
+        cy - hh / 6,
+        Rgba([154, 113, 62, 105]),
+        3,
+    );
+    draw_rgba_line(
+        image,
+        cx - hw / 3,
+        cy + hh / 3,
+        cx + hw / 3,
+        cy + hh / 3,
+        Rgba([52, 36, 25, 105]),
+        3,
+    );
+}
+
+fn draw_visual_stone_accent(
+    image: &mut RgbaImage,
+    coord: CellCoord,
+    cell: &MissionCell,
+    projection: &MissionVisualProjection,
+) {
+    let (cx, cy) = projection.center(coord, cell.height);
+    draw_rgba_line(
+        image,
+        cx - 15,
+        cy - 2,
+        cx + 10,
+        cy + 6,
+        Rgba([54, 56, 52, 92]),
+        2,
+    );
+    draw_rgba_line(
+        image,
+        cx + 2,
+        cy - 10,
+        cx + 19,
+        cy - 5,
+        Rgba([154, 154, 136, 80]),
+        1,
+    );
+}
+
+fn draw_visual_perimeter_fringe(
+    image: &mut RgbaImage,
+    state: &MissionState,
+    coord: CellCoord,
+    cell: &MissionCell,
+    projection: &MissionVisualProjection,
+) {
+    let (cx, cy) = projection.center(coord, cell.height);
+    let hw = projection.tile_w as i32 / 2;
+    let hh = projection.tile_h as i32 / 2;
+    let top = (cx, cy - hh);
+    let right = (cx + hw, cy);
+    let bottom = (cx, cy + hh);
+    let left = (cx - hw, cy);
+    let edge_dark = Rgba([24, 40, 24, 145]);
+    let edge_light = Rgba([75, 100, 48, 92]);
+    if coord.y == 0 {
+        draw_rgba_line(image, top.0, top.1, right.0, right.1, edge_dark, 2);
+    }
+    if coord.x == 0 {
+        draw_rgba_line(image, left.0, left.1, top.0, top.1, edge_light, 1);
+    }
+    if coord.x + 1 == state.map.width {
+        draw_rgba_line(image, right.0, right.1, bottom.0, bottom.1, edge_dark, 3);
+    }
+    if coord.y + 1 == state.map.height {
+        draw_rgba_line(image, bottom.0, bottom.1, left.0, left.1, edge_dark, 3);
     }
 }
 
@@ -11098,6 +11626,14 @@ fn draw_visual_mission_markers(
         fill_rgba_rect(image, cx - 5, cy - 31, 18, 10, Rgba([78, 130, 206, 225]));
         fill_rgba_rect(image, cx - 5, cy - 21, 12, 5, Rgba([55, 94, 154, 220]));
     }
+    draw_visual_objective_prop(image, state, projection);
+}
+
+fn draw_visual_objective_prop(
+    image: &mut RgbaImage,
+    state: &MissionState,
+    projection: &MissionVisualProjection,
+) {
     let objective = state.spec.objective.defend_cell;
     let height = state
         .map
@@ -11105,8 +11641,19 @@ fn draw_visual_mission_markers(
         .map(|cell| cell.height)
         .unwrap_or(0);
     let (cx, cy) = projection.center(objective, height);
+    fill_rgba_rect(image, cx - 15, cy - 12, 30, 10, Rgba([22, 24, 20, 55]));
     fill_rgba_rect(image, cx - 13, cy - 20, 26, 16, Rgba([108, 78, 38, 255]));
     fill_rgba_rect(image, cx - 10, cy - 29, 20, 10, Rgba([226, 202, 88, 245]));
+    fill_rgba_rect(image, cx + 7, cy - 37, 4, 10, Rgba([70, 58, 30, 245]));
+    draw_rgba_line(
+        image,
+        cx + 9,
+        cy - 36,
+        cx + 22,
+        cy - 31,
+        Rgba([205, 77, 54, 230]),
+        5,
+    );
     draw_preview_border_safe(image, cx - 13, cy - 20, 26, 16, Rgba([74, 62, 28, 255]));
 }
 
