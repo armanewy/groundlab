@@ -639,7 +639,7 @@ fn main() -> Result<()> {
         "visual-lock-benchmark" => {
             let out_dir = args
                 .next()
-                .unwrap_or_else(|| "exports/visual_lock_03".to_string());
+                .unwrap_or_else(|| "exports/visual_lock_04".to_string());
             let mut seed = 99_418_113;
             let mut count = 8;
             let mut theme = MissionTheme::RidgeTrap;
@@ -679,7 +679,7 @@ fn main() -> Result<()> {
                 report.best_plan_label
             );
             println!(
-                "Visual lock files: benchmark_visual_full_board.png, benchmark_visual_playable_crop.png, benchmark_visual_close_detail.png, benchmark_visual_audit.json, benchmark_prepared_visual_beauty.png, benchmark_prepared_diff.png, benchmark_prepared_feature_overlay.png, benchmark_override_report.json"
+                "Visual lock files: benchmark_visual_full_board.png, benchmark_visual_playable_crop.png, benchmark_visual_close_detail.png, benchmark_visual_audit.json, benchmark_prepared_visual_beauty.png, benchmark_prepared_diff.png, benchmark_prepared_feature_overlay.png, benchmark_override_report.json, benchmark_override_before_after.png, benchmark_override_diff.png"
             );
         }
         "render-mission" => {

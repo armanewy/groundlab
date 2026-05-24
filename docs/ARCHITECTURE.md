@@ -3,7 +3,7 @@
 GroundLab is intentionally not a general engine. It is a custom terrain/art/simulation workbench
 for one future game family: terrain-first prepared-ground defense.
 
-The active roadmap has paused generated-campaign and game-system expansion for Visual Lock 3.
+The active roadmap has paused generated-campaign and game-system expansion for Visual Lock 4.
 SpriteGen remains the terrain art forge, while `ground_game` owns mission specs, prep-phase work
 orders, local materials,
 environment-object states, doctrine route preview, deterministic assault sandbox, assault
@@ -22,8 +22,8 @@ campaign sets across seed matrices and aggregates lesson coverage, unlock useful
 difficulty/complexity curves, visual QA, and weak-campaign diagnostics. Visual Lock uses that
 pipeline only as a source of fixed benchmark missions, then exports initial/prepared beauty,
 route-overlay, debug, diff, feature-overlay, full-board, playable-crop, close-detail,
-asset-report, feature-map, audit, and override-pack artifacts to guide art-direction work in
-gameplay context.
+asset-report, feature-map, audit, override-pack, and before/after comparison artifacts to guide
+art-direction work in gameplay context.
 `ground_app` now treats Mission Lab as the primary tactical prep surface rather than a generic
 terrain editor panel, and Road Below starts as a playable briefing-to-debrief slice. The same
 mission loop now evaluates generated Road-Below-like candidates so GroundLab can batch-generate,
@@ -63,9 +63,9 @@ score, reject, and export compact terrain-defense problems.
 - Mission visual theme bindings, high-oblique generated mission beauty previews, visual route/debug
   overlays, generated feature maps, and visual asset reports
 - Visual Lock benchmark export, prepared-state benchmark rendering, full-board/playable-crop/detail
-  renders, prepared diff/feature overlay, benchmark override-pack export, dominant-feature audit,
-  visible sprite impact estimates, sprite role summaries, and placeholder/fallback/override
-  diagnostics
+  renders, prepared diff/feature overlay, benchmark override-pack export, override-backed prepared
+  rerendering, before/after override comparison, dominant-feature audit, visible sprite impact
+  estimates, sprite role summaries, and placeholder/fallback/override diagnostics
 - Terrain editing brushes
 - Pixel tile recipes
 - Palette ramps and palette file format
@@ -151,6 +151,7 @@ MissionGeneratorSpec + MissionTheme
   -> initial/prepared beauty, route, debug, feature-map, and asset-report exports
   -> full-board, playable-crop, and close-detail benchmark views
   -> high-impact override-pack target export
+  -> override-backed prepared rerender + before/after comparison
   -> benchmark_visual_audit.json for art-direction decisions
   -> Mission Lab inspection / playable retry
 ```
@@ -191,10 +192,13 @@ MissionGeneratorSpec + fixed seed/theme
   -> benchmark_mission.ron/json + candidate evaluation
   -> initial beauty/routes/debug visual exports
   -> best known prep script, when available
-  -> prepared beauty/routes/debug visual exports
+  -> prepared-before-overrides beauty/routes/debug visual exports
+  -> benchmark_override_pack with high-impact terrain/object placeholder targets
+  -> temporary override style profile
+  -> prepared beauty/routes/debug visual exports through effective override assets
   -> prepared diff and prepared feature-overlay exports
   -> full-board, playable-crop, and close-detail beauty exports
-  -> benchmark_override_pack with high-impact terrain/object placeholder targets
+  -> benchmark_override_before_after.png + benchmark_override_diff.png
   -> visual asset reports + generated feature maps
   -> benchmark_visual_audit.json with visible-impact ranking
   -> targeted art/composition polish without adding new gameplay systems

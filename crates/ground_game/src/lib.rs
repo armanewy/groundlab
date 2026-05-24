@@ -1706,6 +1706,7 @@ pub struct VisualLockBenchmarkReport {
     pub source_candidate_dir: String,
     pub benchmark_mission_path: String,
     pub initial: VisualLockStageAudit,
+    pub prepared_before_overrides: Option<VisualLockStageAudit>,
     pub prepared: Option<VisualLockStageAudit>,
     pub prepared_diff_path: Option<String>,
     pub prepared_feature_overlay_path: Option<String>,
@@ -1713,6 +1714,8 @@ pub struct VisualLockBenchmarkReport {
     pub playable_crop_path: Option<String>,
     pub close_detail_path: Option<String>,
     pub override_report_path: Option<String>,
+    pub override_before_after_path: Option<String>,
+    pub override_diff_path: Option<String>,
     pub notes: Vec<String>,
 }
 
@@ -1767,6 +1770,7 @@ pub struct VisualLockPlaceholderImpact {
 pub struct VisualLockOverridePackReport {
     pub output_dir: String,
     pub profile: String,
+    pub style_profile_path: String,
     pub generated_files: Vec<String>,
     pub terrain_targets: Vec<VisualLockVisibleSpriteImpact>,
     pub missing_terrain_targets: Vec<String>,
@@ -3275,16 +3279,41 @@ pub fn export_visual_lock_benchmark(
     let mut playable_crop_path = None;
     let mut close_detail_path = None;
     let mut override_report_path = None;
+    let mut override_before_after_path = None;
+    let mut override_diff_path = None;
+    let mut prepared_before_overrides = None;
     let prepared = if let Some(script) = visual_lock_best_script(&selected.best_plan_label) {
         let prepared_state = run_work_order_script(spec.clone(), &script);
+        let prepared_before_audit =
+            export_visual_lock_stage(out_dir, "benchmark_prepared_before", &prepared_state)?;
+        let override_report = export_visual_lock_override_pack(
+            out_dir,
+            &prepared_before_audit,
+            &prepared_state.spec.visual_theme.sprite_style_profile,
+        )?;
+        let mut prepared_override_state = prepared_state.clone();
+        prepared_override_state
+            .spec
+            .visual_theme
+            .sprite_style_profile = override_report.style_profile_path.clone();
         let prepared_audit =
-            export_visual_lock_stage(out_dir, "benchmark_prepared", &prepared_state)?;
+            export_visual_lock_stage(out_dir, "benchmark_prepared", &prepared_override_state)?;
         let full_board = out_dir.join("benchmark_visual_full_board.png");
         copy_visual_alias(&prepared_audit.beauty_path, &full_board)?;
         let crop = out_dir.join("benchmark_visual_playable_crop.png");
-        save_visual_lock_crop(&prepared_audit.beauty_path, &prepared_state, &crop, false)?;
+        save_visual_lock_crop(
+            &prepared_audit.beauty_path,
+            &prepared_override_state,
+            &crop,
+            false,
+        )?;
         let detail = out_dir.join("benchmark_visual_close_detail.png");
-        save_visual_lock_crop(&prepared_audit.beauty_path, &prepared_state, &detail, true)?;
+        save_visual_lock_crop(
+            &prepared_audit.beauty_path,
+            &prepared_override_state,
+            &detail,
+            true,
+        )?;
         full_board_path = Some(full_board.to_string_lossy().to_string());
         playable_crop_path = Some(crop.to_string_lossy().to_string());
         close_detail_path = Some(detail.to_string_lossy().to_string());
@@ -3297,11 +3326,27 @@ pub fn export_visual_lock_benchmark(
         let overlay_path = out_dir.join("benchmark_prepared_feature_overlay.png");
         save_visual_lock_feature_overlay(
             &prepared_audit.beauty_path,
-            &prepared_state,
+            &prepared_override_state,
             &overlay_path,
         )?;
         prepared_diff_path = Some(diff_path.to_string_lossy().to_string());
         prepared_feature_overlay_path = Some(overlay_path.to_string_lossy().to_string());
+        let before_after_path = out_dir.join("benchmark_override_before_after.png");
+        save_visual_lock_before_after(
+            &prepared_before_audit.beauty_path,
+            &prepared_audit.beauty_path,
+            &prepared_override_state,
+            &before_after_path,
+        )?;
+        let override_diff = out_dir.join("benchmark_override_diff.png");
+        save_visual_lock_override_diff(
+            &prepared_before_audit.beauty_path,
+            &prepared_audit.beauty_path,
+            &prepared_override_state,
+            &override_diff,
+        )?;
+        override_before_after_path = Some(before_after_path.to_string_lossy().to_string());
+        override_diff_path = Some(override_diff.to_string_lossy().to_string());
         write_json(
             out_dir.join("benchmark_prepared_order_script.json"),
             &script,
@@ -3315,11 +3360,6 @@ pub fn export_visual_lock_benchmark(
             out_dir.join("benchmark_prepared_material_ledger.json"),
             &prepared_state.material_ledger,
         )?;
-        let override_report = export_visual_lock_override_pack(
-            out_dir,
-            &prepared_audit,
-            &prepared_state.spec.visual_theme.sprite_style_profile,
-        )?;
         override_report_path = Some(
             out_dir
                 .join("benchmark_override_report.json")
@@ -3331,6 +3371,11 @@ pub fn export_visual_lock_benchmark(
             override_report.generated_files.len(),
             override_report.output_dir
         ));
+        notes.push(format!(
+            "Prepared benchmark rerendered through override profile with {} active terrain override(s).",
+            prepared_audit.asset_report.overridden_sprite_count
+        ));
+        prepared_before_overrides = Some(prepared_before_audit);
         Some(prepared_audit)
     } else {
         notes.push(format!(
@@ -3355,6 +3400,7 @@ pub fn export_visual_lock_benchmark(
             .to_string_lossy()
             .to_string(),
         initial,
+        prepared_before_overrides,
         prepared,
         prepared_diff_path,
         prepared_feature_overlay_path,
@@ -3362,6 +3408,8 @@ pub fn export_visual_lock_benchmark(
         playable_crop_path,
         close_detail_path,
         override_report_path,
+        override_before_after_path,
+        override_diff_path,
         notes,
     };
     write_json(out_dir.join("benchmark_visual_audit.json"), &report)?;
@@ -10622,11 +10670,22 @@ fn save_visual_lock_crop(
     out_path: impl AsRef<Path>,
     close_detail: bool,
 ) -> Result<()> {
-    let beauty_path = beauty_path.as_ref();
     let out_path = out_path.as_ref();
     if let Some(parent) = out_path.parent() {
         fs::create_dir_all(parent)?;
     }
+    let output = visual_lock_cropped_image(beauty_path, state, close_detail)?;
+    output
+        .save(out_path)
+        .with_context(|| format!("failed to save {}", out_path.display()))
+}
+
+fn visual_lock_cropped_image(
+    beauty_path: impl AsRef<Path>,
+    state: &MissionState,
+    close_detail: bool,
+) -> Result<RgbaImage> {
+    let beauty_path = beauty_path.as_ref();
     let source = image::open(beauty_path)
         .with_context(|| format!("failed to open {}", beauty_path.display()))?
         .to_rgba8();
@@ -10639,14 +10698,100 @@ fn save_visual_lock_crop(
         close_detail,
     );
     let cropped = crop_rgba_image(&source, rect);
-    let output = if close_detail {
+    Ok(if close_detail {
         scale_rgba_nearest(&cropped, 2)
     } else {
         cropped
-    };
-    output
+    })
+}
+
+fn save_visual_lock_before_after(
+    before_path: impl AsRef<Path>,
+    after_path: impl AsRef<Path>,
+    state: &MissionState,
+    out_path: impl AsRef<Path>,
+) -> Result<()> {
+    let before = visual_lock_cropped_image(before_path, state, true)?;
+    let after = visual_lock_cropped_image(after_path, state, true)?;
+    let gutter = 18;
+    let width = before.width() + after.width() + gutter;
+    let height = before.height().max(after.height()) + 12;
+    let mut image = RgbaImage::from_pixel(width, height, Rgba([28, 32, 28, 255]));
+    paste_rgba(&mut image, &before, 0, 12);
+    paste_rgba(&mut image, &after, before.width() + gutter, 12);
+    fill_rgba_rect(
+        &mut image,
+        0,
+        0,
+        before.width(),
+        6,
+        Rgba([114, 74, 44, 255]),
+    );
+    fill_rgba_rect(
+        &mut image,
+        before.width() as i32 + gutter as i32,
+        0,
+        after.width(),
+        6,
+        Rgba([94, 135, 67, 255]),
+    );
+    let out_path = out_path.as_ref();
+    image
         .save(out_path)
         .with_context(|| format!("failed to save {}", out_path.display()))
+}
+
+fn save_visual_lock_override_diff(
+    before_path: impl AsRef<Path>,
+    after_path: impl AsRef<Path>,
+    state: &MissionState,
+    out_path: impl AsRef<Path>,
+) -> Result<()> {
+    let before = visual_lock_cropped_image(before_path, state, true)?;
+    let after = visual_lock_cropped_image(after_path, state, true)?;
+    let width = before.width().min(after.width());
+    let height = before.height().min(after.height());
+    let mut image = RgbaImage::from_pixel(width, height, Rgba([22, 25, 22, 255]));
+    for y in 0..height {
+        for x in 0..width {
+            let b = before.get_pixel(x, y);
+            let a = after.get_pixel(x, y);
+            let delta = (a[0] as i16 - b[0] as i16).unsigned_abs() as u32
+                + (a[1] as i16 - b[1] as i16).unsigned_abs() as u32
+                + (a[2] as i16 - b[2] as i16).unsigned_abs() as u32;
+            let base = Rgba([
+                (a[0] as f32 * 0.45).round() as u8,
+                (a[1] as f32 * 0.45).round() as u8,
+                (a[2] as f32 * 0.45).round() as u8,
+                255,
+            ]);
+            image.put_pixel(x, y, base);
+            if delta > 26 {
+                let strength = (delta as f32 / 255.0).clamp(0.24, 0.88);
+                let marker = Rgba8::opaque(226, 151, 73);
+                let current = image.get_pixel(x, y);
+                let blended =
+                    Rgba8::new(current[0], current[1], current[2], 255).blend(marker, strength);
+                image.put_pixel(x, y, Rgba([blended.r, blended.g, blended.b, 255]));
+            }
+        }
+    }
+    let out_path = out_path.as_ref();
+    image
+        .save(out_path)
+        .with_context(|| format!("failed to save {}", out_path.display()))
+}
+
+fn paste_rgba(dest: &mut RgbaImage, src: &RgbaImage, dst_x: u32, dst_y: u32) {
+    for y in 0..src.height() {
+        for x in 0..src.width() {
+            let tx = dst_x + x;
+            let ty = dst_y + y;
+            if tx < dest.width() && ty < dest.height() {
+                dest.put_pixel(tx, ty, *src.get_pixel(x, y));
+            }
+        }
+    }
 }
 
 fn visual_lock_crop_rect(
@@ -10794,18 +10939,24 @@ fn export_visual_lock_override_pack(
         .collect::<Vec<_>>();
     let mut generated_files = Vec::new();
     let mut missing_terrain_targets = Vec::new();
+    let mut written_ids = HashSet::new();
     for target in &terrain_targets {
-        if let Some(sprite) = bundle
-            .effective
-            .iter()
-            .find(|sprite| sprite.id == target.piece)
-        {
-            let image = visual_lock_override_variant(&sprite.image, &target.role);
-            let path = terrain_dir.join(format!("{}.png", target.piece));
-            image.save_png(&path)?;
-            generated_files.push(path.to_string_lossy().to_string());
-        } else {
-            missing_terrain_targets.push(target.piece.clone());
+        for sprite_id in visual_lock_override_sprite_ids(&target.piece) {
+            if !written_ids.insert(sprite_id.clone()) {
+                continue;
+            }
+            if let Some(sprite) = bundle
+                .effective
+                .iter()
+                .find(|sprite| sprite.id == sprite_id)
+            {
+                let image = visual_lock_override_variant(&sprite.image, &target.role, &sprite.id);
+                let path = terrain_dir.join(format!("{}.png", sprite.id));
+                image.save_png(&path)?;
+                generated_files.push(path.to_string_lossy().to_string());
+            } else {
+                missing_terrain_targets.push(sprite_id);
+            }
         }
     }
 
@@ -10824,9 +10975,16 @@ fn export_visual_lock_override_pack(
     save_visual_lock_object_placeholder(&objective_path, "objective_marker")?;
     generated_files.push(objective_path.to_string_lossy().to_string());
 
+    recipe.override_dir = terrain_dir.to_string_lossy().to_string();
+    let style_profile_path = pack_dir.join("style.ron");
+    recipe.save_style_profile_path(&style_profile_path)?;
+    generated_files.push(style_profile_path.to_string_lossy().to_string());
+    generated_files.push(pack_dir.join("motifs.ron").to_string_lossy().to_string());
+
     let report = VisualLockOverridePackReport {
         output_dir: pack_dir.to_string_lossy().to_string(),
         profile: profile.to_string(),
+        style_profile_path: style_profile_path.to_string_lossy().to_string(),
         generated_files,
         terrain_targets,
         missing_terrain_targets,
@@ -10840,32 +10998,159 @@ fn export_visual_lock_override_pack(
     Ok(report)
 }
 
-fn visual_lock_override_variant(source: &PixelImage, role: &str) -> PixelImage {
-    let mut out = source.clone();
-    for pixel in &mut out.pixels {
-        if pixel.a == 0 {
-            continue;
+fn visual_lock_override_sprite_ids(piece: &str) -> Vec<String> {
+    match piece {
+        "grass_tile" => vec!["grass_tile_01".to_string()],
+        "dirt_tile" => vec!["dirt_tile_01".to_string()],
+        "stone_floor_top" => vec!["stone_floor_top_01".to_string()],
+        _ if piece.starts_with("path_mask_")
+            || piece.starts_with("trench_mask_")
+            || piece.starts_with("berm_mask_") =>
+        {
+            vec![piece.to_string()]
         }
-        match role {
-            "trench/recessed terrain" => {
-                pixel.r = pixel.r.saturating_add(16);
-                pixel.g = pixel.g.saturating_add(10);
-                pixel.b = pixel.b.saturating_add(6);
+        _ if piece.ends_with("_01") || piece.ends_with("_02") => vec![piece.to_string()],
+        _ => vec![format!("{piece}_01")],
+    }
+}
+
+fn visual_lock_override_variant(source: &PixelImage, role: &str, sprite_id: &str) -> PixelImage {
+    let mut out = source.clone();
+    let original = source.clone();
+    for y in 0..out.height {
+        for x in 0..out.width {
+            let mut pixel = original.get(x, y);
+            if pixel.a == 0 {
+                out.set(x, y, pixel);
+                continue;
             }
-            "berm/raised terrain" => {
-                pixel.r = pixel.r.saturating_add(10);
-                pixel.g = pixel.g.saturating_add(8);
-                pixel.b = pixel.b.saturating_add(2);
+            match role {
+                "trench/recessed terrain" => {
+                    pixel = visual_lock_trench_color(&original, x, y, pixel);
+                }
+                "berm/raised terrain" => {
+                    pixel = visual_lock_berm_color(&original, x, y, pixel);
+                }
+                "path/dirt surface" => {
+                    pixel = visual_lock_path_color(&original, x, y, pixel);
+                }
+                _ => {}
             }
-            "path/dirt surface" => {
-                pixel.r = pixel.r.saturating_add(6);
-                pixel.g = pixel.g.saturating_add(4);
-                pixel.b = pixel.b.saturating_add(2);
+            if visual_lock_hash01(sprite_id, x, y, 0x51) > 0.985 {
+                pixel = pixel.lighten(0.08);
             }
-            _ => {}
+            out.set(x, y, pixel);
         }
     }
     out
+}
+
+fn visual_lock_trench_color(source: &PixelImage, x: u32, y: u32, pixel: Rgba8) -> Rgba8 {
+    let warm_floor = Rgba8::opaque(96, 69, 47);
+    let wall = Rgba8::opaque(142, 91, 52);
+    let lip = Rgba8::opaque(184, 124, 65);
+    let grass = Rgba8::opaque(84, 122, 63);
+    let mut color = if pixel.luma() < 70 {
+        pixel.blend(warm_floor, 0.86)
+    } else if pixel.luma() < 95 {
+        pixel.blend(warm_floor, 0.54)
+    } else if visual_lock_is_brown(pixel) {
+        pixel.blend(wall, 0.34)
+    } else {
+        pixel
+    };
+    if visual_lock_has_neighbor(source, x, y, visual_lock_is_green) {
+        color = color.blend(lip, 0.25).blend(grass, 0.12);
+    }
+    let n = visual_lock_hash01("trench", x, y, 0x7701);
+    if n > 0.84 {
+        color = color.blend(lip, 0.28);
+    } else if n < 0.08 {
+        color = color.darken(0.04);
+    }
+    color.with_alpha(pixel.a)
+}
+
+fn visual_lock_berm_color(source: &PixelImage, x: u32, y: u32, pixel: Rgba8) -> Rgba8 {
+    let mound = Rgba8::opaque(150, 111, 64);
+    let grass_top = Rgba8::opaque(103, 138, 70);
+    let light_soil = Rgba8::opaque(195, 146, 80);
+    let mut color = if visual_lock_is_brown(pixel) {
+        pixel.blend(mound, 0.32)
+    } else {
+        pixel
+    };
+    if pixel.luma() < 72 {
+        color = color.blend(mound.darken(0.08), 0.55);
+    }
+    if visual_lock_has_neighbor(source, x, y, visual_lock_is_green) {
+        color = color.blend(grass_top, 0.30);
+    }
+    let n = visual_lock_hash01("berm", x, y, 0x8801);
+    if n > 0.82 {
+        color = color.blend(light_soil, 0.26);
+    } else if n < 0.10 {
+        color = color.darken(0.05);
+    }
+    color.with_alpha(pixel.a)
+}
+
+fn visual_lock_path_color(source: &PixelImage, x: u32, y: u32, pixel: Rgba8) -> Rgba8 {
+    let dirt = Rgba8::opaque(169, 111, 63);
+    let dust = Rgba8::opaque(207, 159, 96);
+    let grass = Rgba8::opaque(94, 135, 69);
+    let mut color = if visual_lock_is_brown(pixel) {
+        pixel.blend(dirt, 0.24)
+    } else {
+        pixel
+    };
+    if visual_lock_is_brown(pixel) && visual_lock_has_neighbor(source, x, y, visual_lock_is_green) {
+        color = color.blend(grass, 0.28);
+    }
+    let n = visual_lock_hash01("path", x, y, 0x9901);
+    if n > 0.86 {
+        color = color.blend(dust, 0.28);
+    } else if n < 0.06 {
+        color = color.blend(grass, 0.16);
+    }
+    color.with_alpha(pixel.a)
+}
+
+fn visual_lock_is_brown(color: Rgba8) -> bool {
+    color.a > 12 && color.r > color.g && color.g >= color.b && color.r > 70 && color.b < 110
+}
+
+fn visual_lock_is_green(color: Rgba8) -> bool {
+    color.a > 12 && color.g > color.r.saturating_add(4) && color.g > color.b
+}
+
+fn visual_lock_has_neighbor(
+    image: &PixelImage,
+    x: u32,
+    y: u32,
+    predicate: fn(Rgba8) -> bool,
+) -> bool {
+    for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1)] {
+        let nx = x as i32 + dx;
+        let ny = y as i32 + dy;
+        if image.in_bounds(nx, ny) && predicate(image.get(nx as u32, ny as u32)) {
+            return true;
+        }
+    }
+    false
+}
+
+fn visual_lock_hash01(label: &str, x: u32, y: u32, salt: u64) -> f32 {
+    let mut hash = salt ^ ((x as u64) << 32) ^ y as u64;
+    for byte in label.as_bytes() {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x100_0000_01b3);
+    }
+    hash ^= hash >> 30;
+    hash = hash.wrapping_mul(0xbf58_476d_1ce4_e5b9);
+    hash ^= hash >> 27;
+    hash = hash.wrapping_mul(0x94d0_49bb_1331_11eb);
+    ((hash >> 40) as f32) / ((1_u64 << 24) as f32)
 }
 
 fn save_visual_lock_object_placeholder(path: &Path, label: &str) -> Result<()> {

@@ -6,8 +6,8 @@ GroundLab's active roadmap is paused on new game/procgen/campaign expansion whil
 mission art direction is locked. SpriteGen remains the terrain art forge, and Mission Lab remains
 the 2.5D tactical engineering defense workbench, but the current priority is making one generated
 mission beauty render read as a coherent high-oblique pixel-art terrain scene rather than a
-schematic board. Visual Lock 3 keeps the benchmark fixed and focuses on mission-scale composition:
-full/cropped/detail renders, softer beauty-mode framing, high-impact override targets, and
+schematic board. Visual Lock 4 keeps the benchmark fixed and focuses on active art substitution:
+override-backed prepared renders, before/after comparison images, high-impact terrain targets, and
 visual-impact audit data.
 
 ## GamePivot 1 — Mission workbench seed
@@ -538,6 +538,33 @@ Implemented in this drop.
 This milestone still does not add mechanics, themes, campaign UI, campaign packaging, new
 SpriteGen material families, or a renderer rewrite. It moves the same fixed benchmark closer to an
 art-direction lock by improving composition, scale, and replaceable high-impact art targets.
+
+## Visual Lock 4 — High-impact override pack
+
+Implemented in this drop.
+
+- keeps the same fixed benchmark mission and best-known prep script
+- exports `benchmark_prepared_before_visual_*` as the generated prepared baseline before override
+  art is applied
+- writes a temporary style profile at `benchmark_override_pack/style.ron` that points at the
+  generated high-impact override PNGs
+- rerenders `benchmark_prepared_visual_*`, `benchmark_visual_full_board.png`,
+  `benchmark_visual_playable_crop.png`, and `benchmark_visual_close_detail.png` through that
+  override profile
+- exports `benchmark_override_before_after.png` and `benchmark_override_diff.png` so the art pass
+  can be judged directly against the generated baseline
+- records active terrain overrides in `benchmark_prepared_visual_asset_report.json` and
+  `benchmark_visual_audit.json`
+- fixes benchmark override target mapping so non-mask visible pieces such as `dirt_tile` map to
+  actual override file ids such as `dirt_tile_01.png`
+- strengthens the generated override variants for the visible path, trench, berm, and dirt pieces:
+  warmer trench floors/walls, more grass/dirt edge blending, less strip-like berms, and less
+  stamped path edges
+- keeps placeholder object target PNGs for tree, log, rock, and objective art review
+
+This milestone still does not add mechanics, themes, campaign UI, campaign packaging, new
+SpriteGen material families, or a renderer rewrite. It proves that the benchmark can be improved
+through effective override assets and compared against the generated baseline.
 
 ## Milestone 0 — Project seed
 
