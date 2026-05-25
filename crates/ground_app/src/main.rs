@@ -282,6 +282,7 @@ struct GroundLabApp {
     mission_use_art_pack_0_1: bool,
     mission_visual_pack_profile: Option<ArtLabOverrideProfile>,
     mission_visual_pack_texture: Option<egui::TextureHandle>,
+    mission_visual_role_textures: HashMap<ArtLabOverrideRole, egui::TextureHandle>,
     mission_visual_pack_status: String,
     route_overlay_mode: RouteOverlayMode,
     route_group_filter: usize,
@@ -373,6 +374,7 @@ impl GroundLabApp {
             mission_use_art_pack_0_1: true,
             mission_visual_pack_profile: None,
             mission_visual_pack_texture: None,
+            mission_visual_role_textures: HashMap::new(),
             mission_visual_pack_status: "Visual pack: default/generated fallback.".to_string(),
             route_overlay_mode: RouteOverlayMode::Current,
             route_group_filter: 0,
@@ -2653,6 +2655,8 @@ impl GroundLabApp {
                     0.0,
                     mission_cell_color(cell, self.mission_map_mode),
                 );
+                let drew_visual_art =
+                    self.draw_mission_visual_art_cell(&painter, tile_rect, coord, cell);
                 if let Some(color) = self.assault_heat_color(coord) {
                     painter.rect_filled(tile_rect.shrink(3.0), 0.0, color);
                 }
@@ -2671,7 +2675,7 @@ impl GroundLabApp {
                     );
                 }
                 let glyph = mission_cell_glyph(&self.mission_state, coord, cell);
-                if !glyph.is_empty() {
+                if !glyph.is_empty() && !drew_visual_art {
                     painter.text(
                         tile_rect.center(),
                         egui::Align2::CENTER_CENTER,
@@ -2689,6 +2693,129 @@ impl GroundLabApp {
         ui.label(
             "Blue route = initial plan. Gold/red route = current terrain. Hazards show predicted rolling-log paths; delay/pressure/actual modes use assault timeline data.",
         );
+    }
+
+    fn draw_mission_visual_art_cell(
+        &self,
+        painter: &egui::Painter,
+        tile_rect: egui::Rect,
+        coord: CellCoord,
+        cell: &ground_game::MissionCell,
+    ) -> bool {
+        if self.mission_map_mode != MissionMapMode::Visual || !self.mission_art_pack_active() {
+            return false;
+        }
+
+        let mut drew_art = false;
+        if matches!(cell.ground, GroundKind::Road) {
+            drew_art |= self.draw_mission_role_sprite(
+                painter,
+                self.path_role_for_cell(coord),
+                tile_rect.shrink(2.0),
+            );
+        }
+        match cell.earth_state {
+            EarthState::Trench | EarthState::DeepTrench | EarthState::Ditch => {
+                drew_art |= self.draw_mission_role_sprite(
+                    painter,
+                    ArtLabOverrideRole::TrenchRecessedTerrain,
+                    tile_rect.shrink(2.0),
+                );
+            }
+            EarthState::Berm | EarthState::SpoilPile => {
+                drew_art |= self.draw_mission_role_sprite(
+                    painter,
+                    ArtLabOverrideRole::BermRaisedTerrain,
+                    tile_rect.shrink(2.0),
+                );
+            }
+            EarthState::Scraped | EarthState::Normal | EarthState::Unstable | EarthState::Muddy => {
+            }
+        }
+        if let Some(object) = self
+            .mission_state
+            .map
+            .objects
+            .iter()
+            .find(|object| object.cell == coord)
+        {
+            drew_art |= self.draw_mission_role_sprite(
+                painter,
+                mission_object_art_role(object),
+                tile_rect.shrink(1.0),
+            );
+        }
+        if self.mission_state.map.spawn_cells.contains(&coord) {
+            drew_art |= self.draw_mission_role_sprite(
+                painter,
+                ArtLabOverrideRole::SpawnMarker,
+                tile_rect.shrink(4.0),
+            );
+        }
+        if self.mission_state.spec.objective.defend_cell == coord {
+            drew_art |= self.draw_mission_role_sprite(
+                painter,
+                ArtLabOverrideRole::ObjectiveMarker,
+                tile_rect.shrink(4.0),
+            );
+        }
+
+        drew_art
+    }
+
+    fn draw_mission_role_sprite(
+        &self,
+        painter: &egui::Painter,
+        role: ArtLabOverrideRole,
+        rect: egui::Rect,
+    ) -> bool {
+        let Some(texture) = self
+            .mission_visual_role_textures
+            .get(&role)
+            .or_else(|| self.mission_visual_role_textures.get(&role_fallback(role)))
+        else {
+            return false;
+        };
+        painter.image(
+            texture.id(),
+            rect,
+            egui::Rect::from_min_max(egui::Pos2::ZERO, egui::pos2(1.0, 1.0)),
+            egui::Color32::WHITE,
+        );
+        true
+    }
+
+    fn path_role_for_cell(&self, coord: CellCoord) -> ArtLabOverrideRole {
+        let north = self.mission_road_cell(coord.x, coord.y.saturating_sub(1)) && coord.y > 0;
+        let south = self.mission_road_cell(coord.x, coord.y + 1);
+        let west = self.mission_road_cell(coord.x.saturating_sub(1), coord.y) && coord.x > 0;
+        let east = self.mission_road_cell(coord.x + 1, coord.y);
+        let cardinal_count = [north, south, west, east]
+            .into_iter()
+            .filter(|connected| *connected)
+            .count();
+
+        match (north, south, west, east, cardinal_count) {
+            (_, _, true, true, 2) => ArtLabOverrideRole::PathStraightHorizontal,
+            (true, true, _, _, 2) => ArtLabOverrideRole::PathStraightVertical,
+            (true, false, false, false, 1)
+            | (false, true, false, false, 1)
+            | (false, false, true, false, 1)
+            | (false, false, false, true, 1) => ArtLabOverrideRole::PathEndCap,
+            (_, _, _, _, 2) => ArtLabOverrideRole::PathCorner,
+            (_, _, _, _, count) if count > 2 => ArtLabOverrideRole::PathPatchBlob,
+            _ => ArtLabOverrideRole::PathDirtSurface,
+        }
+    }
+
+    fn mission_road_cell(&self, x: u32, y: u32) -> bool {
+        if x >= self.mission_state.map.width || y >= self.mission_state.map.height {
+            return false;
+        }
+        self.mission_state
+            .map
+            .cell(CellCoord::new(x, y))
+            .is_some_and(|cell| matches!(cell.ground, GroundKind::Road))
     }
 
     fn show_mission_command_bar(&self, ui: &mut egui::Ui) {
@@ -2732,8 +2859,7 @@ impl GroundLabApp {
                 ui.small(&self.mission_visual_pack_status);
             });
             // Mission Lab currently uses the Art Lab Road Below preview as the packed-art
-            // surface. A deeper per-cell renderer can replace this without changing the
-            // promoted-pack loading path.
+            // reference surface while the tactical grid below uses the same assigned role sprites.
             if self.mission_art_pack_active() {
                 show_texture_only(
                     ui,
@@ -2741,7 +2867,7 @@ impl GroundLabApp {
                     1.5,
                     "Art Pack 0.1 preview texture is not loaded.",
                 );
-                ui.small("Tactical grid, selection, routes, and assault overlays remain below.");
+                ui.small("The tactical grid below uses Art Pack sprites with selection, routes, and assault overlays preserved.");
             } else {
                 ui.small("Visual mode is using the existing generated/default tactical grid.");
             }
@@ -2753,6 +2879,7 @@ impl GroundLabApp {
         self.mission_use_art_pack_0_1
             && self.mission_visual_pack_profile.is_some()
             && self.mission_visual_pack_texture.is_some()
+            && !self.mission_visual_role_textures.is_empty()
     }
 
     fn try_load_mission_visual_pack_on_startup(&mut self, ctx: &egui::Context) {
@@ -2766,11 +2893,25 @@ impl GroundLabApp {
         let path = promoted_art_pack_profile_path(ART_PACK_ASSETS_ROOT, ART_PACK_0_1_ID);
         match load_art_lab_override_profile(&path) {
             Ok(profile) => {
-                let broken = profile
-                    .assignments
-                    .iter()
-                    .filter(|assignment| !assignment.path.exists())
-                    .count();
+                let mut broken = 0;
+                let mut role_textures = HashMap::new();
+                for assignment in &profile.assignments {
+                    if !assignment.path.exists() {
+                        broken += 1;
+                        continue;
+                    }
+                    match PixelImage::load_png(&assignment.path) {
+                        Ok(image) => {
+                            let texture = ctx.load_texture(
+                                format!("mission_visual_role_{}", assignment.role.slug()),
+                                color_image_for_upload(&image),
+                                egui::TextureOptions::NEAREST,
+                            );
+                            role_textures.insert(assignment.role, texture);
+                        }
+                        Err(_) => broken += 1,
+                    }
+                }
                 let preview = render_art_lab_road_below_preview(&profile);
                 put_texture(
                     ctx,
@@ -2780,6 +2921,7 @@ impl GroundLabApp {
                 );
                 let assignment_count = profile.assignments.len();
                 self.mission_visual_pack_profile = Some(profile);
+                self.mission_visual_role_textures = role_textures;
                 self.mission_use_art_pack_0_1 = broken == 0;
                 self.mission_visual_pack_status = if broken == 0 {
                     format!("Visual pack: Art Pack 0.1 ({assignment_count} assignment(s)).")
@@ -2792,6 +2934,7 @@ impl GroundLabApp {
             Err(err) => {
                 self.mission_visual_pack_profile = None;
                 self.mission_visual_pack_texture = None;
+                self.mission_visual_role_textures.clear();
                 self.mission_use_art_pack_0_1 = false;
                 self.mission_visual_pack_status =
                     format!("Visual pack: default/generated fallback ({err}).");
@@ -3194,6 +3337,26 @@ fn mission_cell_color(cell: &ground_game::MissionCell, mode: MissionMapMode) -> 
                 egui::Color32::from_rgb(63, 88, 54)
             }
         }
+    }
+}
+
+fn role_fallback(role: ArtLabOverrideRole) -> ArtLabOverrideRole {
+    if ArtLabOverrideRole::PATH_KIT.contains(&role) {
+        ArtLabOverrideRole::PathDirtSurface
+    } else {
+        role
+    }
+}
+
+fn mission_object_art_role(object: &EnvironmentObject) -> ArtLabOverrideRole {
+    match object.kind {
+        EnvironmentObjectKind::Tree(_) => ArtLabOverrideRole::Tree,
+        EnvironmentObjectKind::Log(_) => ArtLabOverrideRole::Log,
+        EnvironmentObjectKind::Rock(_) => ArtLabOverrideRole::Rock,
+        EnvironmentObjectKind::Wall(_) => ArtLabOverrideRole::Wall,
+        EnvironmentObjectKind::Wire(_) => ArtLabOverrideRole::Wire,
+        EnvironmentObjectKind::Stakes(_) => ArtLabOverrideRole::Stakes,
+        EnvironmentObjectKind::FightingPosition(_) => ArtLabOverrideRole::BermRaisedTerrain,
     }
 }
 
