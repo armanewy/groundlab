@@ -1696,6 +1696,15 @@ impl GroundLabApp {
             cell.cover,
             cell.movement_cost
         ));
+        let material_summary = cell.local_material.positive_summary();
+        ui.small(format!(
+            "Local materials: {}",
+            if material_summary.is_empty() {
+                "none".to_string()
+            } else {
+                material_summary.join(", ")
+            }
+        ));
         if let Some(object) = self
             .mission_state
             .map
@@ -1709,10 +1718,142 @@ impl GroundLabApp {
                 object.label,
                 mission_object_state_label(&object)
             ));
+            self.show_recommended_object_actions(ui, &object);
             self.show_object_order_buttons(ui, &object);
         } else {
+            self.show_recommended_cell_actions(ui, cell_coord, cell);
             self.show_cell_order_buttons(ui, cell_coord);
         }
+    }
+
+    fn show_recommended_cell_actions(
+        &self,
+        ui: &mut egui::Ui,
+        cell_coord: CellCoord,
+        cell: &ground_game::MissionCell,
+    ) {
+        ui.separator();
+        ui.strong("Recommended actions");
+        let mut actions = Vec::new();
+        if matches!(
+            cell.earth_state,
+            EarthState::Trench | EarthState::Berm | EarthState::SpoilPile
+        ) {
+            actions.push((WorkOrderKind::Flatten, WorkTarget::Cell(cell_coord)));
+        } else {
+            actions.push((WorkOrderKind::DigTrench, WorkTarget::Cell(cell_coord)));
+        }
+        actions.push((WorkOrderKind::RaiseBerm, WorkTarget::Cell(cell_coord)));
+        actions.push((WorkOrderKind::PlaceStakes, WorkTarget::Cell(cell_coord)));
+        for (kind, target) in actions {
+            self.show_action_guidance_row(ui, kind, target);
+        }
+    }
+
+    fn show_recommended_object_actions(&self, ui: &mut egui::Ui, object: &EnvironmentObject) {
+        ui.separator();
+        ui.strong("Recommended actions");
+        match &object.kind {
+            EnvironmentObjectKind::Tree(TreeState::Standing)
+            | EnvironmentObjectKind::Tree(TreeState::PartiallyCut { .. }) => {
+                self.show_action_guidance_row(
+                    ui,
+                    WorkOrderKind::FellTree,
+                    WorkTarget::Object(object.id.clone()),
+                );
+            }
+            EnvironmentObjectKind::Tree(TreeState::FallenTrunk { .. }) => {
+                self.show_action_guidance_row(
+                    ui,
+                    WorkOrderKind::CutIntoLogs,
+                    WorkTarget::Object(object.id.clone()),
+                );
+                self.show_action_guidance_row(
+                    ui,
+                    WorkOrderKind::PrepareRollingLog,
+                    WorkTarget::Object(object.id.clone()),
+                );
+            }
+            EnvironmentObjectKind::Log(
+                LogState::Loose { .. }
+                | LogState::DragPrepared { .. }
+                | LogState::Positioned { .. }
+                | LogState::Braced { .. },
+            ) => {
+                self.show_action_guidance_row(
+                    ui,
+                    WorkOrderKind::PrepareRollingLog,
+                    WorkTarget::Object(object.id.clone()),
+                );
+            }
+            EnvironmentObjectKind::Log(LogState::PreparedRoll { predicted_path, .. }) => {
+                ui.small(format!(
+                    "Prepared roll is ready · predicted hazard path {} cell(s).",
+                    predicted_path.len()
+                ));
+            }
+            _ => {
+                ui.small("No direct prep action is recommended for this object.");
+            }
+        }
+    }
+
+    fn show_action_guidance_row(&self, ui: &mut egui::Ui, kind: WorkOrderKind, target: WorkTarget) {
+        let preview = self.mission_state.preview_work_order(kind, target);
+        let available = matches!(
+            preview.status,
+            WorkOrderStatus::Planned | WorkOrderStatus::Queued
+        );
+        let color = if available {
+            egui::Color32::from_rgb(156, 215, 142)
+        } else {
+            egui::Color32::from_rgb(230, 160, 120)
+        };
+        ui.group(|ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.colored_label(color, if available { "available" } else { "blocked" });
+                ui.strong(preview.kind.label());
+                ui.small(format!(
+                    "{}s labor · {}s duration · crew {}",
+                    preview.labor_seconds, preview.duration_seconds, preview.assigned_crews
+                ));
+            });
+            let tools = preview
+                .required_tools
+                .iter()
+                .map(|tool| tool.label())
+                .collect::<Vec<_>>();
+            if !tools.is_empty() {
+                ui.small(format!("Tools: {}", tools.join(", ")));
+            }
+            let inputs = preview.material_inputs.signed_summary();
+            let outputs = preview.material_outputs.signed_summary();
+            if !inputs.is_empty() {
+                ui.small(format!("Consumes: {}", inputs.join(", ")));
+            }
+            if !outputs.is_empty() {
+                ui.small(format!("Creates: {}", outputs.join(", ")));
+            }
+            if !preview.preview.affected_cells.is_empty() {
+                ui.small(format!(
+                    "Affected cells: {}",
+                    preview
+                        .preview
+                        .affected_cells
+                        .iter()
+                        .map(|cell| format!("({}, {})", cell.x, cell.y))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
+            ui.small(format!("Visual result: {}", visual_result_hint(kind)));
+            if !available {
+                ui.colored_label(
+                    egui::Color32::from_rgb(230, 160, 120),
+                    preview.status.label(),
+                );
+            }
+        });
     }
 
     fn show_cell_order_buttons(&mut self, ui: &mut egui::Ui, cell: CellCoord) {
