@@ -11,10 +11,11 @@ use ground_game::{
     export_generated_mission_pack_quality_gate, export_generated_mission_pack_with_curve,
     export_generated_mission_theme_batch, export_hazard_sandbox_run, export_mission_balance_run,
     export_mission_visuals, export_order_script_run, export_road_below_seed,
-    export_theme_calibration_report, export_visual_lock_benchmark,
-    export_visual_lock_theme_consistency, load_mission_spec, load_work_order_script,
-    road_below_basic_prep_script, road_below_hazard_prep_script, road_below_spec,
-    MissionGeneratorSpec, MissionPackCurve, MissionTheme, DEFAULT_MISSION_EXPORT_DIR,
+    export_theme_calibration_report, export_visual_lock_art_acceptance_gate,
+    export_visual_lock_benchmark, export_visual_lock_theme_consistency, load_mission_spec,
+    load_work_order_script, road_below_basic_prep_script, road_below_hazard_prep_script,
+    road_below_spec, MissionGeneratorSpec, MissionPackCurve, MissionTheme,
+    DEFAULT_MISSION_EXPORT_DIR,
 };
 
 fn main() -> Result<()> {
@@ -721,6 +722,62 @@ fn main() -> Result<()> {
                 "Visual lock theme files: per_theme/*/generated_beauty.png, per_theme/*/override_beauty.png, per_theme/*/before_after.png, theme_visual_contact_sheet_generated.png, theme_visual_contact_sheet_overrides.png, theme_visual_contact_sheet_before_after.png, theme_visual_consistency_report.json"
             );
         }
+        "visual-lock-art-acceptance" => {
+            let out_dir = args
+                .next()
+                .unwrap_or_else(|| "exports/visual_lock_09".to_string());
+            let mut seed = 99_418_113;
+            let mut benchmark_count = 8;
+            let mut theme_count = 20;
+            let mut theme = MissionTheme::RidgeTrap;
+            while let Some(arg) = args.next() {
+                match arg.as_str() {
+                    "--seed" => {
+                        let Some(value) = args.next() else {
+                            bail!("--seed requires a value");
+                        };
+                        seed = value.parse()?;
+                    }
+                    "--benchmark-count" => {
+                        let Some(value) = args.next() else {
+                            bail!("--benchmark-count requires a value");
+                        };
+                        benchmark_count = value.parse()?;
+                    }
+                    "--count" | "--theme-count" => {
+                        let Some(value) = args.next() else {
+                            bail!("{arg} requires a value");
+                        };
+                        theme_count = value.parse()?;
+                    }
+                    "--theme" => {
+                        let Some(value) = args.next() else {
+                            bail!("--theme requires a value");
+                        };
+                        theme = value.parse().map_err(|err: String| anyhow::anyhow!(err))?;
+                    }
+                    other => bail!("unknown visual-lock-art-acceptance option: {other}"),
+                }
+            }
+            let mut generator = MissionGeneratorSpec::road_below(seed);
+            generator.theme = theme;
+            let report = export_visual_lock_art_acceptance_gate(
+                &out_dir,
+                generator,
+                benchmark_count,
+                theme_count,
+            )?;
+            println!("Exported Visual Lock 9 art acceptance gate to {out_dir}.");
+            println!(
+                "accepted: {} · decision: {} · {} check(s).",
+                report.accepted,
+                report.decision,
+                report.checks.len()
+            );
+            println!(
+                "Visual lock acceptance files: visual_lock_06_07_08_comparison.png, per_theme_close_detail_sheet.png, per_theme_playable_crop_sheet.png, visual_acceptance_report.json, remaining_art_risk_report.json"
+            );
+        }
         "render-mission" => {
             let out_dir = args
                 .next()
@@ -824,6 +881,7 @@ fn print_help() {
     eprintln!("  cargo run -p ground_cli -- quality-gate-campaign-sets [out_dir] [--seed 99418113] [--seed-count 3] [--missions 6] [--candidates-per-theme 20] [--curve balanced|tutorial] [--render-visuals]");
     eprintln!("  cargo run -p ground_cli -- visual-lock-benchmark [out_dir] [--theme ridge_trap] [--seed 99418113] [--count 8]");
     eprintln!("  cargo run -p ground_cli -- visual-lock-theme-consistency [out_dir] [--seed 99418113] [--count 20]");
+    eprintln!("  cargo run -p ground_cli -- visual-lock-art-acceptance [out_dir] [--theme ridge_trap] [--seed 99418113] [--benchmark-count 8] [--count 20]");
     eprintln!("  cargo run -p ground_cli -- render-mission [out_dir] [mission_spec.ron|json]");
     eprintln!(
         "  cargo run -p ground_cli -- calibrate-themes [out_dir] [--count 200] [--seed 99418113]"

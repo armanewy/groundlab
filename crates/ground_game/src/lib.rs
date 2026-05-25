@@ -1811,6 +1811,8 @@ pub struct VisualLockThemeConsistencyEntry {
     pub used_prepared_state: bool,
     pub generated_beauty_path: String,
     pub override_beauty_path: String,
+    pub override_playable_crop_path: String,
+    pub override_close_detail_path: String,
     pub before_after_path: String,
     pub visual_audit_path: String,
     pub generated_asset_report: MissionVisualAssetReport,
@@ -1838,6 +1840,65 @@ pub struct VisualLockSharedPlaceholderImpact {
     pub themes: Vec<String>,
     pub total_count: u32,
     pub total_estimated_screen_area_px: u32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VisualLockArtAcceptanceReport {
+    pub seed: u64,
+    pub benchmark_theme: MissionTheme,
+    pub benchmark_count: u32,
+    pub theme_count_per_theme: u32,
+    pub accepted: bool,
+    pub decision: String,
+    pub benchmark_report_path: String,
+    pub theme_consistency_report_path: String,
+    pub visual_lock_06_07_08_comparison_path: String,
+    pub per_theme_close_detail_sheet_path: String,
+    pub per_theme_playable_crop_sheet_path: String,
+    pub remaining_art_risk_report_path: String,
+    pub checks: Vec<VisualLockAcceptanceCheck>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VisualLockAcceptanceCheck {
+    pub id: String,
+    pub label: String,
+    pub passed: bool,
+    pub severity: String,
+    pub summary: String,
+    pub evidence: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VisualLockRemainingArtRiskReport {
+    pub overall_risk: String,
+    pub weakest_visual_identity_theme: Option<String>,
+    pub risk_items: Vec<VisualLockArtRiskItem>,
+    pub per_theme_object_summary: Vec<VisualLockThemeObjectSummary>,
+    pub top_shared_high_impact_pieces: Vec<VisualLockSharedPieceImpact>,
+    pub remaining_placeholder_impacts: Vec<VisualLockSharedPlaceholderImpact>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VisualLockArtRiskItem {
+    pub id: String,
+    pub severity: String,
+    pub theme: Option<String>,
+    pub summary: String,
+    pub evidence: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VisualLockThemeObjectSummary {
+    pub theme: String,
+    pub object_override_count: usize,
+    pub missing_object_override_count: usize,
+    pub placeholder_count: usize,
+    pub fallback_count: usize,
+    pub missing_visual_piece_count: usize,
+    pub object_overrides: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -3569,6 +3630,20 @@ pub fn export_visual_lock_theme_consistency(
         let override_audit = export_visual_lock_stage(&theme_dir, "override", &override_state)?;
         let override_beauty_path = theme_dir.join("override_beauty.png");
         copy_visual_alias(&override_audit.beauty_path, &override_beauty_path)?;
+        let override_playable_crop_path = theme_dir.join("override_playable_crop.png");
+        save_visual_lock_crop(
+            &override_audit.beauty_path,
+            &override_state,
+            &override_playable_crop_path,
+            false,
+        )?;
+        let override_close_detail_path = theme_dir.join("override_close_detail.png");
+        save_visual_lock_crop(
+            &override_audit.beauty_path,
+            &override_state,
+            &override_close_detail_path,
+            true,
+        )?;
 
         let before_after_path = theme_dir.join("before_after.png");
         save_visual_lock_before_after(
@@ -3612,6 +3687,8 @@ pub fn export_visual_lock_theme_consistency(
             used_prepared_state,
             generated_beauty_path: generated_beauty_path.to_string_lossy().to_string(),
             override_beauty_path: override_beauty_path.to_string_lossy().to_string(),
+            override_playable_crop_path: override_playable_crop_path.to_string_lossy().to_string(),
+            override_close_detail_path: override_close_detail_path.to_string_lossy().to_string(),
             before_after_path: before_after_path.to_string_lossy().to_string(),
             visual_audit_path: visual_audit_path.to_string_lossy().to_string(),
             generated_asset_report: generated_audit.asset_report,
@@ -3719,6 +3796,89 @@ pub fn export_visual_lock_theme_consistency(
         out_dir.join("theme_visual_consistency_report.json"),
         &report,
     )?;
+    Ok(report)
+}
+
+pub fn export_visual_lock_art_acceptance_gate(
+    out_dir: impl AsRef<Path>,
+    generator: MissionGeneratorSpec,
+    benchmark_count: u32,
+    theme_count_per_theme: u32,
+) -> Result<VisualLockArtAcceptanceReport> {
+    let out_dir = out_dir.as_ref();
+    fs::create_dir_all(out_dir)
+        .with_context(|| format!("failed to create {}", out_dir.display()))?;
+
+    let benchmark_dir = out_dir.join("benchmark");
+    let theme_dir = out_dir.join("theme_consistency");
+    let benchmark_report =
+        export_visual_lock_benchmark(&benchmark_dir, generator.clone(), benchmark_count)?;
+    let theme_report =
+        export_visual_lock_theme_consistency(&theme_dir, generator.clone(), theme_count_per_theme)?;
+
+    let comparison_path = out_dir.join("visual_lock_06_07_08_comparison.png");
+    save_visual_lock_acceptance_comparison_sheet(
+        &comparison_path,
+        &benchmark_report,
+        &theme_report,
+    )?;
+    let close_detail_sheet_path = out_dir.join("per_theme_close_detail_sheet.png");
+    save_visual_lock_theme_crop_contact_sheet(
+        &close_detail_sheet_path,
+        &theme_report.theme_entries,
+        VisualLockThemeCropSheetKind::CloseDetail,
+    )?;
+    let playable_crop_sheet_path = out_dir.join("per_theme_playable_crop_sheet.png");
+    save_visual_lock_theme_crop_contact_sheet(
+        &playable_crop_sheet_path,
+        &theme_report.theme_entries,
+        VisualLockThemeCropSheetKind::PlayableCrop,
+    )?;
+
+    let risk_report = visual_lock_remaining_art_risk_report(&benchmark_report, &theme_report);
+    let remaining_art_risk_report_path = out_dir.join("remaining_art_risk_report.json");
+    write_json(&remaining_art_risk_report_path, &risk_report)?;
+
+    let checks = visual_lock_art_acceptance_checks(&benchmark_report, &theme_report, &risk_report);
+    let accepted = checks
+        .iter()
+        .filter(|check| check.severity == "blocking")
+        .all(|check| check.passed);
+    let decision = if accepted {
+        "visual_stack_acceptable_for_resuming_gameplay_or_procgen_work".to_string()
+    } else {
+        "targeted_art_pass_required_before_resuming_systems_work".to_string()
+    };
+    let notes = vec![
+        "Visual Lock 9 is an acceptance gate: it adds no gameplay, procgen theme, campaign, or renderer-architecture expansion.".to_string(),
+        "The gate reuses the fixed benchmark and theme consistency render paths, then aggregates pass/fail checks and remaining art risks.".to_string(),
+    ];
+
+    let report = VisualLockArtAcceptanceReport {
+        seed: generator.seed,
+        benchmark_theme: generator.theme,
+        benchmark_count,
+        theme_count_per_theme,
+        accepted,
+        decision,
+        benchmark_report_path: benchmark_dir
+            .join("benchmark_visual_audit.json")
+            .to_string_lossy()
+            .to_string(),
+        theme_consistency_report_path: theme_dir
+            .join("theme_visual_consistency_report.json")
+            .to_string_lossy()
+            .to_string(),
+        visual_lock_06_07_08_comparison_path: comparison_path.to_string_lossy().to_string(),
+        per_theme_close_detail_sheet_path: close_detail_sheet_path.to_string_lossy().to_string(),
+        per_theme_playable_crop_sheet_path: playable_crop_sheet_path.to_string_lossy().to_string(),
+        remaining_art_risk_report_path: remaining_art_risk_report_path
+            .to_string_lossy()
+            .to_string(),
+        checks,
+        notes,
+    };
+    write_json(out_dir.join("visual_acceptance_report.json"), &report)?;
     Ok(report)
 }
 
@@ -11380,6 +11540,12 @@ enum VisualLockThemeContactSheetKind {
     BeforeAfter,
 }
 
+#[derive(Clone, Copy)]
+enum VisualLockThemeCropSheetKind {
+    PlayableCrop,
+    CloseDetail,
+}
+
 fn save_visual_lock_theme_contact_sheet(
     path: impl AsRef<Path>,
     entries: &[VisualLockThemeConsistencyEntry],
@@ -11471,6 +11637,392 @@ fn save_visual_lock_theme_contact_sheet(
     sheet
         .save(path)
         .with_context(|| format!("failed to save {}", path.display()))
+}
+
+fn save_visual_lock_acceptance_comparison_sheet(
+    path: impl AsRef<Path>,
+    benchmark: &VisualLockBenchmarkReport,
+    theme_report: &VisualLockThemeConsistencyReport,
+) -> Result<()> {
+    let mut entries: Vec<(&str, String, Rgba<u8>)> = Vec::new();
+    if let Some(prepared_before) = &benchmark.prepared_before_overrides {
+        entries.push((
+            "prepared_generated",
+            prepared_before.beauty_path.clone(),
+            Rgba([164, 105, 67, 255]),
+        ));
+    } else {
+        entries.push((
+            "initial_generated",
+            benchmark.initial.beauty_path.clone(),
+            Rgba([164, 105, 67, 255]),
+        ));
+    }
+    if let Some(prepared) = &benchmark.prepared {
+        entries.push((
+            "prepared_overrides",
+            prepared.beauty_path.clone(),
+            Rgba([94, 153, 82, 255]),
+        ));
+    }
+    entries.push((
+        "theme_override_sheet",
+        theme_report.override_contact_sheet_path.clone(),
+        Rgba([126, 153, 194, 255]),
+    ));
+
+    save_visual_lock_image_sheet(path, &entries, 320, 224, entries.len().max(1) as u32)
+}
+
+fn save_visual_lock_theme_crop_contact_sheet(
+    path: impl AsRef<Path>,
+    entries: &[VisualLockThemeConsistencyEntry],
+    kind: VisualLockThemeCropSheetKind,
+) -> Result<()> {
+    let images = entries
+        .iter()
+        .map(|entry| {
+            let path = match kind {
+                VisualLockThemeCropSheetKind::PlayableCrop => &entry.override_playable_crop_path,
+                VisualLockThemeCropSheetKind::CloseDetail => &entry.override_close_detail_path,
+            };
+            (
+                entry.theme_slug.as_str(),
+                path.clone(),
+                theme_preview_color(entry.theme),
+            )
+        })
+        .collect::<Vec<_>>();
+    let (preview_w, preview_h) = match kind {
+        VisualLockThemeCropSheetKind::PlayableCrop => (300, 210),
+        VisualLockThemeCropSheetKind::CloseDetail => (260, 220),
+    };
+    save_visual_lock_image_sheet(path, &images, preview_w, preview_h, 3)
+}
+
+fn save_visual_lock_image_sheet(
+    path: impl AsRef<Path>,
+    entries: &[(&str, String, Rgba<u8>)],
+    preview_w: u32,
+    preview_h: u32,
+    columns: u32,
+) -> Result<()> {
+    let path = path.as_ref();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let gap = 10;
+    let label_h = 12;
+    let columns = columns.max(1);
+    let rows = (entries.len() as u32).div_ceil(columns).max(1);
+    let mut sheet = RgbaImage::from_pixel(
+        columns * preview_w + (columns + 1) * gap,
+        rows * (preview_h + label_h) + (rows + 1) * gap,
+        Rgba([21, 23, 22, 255]),
+    );
+    for (index, (_label, image_path, color)) in entries.iter().enumerate() {
+        let visual = image::open(image_path)
+            .with_context(|| format!("failed to read {image_path}"))?
+            .to_rgba8();
+        let thumb = image::imageops::resize(
+            &visual,
+            preview_w,
+            preview_h,
+            image::imageops::FilterType::Nearest,
+        );
+        let col = index as u32 % columns;
+        let row = index as u32 / columns;
+        let x0 = gap + col * (preview_w + gap);
+        let y0 = gap + row * (preview_h + label_h + gap);
+        blit_image(&mut sheet, &thumb, x0, y0);
+        draw_preview_border(&mut sheet, x0, y0, preview_w, preview_h, *color);
+        fill_preview_rect(&mut sheet, x0, y0 + preview_h, preview_w, label_h, *color);
+    }
+    sheet
+        .save(path)
+        .with_context(|| format!("failed to save {}", path.display()))
+}
+
+fn visual_lock_remaining_art_risk_report(
+    benchmark: &VisualLockBenchmarkReport,
+    theme_report: &VisualLockThemeConsistencyReport,
+) -> VisualLockRemainingArtRiskReport {
+    let mut risk_items = Vec::new();
+    for entry in &theme_report.theme_entries {
+        if !entry.override_asset_report.missing_visual_pieces.is_empty() {
+            risk_items.push(VisualLockArtRiskItem {
+                id: "missing_visual_piece".to_string(),
+                severity: "high".to_string(),
+                theme: Some(entry.theme_slug.clone()),
+                summary: "Theme render used missing visual pieces.".to_string(),
+                evidence: entry.override_asset_report.missing_visual_pieces.clone(),
+            });
+        }
+        if !entry
+            .override_asset_report
+            .missing_object_override_sprites
+            .is_empty()
+        {
+            risk_items.push(VisualLockArtRiskItem {
+                id: "missing_object_override".to_string(),
+                severity: "high".to_string(),
+                theme: Some(entry.theme_slug.clone()),
+                summary: "Theme render still needs object override coverage.".to_string(),
+                evidence: entry
+                    .override_asset_report
+                    .missing_object_override_sprites
+                    .clone(),
+            });
+        }
+        if !entry.placeholder_impacts.is_empty() {
+            risk_items.push(VisualLockArtRiskItem {
+                id: "placeholder_pressure".to_string(),
+                severity: "medium".to_string(),
+                theme: Some(entry.theme_slug.clone()),
+                summary: "Theme render still has placeholder object pressure.".to_string(),
+                evidence: entry
+                    .placeholder_impacts
+                    .iter()
+                    .map(|impact| {
+                        format!(
+                            "{}:{} (~{} px)",
+                            impact.placeholder, impact.count, impact.estimated_screen_area_px
+                        )
+                    })
+                    .collect(),
+            });
+        }
+        if !entry.override_asset_report.fallback_pieces_used.is_empty() {
+            risk_items.push(VisualLockArtRiskItem {
+                id: "fallback_visual_piece".to_string(),
+                severity: "medium".to_string(),
+                theme: Some(entry.theme_slug.clone()),
+                summary: "Theme render used fallback art.".to_string(),
+                evidence: entry.override_asset_report.fallback_pieces_used.clone(),
+            });
+        }
+    }
+
+    if !visual_lock_role_present(theme_report, "stone/hard elevation") {
+        risk_items.push(VisualLockArtRiskItem {
+            id: "stone_role_underrepresented".to_string(),
+            severity: "advisory".to_string(),
+            theme: None,
+            summary: "Stone/hard elevation is not strongly represented in this acceptance gate.".to_string(),
+            evidence: vec![
+                "Judge stone/platform identity again when a benchmark mission visibly uses stone regions."
+                    .to_string(),
+            ],
+        });
+    }
+
+    let prepared_notes = benchmark
+        .prepared
+        .as_ref()
+        .map(|audit| audit.visual_priority_notes.clone())
+        .unwrap_or_default();
+    if benchmark.prepared.is_none() {
+        risk_items.push(VisualLockArtRiskItem {
+            id: "missing_prepared_benchmark".to_string(),
+            severity: "high".to_string(),
+            theme: Some(benchmark.theme_slug.clone()),
+            summary: "The benchmark did not produce a prepared-state render.".to_string(),
+            evidence: vec![format!("best plan: {}", benchmark.best_plan_label)],
+        });
+    }
+
+    let overall_risk = if risk_items.iter().any(|item| item.severity == "high") {
+        "High"
+    } else if risk_items.iter().any(|item| item.severity == "medium") {
+        "Medium"
+    } else {
+        "Low"
+    }
+    .to_string();
+    let per_theme_object_summary = theme_report
+        .theme_entries
+        .iter()
+        .map(|entry| VisualLockThemeObjectSummary {
+            theme: entry.theme_slug.clone(),
+            object_override_count: entry.override_asset_report.object_override_sprites.len(),
+            missing_object_override_count: entry
+                .override_asset_report
+                .missing_object_override_sprites
+                .len(),
+            placeholder_count: entry.override_asset_report.placeholder_object_sprites.len(),
+            fallback_count: entry.override_asset_report.fallback_pieces_used.len(),
+            missing_visual_piece_count: entry.override_asset_report.missing_visual_pieces.len(),
+            object_overrides: entry.override_asset_report.object_override_sprites.clone(),
+        })
+        .collect();
+    let notes = vec![
+        format!("Prepared benchmark notes: {}", prepared_notes.join(" | ")),
+        "Human visual review is still required for subjective style lock; this report only gates pipeline cleanliness and coverage.".to_string(),
+    ];
+    VisualLockRemainingArtRiskReport {
+        overall_risk,
+        weakest_visual_identity_theme: theme_report.weakest_visual_identity_theme.clone(),
+        risk_items,
+        per_theme_object_summary,
+        top_shared_high_impact_pieces: theme_report
+            .shared_high_impact_pieces
+            .iter()
+            .take(12)
+            .cloned()
+            .collect(),
+        remaining_placeholder_impacts: theme_report.shared_placeholder_impacts.clone(),
+        notes,
+    }
+}
+
+fn visual_lock_art_acceptance_checks(
+    benchmark: &VisualLockBenchmarkReport,
+    theme_report: &VisualLockThemeConsistencyReport,
+    risk_report: &VisualLockRemainingArtRiskReport,
+) -> Vec<VisualLockAcceptanceCheck> {
+    let missing_visual_count = theme_report
+        .theme_entries
+        .iter()
+        .map(|entry| entry.override_asset_report.missing_visual_pieces.len())
+        .sum::<usize>();
+    let fallback_count = theme_report
+        .theme_entries
+        .iter()
+        .map(|entry| entry.override_asset_report.fallback_pieces_used.len())
+        .sum::<usize>();
+    let missing_object_count = theme_report
+        .theme_entries
+        .iter()
+        .map(|entry| {
+            entry
+                .override_asset_report
+                .missing_object_override_sprites
+                .len()
+        })
+        .sum::<usize>();
+    let placeholder_count = theme_report
+        .theme_entries
+        .iter()
+        .map(|entry| entry.override_asset_report.placeholder_object_sprites.len())
+        .sum::<usize>();
+    let unique_themes = theme_report
+        .theme_entries
+        .iter()
+        .map(|entry| entry.theme_slug.clone())
+        .collect::<HashSet<_>>()
+        .len();
+
+    let terrain_roles = [
+        "path/dirt surface",
+        "trench/recessed terrain",
+        "berm/raised terrain",
+    ];
+    let terrain_role_evidence = terrain_roles
+        .iter()
+        .map(|role| format!("{role}:{}", visual_lock_role_present(theme_report, role)))
+        .collect::<Vec<_>>();
+    let terrain_roles_present = terrain_roles
+        .iter()
+        .all(|role| visual_lock_role_present(theme_report, role));
+
+    vec![
+        VisualLockAcceptanceCheck {
+            id: "terrain_readability_coverage".to_string(),
+            label: "Terrain roles represented".to_string(),
+            passed: terrain_roles_present,
+            severity: "blocking".to_string(),
+            summary: "Path, trench, and berm roles must be visible in the override-backed theme renders.".to_string(),
+            evidence: terrain_role_evidence,
+        },
+        VisualLockAcceptanceCheck {
+            id: "object_override_coverage".to_string(),
+            label: "Object overrides covered".to_string(),
+            passed: missing_object_count == 0 && placeholder_count == 0,
+            severity: "blocking".to_string(),
+            summary: "Object sprites should be covered by source PNG overrides instead of debug silhouettes.".to_string(),
+            evidence: vec![
+                format!("missing object override entries: {missing_object_count}"),
+                format!("placeholder object entries: {placeholder_count}"),
+            ],
+        },
+        VisualLockAcceptanceCheck {
+            id: "theme_distinction_inputs".to_string(),
+            label: "Theme set covered".to_string(),
+            passed: unique_themes >= 6,
+            severity: "blocking".to_string(),
+            summary: "Acceptance gate should cover the six generated theme classes.".to_string(),
+            evidence: vec![format!("unique themes rendered: {unique_themes}")],
+        },
+        VisualLockAcceptanceCheck {
+            id: "no_fallback_visuals".to_string(),
+            label: "No missing or fallback art".to_string(),
+            passed: missing_visual_count == 0 && fallback_count == 0,
+            severity: "blocking".to_string(),
+            summary: "Override-backed visuals should not rely on missing-piece or fallback rendering.".to_string(),
+            evidence: vec![
+                format!("missing visual pieces: {missing_visual_count}"),
+                format!("fallback visual pieces: {fallback_count}"),
+            ],
+        },
+        VisualLockAcceptanceCheck {
+            id: "overlay_artifacts_exist".to_string(),
+            label: "Routes/debug overlays preserved".to_string(),
+            passed: Path::new(&benchmark.initial.routes_path).exists()
+                && Path::new(&benchmark.initial.debug_path).exists()
+                && benchmark
+                    .prepared
+                    .as_ref()
+                    .map(|audit| {
+                        Path::new(&audit.routes_path).exists() && Path::new(&audit.debug_path).exists()
+                    })
+                    .unwrap_or(false),
+            severity: "blocking".to_string(),
+            summary: "The art gate should preserve route and debug overlay export paths for gameplay readability checks.".to_string(),
+            evidence: vec![
+                benchmark.initial.routes_path.clone(),
+                benchmark.initial.debug_path.clone(),
+            ],
+        },
+        VisualLockAcceptanceCheck {
+            id: "close_detail_available".to_string(),
+            label: "Close detail available".to_string(),
+            passed: benchmark
+                .close_detail_path
+                .as_ref()
+                .map(|path| Path::new(path).exists())
+                .unwrap_or(false),
+            severity: "blocking".to_string(),
+            summary: "The fixed benchmark should include a close-detail render for human art review.".to_string(),
+            evidence: benchmark.close_detail_path.iter().cloned().collect(),
+        },
+        VisualLockAcceptanceCheck {
+            id: "stone_elevation_coverage".to_string(),
+            label: "Stone/hard elevation represented".to_string(),
+            passed: visual_lock_role_present(theme_report, "stone/hard elevation"),
+            severity: "advisory".to_string(),
+            summary: "Stone/platform identity should be checked when generated missions visibly use hard elevation.".to_string(),
+            evidence: vec![format!(
+                "stone/hard elevation present: {}",
+                visual_lock_role_present(theme_report, "stone/hard elevation")
+            )],
+        },
+        VisualLockAcceptanceCheck {
+            id: "remaining_art_risk".to_string(),
+            label: "Remaining art risk".to_string(),
+            passed: risk_report.overall_risk != "High",
+            severity: "advisory".to_string(),
+            summary: "Non-blocking art risks can still guide the next targeted visual pass.".to_string(),
+            evidence: vec![format!("overall risk: {}", risk_report.overall_risk)],
+        },
+    ]
+}
+
+fn visual_lock_role_present(report: &VisualLockThemeConsistencyReport, role: &str) -> bool {
+    report
+        .theme_entries
+        .iter()
+        .flat_map(|entry| entry.override_visible_sprite_impacts.iter())
+        .any(|impact| impact.role == role && impact.cell_count > 0)
 }
 
 fn visual_lock_shared_piece_impacts(

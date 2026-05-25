@@ -4,7 +4,7 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: Visual Lock 8 — object / prop override set
+## Current status: Visual Lock 9 — art acceptance gate
 
 GroundLab has paused new systems, campaign layers, mechanics, and SpriteGen family expansion to
 lock a minimum generated-mission art bar. The primary product direction is still a 2.5D tactical
@@ -13,11 +13,10 @@ prep-phase work orders, transforms terrain and local objects, then tests those c
 predictable enemy doctrine. The current benchmark takes one accepted generated mission, renders
 beauty/routes/debug views, applies the best known prep script, and audits the visual asset usage so
 art direction can be judged in gameplay context instead of isolated sprites or schematic boards.
-Visual Lock 8 extends that override workflow from terrain pieces to high-pressure object and prop
-placeholders. Mission beauty renders now try committed source PNGs for trees, logs, rocks, stakes,
-wire, wall/ruin, objective, and spawn markers before falling back to simple procedural silhouettes,
-and the visual asset reports distinguish active object overrides from remaining placeholder
-pressure.
+Visual Lock 9 runs a compact art acceptance gate over that override stack. It exports the fixed
+benchmark comparison, per-theme playable-crop and close-detail sheets, a pass/fail acceptance
+report, and a remaining art risk report so the project can decide whether to resume gameplay/procgen
+work or target one more focused art pass.
 
 SpriteGen remains in the repository as the terrain art forge. It still provides swappable style
 profiles, override PNGs, sprite manifests, validation, and exportable grass/dirt/path/trench/berm/
@@ -760,4 +759,4 @@ overlays.
 
 ## Current visual-lock focus
 
-Visual Lock 8 adds committed object/prop override sprites for trees, logs, rocks, stakes, wire, wall/ruin, objective, and spawn markers. Generated terrain pieces remain override-driven; object art now follows the same source-art replacement workflow instead of relying only on debug silhouettes.
+Visual Lock 9 keeps the systems freeze in place and turns the current terrain/object override stack into an acceptance decision. It generates benchmark and per-theme comparison sheets plus JSON checks for terrain roles, object override coverage, fallback-free rendering, overlays, close detail, stone coverage, and remaining art risk.

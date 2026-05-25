@@ -3,7 +3,7 @@
 GroundLab is intentionally not a general engine. It is a custom terrain/art/simulation workbench
 for one future game family: terrain-first prepared-ground defense.
 
-The active roadmap has paused generated-campaign and game-system expansion for Visual Lock 8.
+The active roadmap has paused generated-campaign and game-system expansion for Visual Lock 9.
 SpriteGen remains the terrain art forge, while `ground_game` owns mission specs, prep-phase work
 orders, local materials,
 environment-object states, doctrine route preview, deterministic assault sandbox, assault
@@ -31,7 +31,9 @@ high-impact terrain pieces, placeholder object load, fallbacks, and the weakest 
 theme before any systems work resumes. Visual Lock 8 extends the same source-art replacement path to
 mission objects and props by checking committed object override PNGs before drawing procedural
 fallback silhouettes, while reports separate active object overrides from remaining placeholder
-pressure.
+pressure. Visual Lock 9 aggregates the fixed benchmark, per-theme playable crops, per-theme close
+details, and structured art-risk checks into an acceptance gate that can explicitly decide whether
+the current visual stack is clean enough to resume gameplay/procgen work.
 `ground_app` now treats Mission Lab as the primary tactical prep surface rather than a generic
 terrain editor panel, and Road Below starts as a playable briefing-to-debrief slice. The same
 mission loop now evaluates generated Road-Below-like candidates so GroundLab can batch-generate,
@@ -456,6 +458,8 @@ flattening, and stone painting. `export_edit_scenario_suite` renders those scena
 `edit_scenarios/` with base, edited, cover-only, debug, patch JSON, and summary reports. This makes
 visual edit quality testable without manually brushing the map every time.
 
-## Visual Lock 8 object override note
+## Visual Lock 8/9 visual acceptance note
 
 Visual Lock 8 extends the override workflow from terrain pieces to mission objects. The mission visual renderer first checks `assets/visual_lock_08/object_overrides/` for object-class sprites such as `tree_standing`, `log_or_trunk`, `rock`, `stakes_cluster`, `wall_or_ruin`, `spawn_marker`, and `objective_marker`. Missing object classes fall back to simple procedural silhouettes, while visual reports keep those fallbacks visible as placeholder pressure.
+
+Visual Lock 9 does not add art families or gameplay. It packages the current benchmark and theme-consistency renders into acceptance sheets plus `visual_acceptance_report.json` and `remaining_art_risk_report.json`, so art-lock status is a reportable decision instead of an informal screenshot review.

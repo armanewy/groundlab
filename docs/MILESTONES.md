@@ -6,11 +6,9 @@ GroundLab's active roadmap is paused on new game/procgen/campaign expansion whil
 mission art direction is locked. SpriteGen remains the terrain art forge, and Mission Lab remains
 the 2.5D tactical engineering defense workbench, but the current priority is making one generated
 mission beauty render read as a coherent high-oblique pixel-art terrain scene rather than a
-schematic board. Visual Lock 8 extends the production-style source override workflow from terrain
-pieces to mission objects and props: object PNGs are loaded before procedural silhouettes, reports
-separate active object overrides from remaining placeholder pressure, and theme consistency renders
-can show whether authored trees, logs, rocks, objectives, spawns, stakes, wire, and ruins improve
-generated mission readability across themes.
+schematic board. Visual Lock 9 runs the acceptance gate for the current terrain + object override
+stack: fixed benchmark comparison, per-theme playable-crop sheet, per-theme close-detail sheet,
+structured acceptance checks, and a remaining art-risk report.
 
 ## GamePivot 1 — Mission workbench seed
 
@@ -1105,3 +1103,12 @@ Implemented.
 - mission visual renderer now consumes object override PNGs for trees, logs, rocks, stakes, wire, walls, objectives, and spawn markers
 - visual asset reports distinguish active object overrides from remaining placeholder pressure
 - theme consistency reports now reduce placeholder pressure when object art is covered by source overrides
+
+## Visual Lock 9 — Art Acceptance Gate
+
+Implemented.
+
+- added `cargo run -p ground_cli -- visual-lock-art-acceptance [out_dir] [--theme ridge_trap] [--seed 99418113] [--benchmark-count 8] [--count 20]`
+- exports `visual_lock_06_07_08_comparison.png`, `per_theme_close_detail_sheet.png`, `per_theme_playable_crop_sheet.png`, `visual_acceptance_report.json`, and `remaining_art_risk_report.json`
+- adds per-theme override playable-crop and close-detail exports to the theme consistency path
+- gates terrain-role coverage, object override coverage, six-theme coverage, fallback-free rendering, overlay/debug export availability, close-detail availability, stone coverage, and remaining art risk
