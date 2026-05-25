@@ -637,10 +637,10 @@ fn generate_family_image(
         ArtSpriteFamily::Log => draw_log(&mut image, variant_index, request.style, rng),
         ArtSpriteFamily::Rock => draw_rock(&mut image, rng),
         ArtSpriteFamily::Wall => draw_wall(&mut image, rng),
-        ArtSpriteFamily::Stakes => draw_stakes(&mut image, rng),
-        ArtSpriteFamily::Wire => draw_wire(&mut image, rng),
-        ArtSpriteFamily::ObjectiveMarker => draw_marker(&mut image, true, rng),
-        ArtSpriteFamily::SpawnMarker => draw_marker(&mut image, false, rng),
+        ArtSpriteFamily::Stakes => draw_stakes(&mut image, variant_index, rng),
+        ArtSpriteFamily::Wire => draw_wire(&mut image, variant_index, rng),
+        ArtSpriteFamily::ObjectiveMarker => draw_marker(&mut image, true, variant_index, rng),
+        ArtSpriteFamily::SpawnMarker => draw_marker(&mut image, false, variant_index, rng),
     }
     image
 }
@@ -714,6 +714,7 @@ fn draw_path(
     let wave_amp = 0.8 + style.roughness * 4.4 + rng.next_f32() * 1.4;
     let edge_noise_scale = 1.2 + style.roughness * 4.8;
     let edge_blend = 2.3 + style.edge_emphasis * 4.4;
+    let edge_shadow_width = 0.8 + style.edge_emphasis * 1.7;
     for y in 0..image.height {
         for x in 0..image.width {
             let (lane, along) = art_band_coords(axis, x, y, image);
@@ -727,11 +728,20 @@ fn draw_path(
                     .blend(compact, (0.08 + style.contrast * 0.26) * (1.0 - t))
                     .blend(dust, noise * style.noise * 0.22);
                 image.set(x, y, color);
+                if half_width - dist < edge_shadow_width
+                    && rng.hash_xy(x.wrapping_add(41), y.wrapping_add(11))
+                        > 0.66 - style.edge_emphasis * 0.22
+                {
+                    image.blend_pixel(x, y, compact, 0.12 + style.contrast * 0.12);
+                }
             } else if dist < half_width + edge_blend
                 && rng.hash_xy(x, y) > 0.40 - style.roughness * 0.34
             {
                 let t = ((dist - half_width) / edge_blend).clamp(0.0, 1.0);
-                image.set(x, y, dirt.blend(grass_intrusion, 0.38 + t * 0.42));
+                let edge = dirt
+                    .blend(grass_intrusion, 0.38 + t * 0.42)
+                    .blend(dust, rng.hash_xy(x.wrapping_add(9), y) * style.noise * 0.10);
+                image.set(x, y, edge);
             }
         }
     }
@@ -750,6 +760,19 @@ fn draw_path(
         0.06 + style.contrast * 0.10,
     );
     draw_path_ruts(image, axis, center, half_width, phase, style, rng);
+    draw_band_edge_flecks(
+        image,
+        BandEdgeFleckSpec {
+            axis,
+            center,
+            half_width,
+            phase,
+            style,
+            dirt: dust,
+            grass: grass_intrusion,
+        },
+        rng,
+    );
 }
 
 fn draw_trench(
@@ -761,14 +784,18 @@ fn draw_trench(
     let style = style.sanitized();
     fill(image, Rgba8::opaque(83, 120, 61));
     let axis = art_band_axis(variant_index);
+    // Trench variants should read as earth cut down into the ground: grass/spoil lips,
+    // warm walls, then a darker recessed floor instead of a black graphic slot.
     let floor_dark =
-        art_style_color(Rgba8::opaque(38, 29, 24), style).darken(style.contrast * 0.16);
+        art_style_color(Rgba8::opaque(44, 34, 28), style).darken(style.contrast * 0.12);
     let floor_warm = art_style_color(Rgba8::opaque(67, 45, 31), style);
     let wall_lit = art_style_color(Rgba8::opaque(126, 79, 44), style).lighten(style.warmth * 0.05);
     let wall_shadow =
         art_style_color(Rgba8::opaque(84, 53, 35), style).darken(style.contrast * 0.08);
     let lip = art_style_color(Rgba8::opaque(178, 117, 66), style);
     let spoil = art_style_color(Rgba8::opaque(138, 88, 51), style);
+    let grass = Rgba8::opaque(91, 124, 65);
+    let dry_lip = art_style_color(Rgba8::opaque(205, 144, 83), style).lighten(style.warmth * 0.03);
     let max_lane = art_band_max_lane(axis, image);
     let center = max_lane * (0.50 + (rng.next_f32() - 0.5) * 0.10);
     let half = (max_lane * (0.17 + rng.next_f32() * (0.03 + style.edge_emphasis * 0.05))).max(5.5);
@@ -790,29 +817,40 @@ fn draw_trench(
                     x,
                     y,
                     floor_warm
-                        .blend(floor_dark, 0.56 * center_t)
-                        .blend(Rgba8::opaque(83, 56, 38), grain * 0.16),
+                        .blend(floor_dark, 0.48 * center_t + style.contrast * 0.14)
+                        .blend(Rgba8::opaque(87, 58, 39), grain * 0.18),
                 );
+                if rng.hash_xy(x.wrapping_add(7), y.wrapping_add(91)) > 0.82 - style.noise * 0.18 {
+                    image.blend_pixel(x, y, Rgba8::opaque(112, 76, 49), 0.10 + style.noise * 0.08);
+                }
             } else if dist < half {
                 let wall_t = ((dist - floor_half) / (half - floor_half)).clamp(0.0, 1.0);
                 let side_light = if signed < 0.0 {
-                    0.12 + style.contrast * 0.20
+                    0.18 + style.contrast * 0.22
                 } else {
-                    0.0
+                    0.04
                 };
-                image.set(
-                    x,
-                    y,
-                    wall_shadow.blend(wall_lit, side_light + wall_t * 0.34),
-                );
+                let wall = wall_shadow
+                    .blend(wall_lit, side_light + wall_t * 0.38)
+                    .blend(
+                        floor_warm,
+                        rng.hash_xy(x, y.wrapping_add(3)) * style.noise * 0.08,
+                    );
+                image.set(x, y, wall);
             } else if dist < half + lip_width {
                 let edge_t = ((dist - half) / lip_width).clamp(0.0, 1.0);
-                let dirt = lip.blend(spoil, rng.hash_xy(x, y) * 0.18);
-                image.set(x, y, dirt.blend(Rgba8::opaque(91, 124, 65), edge_t * 0.36));
+                let highlight = (1.0 - edge_t) * (0.18 + style.edge_emphasis * 0.18);
+                let dirt = lip
+                    .blend(spoil, rng.hash_xy(x, y) * 0.22)
+                    .blend(dry_lip, highlight);
+                image.set(x, y, dirt.blend(grass, edge_t * 0.42));
             } else if dist < half + lip_width + 2.8
                 && rng.hash_xy(x, y) > 0.76 - style.roughness * 0.30
             {
                 image.blend_pixel(x, y, spoil, 0.18 + style.edge_emphasis * 0.24);
+                if rng.hash_xy(x.wrapping_add(33), y) > 0.70 {
+                    image.blend_pixel(x, y, grass, 0.10 + style.roughness * 0.10);
+                }
             }
         }
     }
@@ -831,6 +869,19 @@ fn draw_trench(
         0.05 + style.contrast * 0.10,
     );
     draw_trench_cross_details(image, axis, center, floor_half, phase, style, rng);
+    draw_band_edge_flecks(
+        image,
+        BandEdgeFleckSpec {
+            axis,
+            center,
+            half_width: half,
+            phase,
+            style,
+            dirt: dry_lip,
+            grass,
+        },
+        rng,
+    );
 }
 
 fn draw_berm(
@@ -847,6 +898,7 @@ fn draw_berm(
     let face = art_style_color(Rgba8::opaque(101, 65, 40), style).darken(style.contrast * 0.05);
     let base_shadow = Rgba8::opaque(49, 47, 34).darken(style.contrast * 0.12);
     let grass = Rgba8::opaque(82, 122, 64);
+    let grass_light = Rgba8::opaque(111, 145, 75);
     let max_lane = art_band_max_lane(axis, image);
     let center = max_lane * (0.50 + (rng.next_f32() - 0.5) * 0.12);
     let half = (max_lane * (0.15 + rng.next_f32() * (0.04 + style.edge_emphasis * 0.05))).max(5.0);
@@ -867,11 +919,18 @@ fn draw_berm(
                     x,
                     y,
                     top.blend(crest, 0.22 + crown * 0.28)
-                        .blend(grass, rng.hash_xy(x, y) * 0.12),
+                        .blend(grass, rng.hash_xy(x, y) * (0.10 + style.roughness * 0.10)),
                 );
+                if rng.hash_xy(x.wrapping_add(43), y) > 0.86 - style.noise * 0.18 {
+                    image.blend_pixel(x, y, grass_light, 0.10 + style.noise * 0.10);
+                }
             } else if dist < half {
                 let face_t = ((dist - crest_half) / (half - crest_half)).clamp(0.0, 1.0);
-                let color = face.blend(top, (1.0 - face_t) * 0.22);
+                let lower_shadow = face_t * (0.16 + style.contrast * 0.16);
+                let color = face
+                    .blend(top, (1.0 - face_t) * 0.26)
+                    .darken(lower_shadow)
+                    .blend(crest, rng.hash_xy(x, y) * style.noise * 0.06);
                 image.set(x, y, color);
             } else if dist < half + transition_width
                 && rng.hash_xy(x, y) > 0.42 - style.roughness * 0.32
@@ -898,6 +957,7 @@ fn draw_berm(
         0.04 + style.contrast * 0.09,
     );
     draw_mound_strata(image, axis, center, (crest_half, half), phase, style, rng);
+    draw_berm_crest_highlights(image, axis, center, crest_half, phase, style, rng);
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1064,6 +1124,70 @@ fn draw_mound_strata(
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+struct BandEdgeFleckSpec {
+    axis: ArtBandAxis,
+    center: f32,
+    half_width: f32,
+    phase: f32,
+    style: ArtStyleControls,
+    dirt: Rgba8,
+    grass: Rgba8,
+}
+
+fn draw_band_edge_flecks(image: &mut PixelImage, spec: BandEdgeFleckSpec, rng: &mut TinyRng) {
+    let flecks = scaled_count(image, scaled_style_count(8, 34, spec.style.roughness));
+    for _ in 0..flecks {
+        let along = rng.next_f32() * image.width.max(image.height) as f32;
+        let side = if rng.next_f32() > 0.5 { 1.0 } else { -1.0 };
+        let lane = spec.center
+            + art_band_wave(along, spec.phase, 1.0)
+            + side * (spec.half_width + rng.next_f32() * (2.2 + spec.style.edge_emphasis * 2.4));
+        let (x, y) = art_band_point(spec.axis, along, lane, image);
+        let color = if rng.next_f32() > 0.42 {
+            spec.dirt
+        } else {
+            spec.grass
+        };
+        let alpha = 0.12 + spec.style.edge_emphasis * 0.12 + spec.style.noise * 0.08;
+        for oy in -1..=1 {
+            for ox in -1..=1 {
+                if rng.hash_xy((x + ox).max(0) as u32, (y + oy).max(0) as u32) > 0.58
+                    && image.in_bounds(x + ox, y + oy)
+                {
+                    image.blend_pixel((x + ox) as u32, (y + oy) as u32, color, alpha);
+                }
+            }
+        }
+    }
+}
+
+fn draw_berm_crest_highlights(
+    image: &mut PixelImage,
+    axis: ArtBandAxis,
+    center: f32,
+    crest_half: f32,
+    phase: f32,
+    style: ArtStyleControls,
+    rng: &mut TinyRng,
+) {
+    let highlight = art_style_color(Rgba8::opaque(216, 157, 88), style)
+        .with_alpha(clamp_u8(115.0 + style.edge_emphasis * 95.0));
+    let marks = scaled_count(image, scaled_style_count(2, 10, style.edge_emphasis));
+    for _ in 0..marks {
+        let along = rng.next_f32() * image.width.max(image.height) as f32;
+        let lane =
+            center + art_band_wave(along, phase, 0.8) + (rng.next_f32() - 0.5) * crest_half * 0.65;
+        let (x, y) = art_band_point(axis, along, lane, image);
+        match axis {
+            ArtBandAxis::Horizontal => image.draw_line(x - 3, y, x + 4, y, highlight),
+            ArtBandAxis::Vertical => image.draw_line(x, y - 3, x, y + 4, highlight),
+            ArtBandAxis::DiagonalDown => image.draw_line(x - 2, y - 2, x + 3, y + 3, highlight),
+            ArtBandAxis::DiagonalUp => image.draw_line(x - 2, y + 2, x + 3, y - 3, highlight),
+        }
+    }
+}
+
 fn art_band_point(axis: ArtBandAxis, along: f32, lane: f32, image: &PixelImage) -> (i32, i32) {
     let w = image.width.max(1) as f32;
     let h = image.height.max(1) as f32;
@@ -1099,29 +1223,46 @@ fn draw_tree(
     let cx = image.width as i32 / 2 + rng.range_i32(-2, 3);
     let cy = image.height as i32 / 2 + 6;
     let trunk_height = 8 + (rng.next_u32() % 4) as i32;
+    let trunk_width = if variant_index % 4 == 1 { 3 } else { 4 };
     rect_i32(image, cx - 2, cy - 1, 4, trunk_height, trunk);
     image.draw_line(cx - 1, cy, cx - 1, cy + trunk_height - 2, bark_dark);
+    rect_i32(
+        image,
+        cx - trunk_width,
+        cy + trunk_height - 2,
+        trunk_width * 2,
+        2,
+        bark_dark.with_alpha(185),
+    );
 
-    let layer_count = if variant_index.is_multiple_of(3) {
-        4
+    if variant_index % 3 == 1 {
+        let canopy_radius = 9 + rng.range_i32(-1, 3);
+        ellipse(image, cx - 2, cy - 11, canopy_radius, 8, dark);
+        ellipse(image, cx + 4, cy - 10, canopy_radius - 2, 7, mid);
+        ellipse(image, cx - 5, cy - 14, 5, 4, light.with_alpha(220));
+        ellipse(image, cx + 2, cy - 16, 4, 3, light.with_alpha(190));
     } else {
-        3
-    };
-    for layer in 0..layer_count {
-        let wobble = rng.range_i32(-2, 3);
-        let radius = (11 - layer * 2 + rng.range_i32(-1, 2)).max(4);
-        let y = cy - 5 - layer * (5 + (variant_index % 2) as i32);
-        ellipse(image, cx + wobble, y, radius, 5 + rng.range_i32(0, 2), dark);
-        ellipse(image, cx + wobble - 2, y - 1, (radius - 2).max(2), 3, mid);
-        if rng.hash_xy(layer as u32, variant_index) > 0.22 {
-            ellipse(
-                image,
-                cx + wobble - 4,
-                y - 3,
-                3 + (style.edge_emphasis * 2.0).round() as i32,
-                2,
-                light,
-            );
+        let layer_count = if variant_index.is_multiple_of(3) {
+            4
+        } else {
+            3
+        };
+        for layer in 0..layer_count {
+            let wobble = rng.range_i32(-2, 3);
+            let radius = (11 - layer * 2 + rng.range_i32(-1, 2)).max(4);
+            let y = cy - 5 - layer * (5 + (variant_index % 2) as i32);
+            ellipse(image, cx + wobble, y, radius, 5 + rng.range_i32(0, 2), dark);
+            ellipse(image, cx + wobble - 2, y - 1, (radius - 2).max(2), 3, mid);
+            if rng.hash_xy(layer as u32, variant_index) > 0.22 {
+                ellipse(
+                    image,
+                    cx + wobble - 4,
+                    y - 3,
+                    3 + (style.edge_emphasis * 2.0).round() as i32,
+                    2,
+                    light,
+                );
+            }
         }
     }
 
@@ -1136,6 +1277,9 @@ fn draw_tree(
             0.10 + style.noise * 0.10,
         );
     }
+    let outline = Rgba8::opaque(25, 58, 33).with_alpha(clamp_u8(70.0 + style.contrast * 70.0));
+    image.draw_line(cx - 10, cy - 5, cx - 3, cy - 20, outline);
+    image.draw_line(cx + 10, cy - 5, cx + 3, cy - 20, outline);
 }
 
 fn draw_log(
@@ -1155,7 +1299,7 @@ fn draw_log(
     let diagonal = variant_index % 3 != 1;
     let x0 = image.width as i32 / 2 - 12 + rng.range_i32(-2, 3);
     let y0 = image.height as i32 / 2 + rng.range_i32(0, 4);
-    let len = 23 + (rng.next_u32() % 5) as i32;
+    let len = 21 + (rng.next_u32() % 7) as i32;
     let slope = if diagonal {
         if variant_index.is_multiple_of(2) {
             1
@@ -1165,26 +1309,33 @@ fn draw_log(
     } else {
         0
     };
+    let thickness = 3 + (variant_index % 2) as i32;
 
     for i in 0..len {
         let x = x0 + i;
         let y = y0 + (i * slope) / 9;
-        rect_i32(image, x, y - 3, 1, 7, bark);
+        rect_i32(image, x, y - thickness, 1, thickness * 2 + 1, bark);
         if i % 5 == 0 || rng.hash_xy(i as u32, variant_index) > 0.84 - style.roughness * 0.18 {
-            rect_i32(image, x, y - 4, 1, 8, bark_dark);
+            rect_i32(image, x, y - thickness - 1, 1, thickness * 2 + 2, bark_dark);
         }
-        if i % 7 == 3 {
-            image.set_i32(x, y - 3, highlight);
+        if i % 7 == 3 || rng.hash_xy(variant_index, i as u32) > 0.88 - style.noise * 0.16 {
+            image.set_i32(x, y - thickness, highlight);
+            image.blend_pixel(
+                x.clamp(0, image.width as i32 - 1) as u32,
+                (y + thickness - 1).clamp(0, image.height as i32 - 1) as u32,
+                bark_dark,
+                0.16 + style.contrast * 0.12,
+            );
         }
     }
 
-    ellipse(image, x0, y0, 3, 4, cut_dark);
+    ellipse(image, x0, y0, 3, thickness + 1, cut_dark);
     ellipse(
         image,
         x0 + len - 1,
         y0 + ((len - 1) * slope) / 9,
         3,
-        4,
+        thickness + 1,
         cut_light,
     );
     let rings = 1 + (style.edge_emphasis * 2.0).round() as i32;
@@ -1198,6 +1349,13 @@ fn draw_log(
             cut_dark.with_alpha(120),
         );
     }
+    image.draw_line(
+        x0 + 2,
+        y0 - thickness - 1,
+        x0 + len - 4,
+        y0 + ((len - 4) * slope) / 9 - thickness,
+        highlight.with_alpha(clamp_u8(100.0 + style.edge_emphasis * 85.0)),
+    );
 }
 
 fn draw_rock(image: &mut PixelImage, rng: &mut TinyRng) {
@@ -1224,31 +1382,77 @@ fn draw_wall(image: &mut PixelImage, rng: &mut TinyRng) {
     }
 }
 
-fn draw_stakes(image: &mut PixelImage, rng: &mut TinyRng) {
+fn draw_stakes(image: &mut PixelImage, variant_index: u32, rng: &mut TinyRng) {
     draw_shadow(image, 0.34);
-    for i in 0..5 {
-        let x = 8 + i * 4 + rng.range_i32(-1, 2);
-        let y = 19 + rng.range_i32(-2, 2);
-        image.draw_line(x, y, x, y - 12, Rgba8::opaque(117, 73, 38));
-        image.draw_line(x - 2, y - 7, x + 2, y - 9, Rgba8::opaque(184, 126, 63));
+    let count = 4 + (variant_index % 3) as i32;
+    for i in 0..count {
+        let x = 6 + i * 4 + rng.range_i32(-1, 2);
+        let base_y = 21 + rng.range_i32(-2, 2);
+        let height = 10 + rng.range_i32(0, 5);
+        let wood = if i % 2 == 0 {
+            Rgba8::opaque(128, 78, 39)
+        } else {
+            Rgba8::opaque(101, 63, 34)
+        };
+        image.draw_line(x, base_y, x + rng.range_i32(-1, 2), base_y - height, wood);
+        image.draw_line(
+            x - 1,
+            base_y - height + 1,
+            x + 1,
+            base_y - height + 1,
+            wood.lighten(0.18),
+        );
+        if i + 1 < count {
+            image.draw_line(
+                x - 2,
+                base_y - 6,
+                x + 4,
+                base_y - 9 + rng.range_i32(-1, 2),
+                Rgba8::opaque(184, 126, 63),
+            );
+        }
+    }
+    for _ in 0..3 {
+        let x = rng.range_i32(6, image.width as i32 - 6);
+        let y = rng.range_i32(19, 24);
+        image.draw_line(x - 2, y + 1, x + 2, y + 2, Rgba8::BLACK.with_alpha(55));
     }
 }
 
-fn draw_wire(image: &mut PixelImage, rng: &mut TinyRng) {
+fn draw_wire(image: &mut PixelImage, variant_index: u32, rng: &mut TinyRng) {
     draw_shadow(image, 0.20);
-    for strand in 0..3 {
-        let y = 13 + strand * 4;
+    let strand_count = 2 + (variant_index % 3);
+    for strand in 0..strand_count {
+        let y = 12 + strand * 4;
+        let phase = rng.next_u32() % 5;
         for x in 4..image.width.saturating_sub(4) {
-            let wobble = if (x + strand) % 4 < 2 { 1 } else { -1 };
-            image.set_i32(x as i32, y as i32 + wobble, Rgba8::opaque(143, 144, 128));
-            if x % 7 == (rng.next_u32() % 7) {
-                image.set_i32(x as i32, y as i32 - 2, Rgba8::opaque(219, 208, 126));
+            let wobble = if (x + strand + phase) % 5 < 2 { 1 } else { -1 };
+            let wire = if strand % 2 == 0 {
+                Rgba8::opaque(147, 151, 137)
+            } else {
+                Rgba8::opaque(91, 100, 91)
+            };
+            image.set_i32(x as i32, y as i32 + wobble, wire);
+            if (x + phase).is_multiple_of(7) {
+                image.set_i32(x as i32, y as i32 - 2, Rgba8::opaque(220, 210, 126));
+                image.set_i32(x as i32 + 1, y as i32 + 2, Rgba8::opaque(220, 210, 126));
             }
         }
     }
+    for _ in 0..4 {
+        let x = rng.range_i32(5, image.width as i32 - 5);
+        let y = rng.range_i32(11, 21);
+        image.draw_line(
+            x - 2,
+            y,
+            x + 2,
+            y + rng.range_i32(-1, 2),
+            Rgba8::opaque(196, 195, 166),
+        );
+    }
 }
 
-fn draw_marker(image: &mut PixelImage, objective: bool, _rng: &mut TinyRng) {
+fn draw_marker(image: &mut PixelImage, objective: bool, variant_index: u32, rng: &mut TinyRng) {
     draw_shadow(image, 0.32);
     let pole = if objective {
         Rgba8::opaque(222, 194, 91)
@@ -1262,10 +1466,52 @@ fn draw_marker(image: &mut PixelImage, objective: bool, _rng: &mut TinyRng) {
     };
     let cx = image.width as i32 / 2;
     let base_y = image.height as i32 - 9;
-    rect_i32(image, cx - 7, base_y, 14, 4, Rgba8::opaque(119, 91, 45));
+    let base = if objective {
+        Rgba8::opaque(116, 81, 43)
+    } else {
+        Rgba8::opaque(76, 89, 102)
+    };
+    rect_i32(image, cx - 7, base_y, 14, 4, base);
+    rect_i32(image, cx - 5, base_y - 3, 10, 3, base.lighten(0.12));
     image.draw_line(cx, base_y, cx, base_y - 17, pole);
-    rect_i32(image, cx + 1, base_y - 17, 10, 7, flag);
-    rect_i32(image, cx + 1, base_y - 10, 6, 3, flag.darken(0.20));
+    if objective {
+        let crate_color = Rgba8::opaque(153, 100, 50);
+        rect_i32(image, cx - 9, base_y - 7, 7, 6, crate_color);
+        image.outline_rect(
+            (cx - 9) as u32,
+            (base_y - 7) as u32,
+            7,
+            6,
+            crate_color.darken(0.28),
+        );
+    }
+    let flag_width = 9 + (variant_index % 3) as i32;
+    let flag_y = base_y - 17 + rng.range_i32(-1, 2);
+    rect_i32(image, cx + 1, flag_y, flag_width, 7, flag);
+    rect_i32(
+        image,
+        cx + 1,
+        flag_y + 5,
+        (flag_width - 3).max(4),
+        3,
+        flag.darken(0.20),
+    );
+    if !objective {
+        image.draw_line(
+            cx - 5,
+            base_y - 2,
+            cx + 6,
+            base_y - 10,
+            Rgba8::opaque(132, 174, 218),
+        );
+        image.draw_line(
+            cx + 6,
+            base_y - 10,
+            cx + 9,
+            base_y - 6,
+            Rgba8::opaque(132, 174, 218),
+        );
+    }
 }
 
 fn fill(image: &mut PixelImage, color: Rgba8) {
@@ -1559,7 +1805,14 @@ mod tests {
 
     #[test]
     fn object_art_families_produce_distinct_variants() {
-        for family in [ArtSpriteFamily::Tree, ArtSpriteFamily::Log] {
+        for family in [
+            ArtSpriteFamily::Tree,
+            ArtSpriteFamily::Log,
+            ArtSpriteFamily::Stakes,
+            ArtSpriteFamily::Wire,
+            ArtSpriteFamily::ObjectiveMarker,
+            ArtSpriteFamily::SpawnMarker,
+        ] {
             let request = ArtVariantRequest {
                 family,
                 seed: 77_123,
@@ -1580,38 +1833,45 @@ mod tests {
 
     #[test]
     fn terrain_style_controls_affect_output() {
-        let muted = ArtVariantRequest {
-            family: ArtSpriteFamily::Trench,
-            seed: 44,
-            count: 1,
-            width: 32,
-            height: 32,
-            style: ArtStyleControls {
-                roughness: 0.0,
-                contrast: 0.0,
-                edge_emphasis: 0.0,
-                noise: 0.0,
-                warmth: 0.0,
-            },
-            parent_id: None,
-        };
-        let sharp = ArtVariantRequest {
-            style: ArtStyleControls {
-                roughness: 1.0,
-                contrast: 1.0,
-                edge_emphasis: 1.0,
-                noise: 1.0,
-                warmth: 1.0,
-            },
-            ..muted.clone()
-        };
-        let muted_batch = generate_art_variants(&muted);
-        let sharp_batch = generate_art_variants(&sharp);
-        assert_ne!(
-            muted_batch.variants[0].image.to_rgba_bytes(),
-            sharp_batch.variants[0].image.to_rgba_bytes()
-        );
-        assert_eq!(sharp_batch.variants[0].style.warmth, 1.0);
+        for family in [
+            ArtSpriteFamily::Path,
+            ArtSpriteFamily::Trench,
+            ArtSpriteFamily::Berm,
+        ] {
+            let muted = ArtVariantRequest {
+                family,
+                seed: 44,
+                count: 1,
+                width: 32,
+                height: 32,
+                style: ArtStyleControls {
+                    roughness: 0.0,
+                    contrast: 0.0,
+                    edge_emphasis: 0.0,
+                    noise: 0.0,
+                    warmth: 0.0,
+                },
+                parent_id: None,
+            };
+            let sharp = ArtVariantRequest {
+                style: ArtStyleControls {
+                    roughness: 1.0,
+                    contrast: 1.0,
+                    edge_emphasis: 1.0,
+                    noise: 1.0,
+                    warmth: 1.0,
+                },
+                ..muted.clone()
+            };
+            let muted_batch = generate_art_variants(&muted);
+            let sharp_batch = generate_art_variants(&sharp);
+            assert_ne!(
+                muted_batch.variants[0].image.to_rgba_bytes(),
+                sharp_batch.variants[0].image.to_rgba_bytes(),
+                "{family:?} should respond to style controls"
+            );
+            assert_eq!(sharp_batch.variants[0].style.warmth, 1.0);
+        }
     }
 
     #[test]
