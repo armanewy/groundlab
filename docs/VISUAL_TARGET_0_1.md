@@ -127,3 +127,48 @@ major gaps:
 - Marker language is more muted and diegetic, but still schematic.
 - Grass, stones, foliage, and lighting need more authored density and local
   variation.
+
+The current procedural beauty compositor should be treated as a layout/blockout
+and review tool. It establishes composition, role placement, and layer structure,
+but it is not sufficient by itself to reach the target's painterly high-oblique
+quality. Closing the gap requires authored, generated, or paint-over-quality
+visual assets.
+
+## Layered Road Below Paintover Pipeline
+
+The next visual direction is a layered paintover workflow:
+
+1. Export Road Below as editable scene layers.
+2. Paint or generate improved layers/assets against the target reference.
+3. Import and recompose the improved layers.
+4. Compare the candidate against the target.
+5. Score honestly and repeat until the scorecard passes.
+
+This keeps GroundLab useful for structure, deterministic layout, layer
+management, validation, and comparison while letting authored or AI-assisted art
+do the material, depth, density, and painterly work that procedural primitives
+are not closing.
+
+Layer export:
+
+```powershell
+cargo run -p ground_cli -- art-pack-road-below-layers assets/art_packs/art_pack_0_1/art_pack.json exports/visual_target_0_1/layers
+```
+
+Recompose edited layers:
+
+```powershell
+cargo run -p ground_cli -- compose-road-below-layers exports/visual_target_0_1/layers exports/visual_target_0_1/paintover_composite.png
+```
+
+Promote a paintover candidate:
+
+```powershell
+cargo run -p ground_cli -- promote-road-below-paintover exports/visual_target_0_1/paintover_composite.png assets/art_packs/art_pack_0_1/road_below_beauty_paintover.png
+```
+
+Compare original, paintover, and target:
+
+```powershell
+cargo run -p ground_cli -- visual-target-triple-compare assets/art_packs/art_pack_0_1/road_below_beauty.png assets/art_packs/art_pack_0_1/road_below_beauty_paintover.png assets/visual_targets/dry_upland_outpost_01/visual_target.png exports/visual_target_0_1/original_paintover_target.png
+```

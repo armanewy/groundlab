@@ -104,6 +104,13 @@ target because it removes the tactical grid, draws continuous scene shapes, and
 uses scene-authored props/markers instead of relying on pasted 32x32 sprites.
 It is still a prototype, not visual acceptance.
 
+The procedural beauty compositor should be treated as a layout/blockout and
+review tool. It is useful for composition, layer separation, target comparison,
+and paintover setup, but it is not expected to close the reference-quality gap
+alone. The next visual direction is the Layered Road Below paintover pipeline:
+export scene layers, improve them with authored or AI-assisted art, import the
+paintover, compare against the target, and score honestly.
+
 Visual Target 0.1 is not accepted until
 `docs/VISUAL_TARGET_0_1_SCORECARD.md` passes. The closure milestone is
 “Visual Target 0.1 Closure -- Road Below beauty composition matches the

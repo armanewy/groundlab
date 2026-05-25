@@ -2,9 +2,14 @@
 
 ## Inputs
 
-- Current output: `assets/art_packs/art_pack_0_1/road_below_beauty.png`
+- Procedural beauty baseline: `assets/art_packs/art_pack_0_1/road_below_beauty.png`
+- Paintover candidate: `assets/art_packs/art_pack_0_1/road_below_beauty_paintover.png`
 - Target reference: `assets/visual_targets/dry_upland_outpost_01/visual_target.png`
-- Comparison artifact: `exports/visual_target_0_1/beauty_vs_target.png`
+- Baseline comparison: `exports/visual_target_0_1/beauty_vs_target.png`
+- Triple comparison: `exports/visual_target_0_1/original_paintover_target.png`
+
+If the paintover candidate exists, it is the main image being scored. If it does
+not exist, the procedural beauty baseline remains the scored candidate.
 
 ## Passing Rule
 
@@ -16,11 +21,16 @@
 
 Current status: not accepted.
 
-The current beauty image is now a target-first Road Below scene rather than a
-tile-grid preview. It removes the square-board read and uses continuous roads,
-earthworks, scene-authored props, muted markers, and a unified lighting pass.
-It is closer to the reference direction than Art Pack 0.1's stamped tactical
-output, but it still does not pass the visual gate.
+Current scored candidate: procedural beauty baseline. No promoted paintover
+candidate is present yet.
+
+The current procedural beauty image is now a target-first Road Below scene
+rather than a tile-grid preview. It removes the square-board read and uses
+continuous roads, earthworks, scene-authored props, muted markers, and a unified
+lighting pass. It is closer to the reference direction than Art Pack 0.1's
+stamped tactical output, but it still does not pass the visual gate. The
+procedural compositor is now treated as a layer/blockout generator, not as the
+expected final art generator.
 
 ## Scores
 
@@ -41,6 +51,9 @@ Average score: 3.11.
 ## Decision
 
 Visual Target 0.1 is not accepted.
+
+The next candidate should come from the Layered Road Below paintover pipeline,
+not from more isolated sprite generation or more procedural primitive polish.
 
 ## Current Top Blockers
 

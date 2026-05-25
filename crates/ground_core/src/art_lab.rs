@@ -510,16 +510,62 @@ pub fn derive_mutated_art_seed(parent: &ArtVariant) -> u64 {
 pub use export::{
     art_contact_sheet_path, art_override_preview_path, art_override_profile_path,
     art_pack_0_1_road_below_preview_path, art_variant_approved_paths,
-    build_art_variant_contact_sheet, export_art_contact_sheet, export_art_lab_override_preview,
-    export_art_lab_road_below_beauty_composition, export_art_lab_road_below_preview,
+    build_art_variant_contact_sheet, compose_road_below_layers, export_art_contact_sheet,
+    export_art_lab_override_preview, export_art_lab_road_below_beauty_composition,
+    export_art_lab_road_below_layers, export_art_lab_road_below_preview,
     export_art_variant_approved, export_art_variant_batch, load_art_lab_override_profile,
-    promote_art_lab_art_pack, promoted_art_pack_profile_path, render_art_lab_override_preview,
-    render_art_lab_road_below_beauty_composition, render_art_lab_road_below_preview,
-    save_art_lab_override_profile,
+    load_road_below_layer_manifest, promote_art_lab_art_pack, promoted_art_pack_profile_path,
+    render_art_lab_override_preview, render_art_lab_road_below_beauty_composition,
+    render_art_lab_road_below_beauty_layers, render_art_lab_road_below_preview,
+    render_composited_road_below_layers, save_art_lab_override_profile, RoadBelowBeautyLayers,
+    RoadBelowLayerExport, RoadBelowLayerManifest, RoadBelowLayerManifestEntry,
 };
 
 pub mod export {
     use super::*;
+
+    const ROAD_BELOW_BEAUTY_WIDTH: u32 = 1536;
+    const ROAD_BELOW_BEAUTY_HEIGHT: u32 = 1152;
+    const ROAD_BELOW_TARGET_REFERENCE_PATH: &str =
+        "assets/visual_targets/dry_upland_outpost_01/visual_target.png";
+
+    #[derive(Clone, Debug)]
+    pub struct RoadBelowBeautyLayers {
+        pub base_grass: PixelImage,
+        pub paths: PixelImage,
+        pub earthworks_trench_berm: PixelImage,
+        pub props_objects: PixelImage,
+        pub markers: PixelImage,
+        pub detail_decals: PixelImage,
+        pub lighting_shadows: PixelImage,
+        pub composite: PixelImage,
+    }
+
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    pub struct RoadBelowLayerManifestEntry {
+        pub order: u32,
+        pub name: String,
+        pub file: PathBuf,
+        pub description: String,
+        pub optional: bool,
+    }
+
+    #[derive(Clone, Debug, Serialize, Deserialize)]
+    pub struct RoadBelowLayerManifest {
+        pub canvas_width: u32,
+        pub canvas_height: u32,
+        pub profile_path: PathBuf,
+        pub target_reference_path: PathBuf,
+        pub layers: Vec<RoadBelowLayerManifestEntry>,
+        pub composite_path: PathBuf,
+    }
+
+    #[derive(Clone, Debug)]
+    pub struct RoadBelowLayerExport {
+        pub manifest_path: PathBuf,
+        pub composite_path: PathBuf,
+        pub layer_paths: Vec<PathBuf>,
+    }
 
     pub fn art_variant_approved_paths(
         variant: &ArtVariant,
@@ -902,10 +948,32 @@ pub mod export {
     }
 
     pub fn render_art_lab_road_below_beauty_composition(
-        _profile: &ArtLabOverrideProfile,
+        profile: &ArtLabOverrideProfile,
     ) -> PixelImage {
-        let mut image = PixelImage::new(1536, 1152, Rgba8::opaque(28, 42, 30));
-        draw_beauty_grass_field(&mut image);
+        render_art_lab_road_below_beauty_layers(profile).composite
+    }
+
+    pub fn render_art_lab_road_below_beauty_layers(
+        _profile: &ArtLabOverrideProfile,
+    ) -> RoadBelowBeautyLayers {
+        let mut base_grass = PixelImage::new(
+            ROAD_BELOW_BEAUTY_WIDTH,
+            ROAD_BELOW_BEAUTY_HEIGHT,
+            Rgba8::opaque(28, 42, 30),
+        );
+        let mut paths = PixelImage::transparent(ROAD_BELOW_BEAUTY_WIDTH, ROAD_BELOW_BEAUTY_HEIGHT);
+        let mut earthworks_trench_berm =
+            PixelImage::transparent(ROAD_BELOW_BEAUTY_WIDTH, ROAD_BELOW_BEAUTY_HEIGHT);
+        let mut props_objects =
+            PixelImage::transparent(ROAD_BELOW_BEAUTY_WIDTH, ROAD_BELOW_BEAUTY_HEIGHT);
+        let mut markers =
+            PixelImage::transparent(ROAD_BELOW_BEAUTY_WIDTH, ROAD_BELOW_BEAUTY_HEIGHT);
+        let mut detail_decals =
+            PixelImage::transparent(ROAD_BELOW_BEAUTY_WIDTH, ROAD_BELOW_BEAUTY_HEIGHT);
+        let mut lighting_shadows =
+            PixelImage::transparent(ROAD_BELOW_BEAUTY_WIDTH, ROAD_BELOW_BEAUTY_HEIGHT);
+
+        draw_beauty_grass_field(&mut base_grass);
 
         let north_road = [
             (574.0, -28.0),
@@ -916,7 +984,7 @@ pub mod export {
             (1008.0, 864.0),
             (1130.0, 1180.0),
         ];
-        draw_beauty_path(&mut image, &north_road);
+        draw_beauty_path(&mut paths, &north_road);
 
         let crossing_road = [
             (-52.0, 602.0),
@@ -927,7 +995,7 @@ pub mod export {
             (1236.0, 292.0),
             (1588.0, 252.0),
         ];
-        draw_beauty_path(&mut image, &crossing_road);
+        draw_beauty_path(&mut paths, &crossing_road);
 
         let trench_points = [
             (442.0, 910.0),
@@ -937,8 +1005,8 @@ pub mod export {
             (1018.0, 790.0),
             (1102.0, 900.0),
         ];
-        draw_beauty_trench(&mut image, &trench_points);
-        draw_scene_trench_revetment(&mut image, &trench_points);
+        draw_beauty_trench(&mut earthworks_trench_berm, &trench_points);
+        draw_scene_trench_revetment(&mut earthworks_trench_berm, &trench_points);
 
         let berm_points = [
             (1058.0, 642.0),
@@ -946,28 +1014,59 @@ pub mod export {
             (1306.0, 552.0),
             (1466.0, 500.0),
         ];
-        draw_beauty_berm(&mut image, &berm_points);
-        draw_beauty_stone_and_grass_decals(&mut image);
+        draw_beauty_berm(&mut earthworks_trench_berm, &berm_points);
 
-        draw_scene_tree(&mut image, 76, 128, 1.62);
-        draw_scene_tree(&mut image, 220, 74, 1.74);
-        draw_scene_tree(&mut image, 324, 166, 1.38);
-        draw_scene_tree(&mut image, 1328, 156, 1.18);
-        draw_scene_fallen_log(&mut image, 248, 808, 1.38);
-        draw_scene_stone_platform(&mut image, 1070, 120, 1.20);
-        draw_scene_ruin_wall(&mut image, 120, 734, 1.06);
-        draw_scene_rock_cluster(&mut image, 282, 360, 1.0);
-        draw_scene_rock_cluster(&mut image, 1214, 782, 0.88);
-        draw_scene_stakes(&mut image, 782, 274, 1.14);
-        draw_scene_stakes(&mut image, 1430, 650, 0.92);
-        draw_scene_wire(&mut image, 1216, 440, 1.0);
+        draw_scene_tree(&mut props_objects, 76, 128, 1.62);
+        draw_scene_tree(&mut props_objects, 220, 74, 1.74);
+        draw_scene_tree(&mut props_objects, 324, 166, 1.38);
+        draw_scene_tree(&mut props_objects, 1328, 156, 1.18);
+        draw_scene_fallen_log(&mut props_objects, 248, 808, 1.38);
+        draw_scene_stone_platform(&mut props_objects, 1070, 120, 1.20);
+        draw_scene_ruin_wall(&mut props_objects, 120, 734, 1.06);
+        draw_scene_rock_cluster(&mut props_objects, 282, 360, 1.0);
+        draw_scene_rock_cluster(&mut props_objects, 1214, 782, 0.88);
+        draw_scene_stakes(&mut props_objects, 782, 274, 1.14);
+        draw_scene_stakes(&mut props_objects, 1430, 650, 0.92);
+        draw_scene_wire(&mut props_objects, 1216, 440, 1.0);
 
-        draw_scene_spawn_marker(&mut image, 94, 508);
-        draw_scene_objective_marker(&mut image, 1160, 194);
+        draw_scene_spawn_marker(&mut markers, 94, 508);
+        draw_scene_objective_marker(&mut markers, 1160, 194);
 
-        draw_beauty_foreground_grass(&mut image);
-        draw_beauty_final_light_pass(&mut image);
-        image
+        draw_beauty_stone_and_grass_decals(&mut detail_decals);
+        draw_beauty_foreground_grass(&mut detail_decals);
+        draw_beauty_lighting_overlay(&mut lighting_shadows);
+
+        let composite = render_composited_road_below_layers(&[
+            &base_grass,
+            &paths,
+            &earthworks_trench_berm,
+            &props_objects,
+            &markers,
+            &detail_decals,
+            &lighting_shadows,
+        ]);
+
+        RoadBelowBeautyLayers {
+            base_grass,
+            paths,
+            earthworks_trench_berm,
+            props_objects,
+            markers,
+            detail_decals,
+            lighting_shadows,
+            composite,
+        }
+    }
+
+    pub fn render_composited_road_below_layers(layers: &[&PixelImage]) -> PixelImage {
+        let Some(first) = layers.first() else {
+            return PixelImage::transparent(1, 1);
+        };
+        let mut composite = PixelImage::transparent(first.width, first.height);
+        for layer in layers {
+            composite.blit(layer, 0, 0);
+        }
+        composite
     }
 
     pub fn export_art_lab_override_preview(
@@ -1015,6 +1114,143 @@ pub mod export {
             .save_png(&path)
             .with_context(|| format!("failed to save {}", path.display()))?;
         Ok(path)
+    }
+
+    pub fn export_art_lab_road_below_layers(
+        profile: &ArtLabOverrideProfile,
+        profile_path: impl AsRef<Path>,
+        out_dir: impl AsRef<Path>,
+    ) -> Result<RoadBelowLayerExport> {
+        let out_dir = out_dir.as_ref();
+        std::fs::create_dir_all(out_dir)
+            .with_context(|| format!("failed to create {}", out_dir.display()))?;
+        let layers = render_art_lab_road_below_beauty_layers(profile);
+        let layer_specs = [
+            (
+                "base_grass",
+                "00_base_grass.png",
+                "Opaque continuous grass field and base terrain color.",
+                &layers.base_grass,
+            ),
+            (
+                "paths",
+                "01_paths.png",
+                "Continuous dirt road and approach paths with ruts and edge breakup.",
+                &layers.paths,
+            ),
+            (
+                "earthworks_trench_berm",
+                "02_earthworks_trench_berm.png",
+                "Continuous trench and berm blockout, including lips, shadows, and revetment marks.",
+                &layers.earthworks_trench_berm,
+            ),
+            (
+                "props_objects",
+                "03_props_objects.png",
+                "Trees, logs, stones, ruin wall, stakes, and wire authored for the scene.",
+                &layers.props_objects,
+            ),
+            (
+                "markers",
+                "04_markers.png",
+                "Diegetic objective and spawn cues kept separate for paintover replacement.",
+                &layers.markers,
+            ),
+            (
+                "detail_decals",
+                "05_detail_decals.png",
+                "Grass tufts, small stones, dirt flecks, and foreground texture decals.",
+                &layers.detail_decals,
+            ),
+            (
+                "lighting_shadows",
+                "06_lighting_shadows.png",
+                "Transparent unified lighting, vignette, and shadow overlay.",
+                &layers.lighting_shadows,
+            ),
+        ];
+
+        let mut layer_paths = Vec::new();
+        let mut manifest_layers = Vec::new();
+        for (order, (name, file, description, layer)) in layer_specs.iter().enumerate() {
+            let path = out_dir.join(file);
+            layer
+                .save_png(&path)
+                .with_context(|| format!("failed to save {}", path.display()))?;
+            layer_paths.push(path.clone());
+            manifest_layers.push(RoadBelowLayerManifestEntry {
+                order: order as u32,
+                name: (*name).to_string(),
+                file: PathBuf::from(file),
+                description: (*description).to_string(),
+                optional: false,
+            });
+        }
+
+        let composite_path = out_dir.join("composite.png");
+        layers
+            .composite
+            .save_png(&composite_path)
+            .with_context(|| format!("failed to save {}", composite_path.display()))?;
+        let manifest = RoadBelowLayerManifest {
+            canvas_width: layers.composite.width,
+            canvas_height: layers.composite.height,
+            profile_path: normalized_profile_path(profile_path.as_ref()),
+            target_reference_path: PathBuf::from(ROAD_BELOW_TARGET_REFERENCE_PATH),
+            layers: manifest_layers,
+            composite_path: PathBuf::from("composite.png"),
+        };
+        let manifest_path = out_dir.join("layer_manifest.json");
+        std::fs::write(&manifest_path, serde_json::to_string_pretty(&manifest)?)
+            .with_context(|| format!("failed to write {}", manifest_path.display()))?;
+
+        Ok(RoadBelowLayerExport {
+            manifest_path,
+            composite_path,
+            layer_paths,
+        })
+    }
+
+    pub fn load_road_below_layer_manifest(
+        layer_dir: impl AsRef<Path>,
+    ) -> Result<RoadBelowLayerManifest> {
+        let manifest_path = layer_dir.as_ref().join("layer_manifest.json");
+        let data = std::fs::read_to_string(&manifest_path)
+            .with_context(|| format!("failed to read {}", manifest_path.display()))?;
+        serde_json::from_str(&data)
+            .with_context(|| format!("failed to parse {}", manifest_path.display()))
+    }
+
+    pub fn compose_road_below_layers(layer_dir: impl AsRef<Path>) -> Result<PixelImage> {
+        let layer_dir = layer_dir.as_ref();
+        let manifest = load_road_below_layer_manifest(layer_dir)?;
+        let mut sorted_layers = manifest.layers.clone();
+        sorted_layers.sort_by_key(|layer| layer.order);
+        let mut images = Vec::new();
+        for layer in &sorted_layers {
+            let path = layer_dir.join(&layer.file);
+            if !path.exists() {
+                if layer.optional {
+                    continue;
+                }
+                bail!("required Road Below layer is missing: {}", path.display());
+            }
+            let image = PixelImage::load_png(&path)
+                .with_context(|| format!("failed to load {}", path.display()))?;
+            if image.width != manifest.canvas_width || image.height != manifest.canvas_height {
+                bail!(
+                    "layer {} has size {}x{}, expected {}x{}",
+                    path.display(),
+                    image.width,
+                    image.height,
+                    manifest.canvas_width,
+                    manifest.canvas_height
+                );
+            }
+            images.push(image);
+        }
+        let layer_refs = images.iter().collect::<Vec<_>>();
+        Ok(render_composited_road_below_layers(&layer_refs))
     }
 }
 
@@ -1579,21 +1815,23 @@ fn draw_scene_objective_marker(image: &mut PixelImage, x: i32, y: i32) {
     rect_i32(image, x + 96, y + 76, 16, 11, Rgba8::opaque(122, 116, 92));
 }
 
-fn draw_beauty_final_light_pass(image: &mut PixelImage) {
+fn draw_beauty_lighting_overlay(image: &mut PixelImage) {
     let width = image.width.max(1) as f32;
     let height = image.height.max(1) as f32;
     for y in 0..image.height {
         for x in 0..image.width {
-            let mut color = image.get(x, y);
             let nx = x as f32 / width;
             let ny = y as f32 / height;
             let sun = ((1.0 - nx) * 0.55 + (1.0 - ny) * 0.45).clamp(0.0, 1.0);
-            color = color.blend(Rgba8::opaque(236, 210, 143), 0.035 * sun);
+            if sun > 0.08 {
+                image.blend_pixel(x, y, Rgba8::opaque(236, 210, 143), 0.045 * sun);
+            }
             let vignette = (((nx - 0.48).abs() / 0.58).powf(2.0)
                 + ((ny - 0.52).abs() / 0.56).powf(2.0))
             .clamp(0.0, 1.0);
-            color = color.blend(Rgba8::opaque(15, 21, 18), 0.18 * vignette);
-            image.set(x, y, color);
+            if vignette > 0.02 {
+                image.blend_pixel(x, y, Rgba8::opaque(15, 21, 18), 0.20 * vignette);
+            }
         }
     }
 }
@@ -3733,6 +3971,36 @@ mod tests {
         let loaded = load_art_lab_override_profile(&path).expect("profile should load");
         assert_eq!(loaded.assignments.len(), 1);
         assert_eq!(loaded.assignments[0].role, ArtLabOverrideRole::Tree);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn road_below_layers_export_and_recompose() {
+        let root =
+            std::env::temp_dir().join(format!("groundlab_layer_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let out_dir = root.join("layers");
+        let profile_path = root.join("art_pack.json");
+        let profile = ArtLabOverrideProfile::default();
+        std::fs::create_dir_all(&root).expect("test root should be created");
+        std::fs::write(&profile_path, "{}").expect("profile placeholder should write");
+
+        let export = export_art_lab_road_below_layers(&profile, &profile_path, &out_dir)
+            .expect("layers should export");
+        assert_eq!(export.layer_paths.len(), 7);
+        assert!(export.manifest_path.exists());
+        assert!(export.composite_path.exists());
+
+        let manifest =
+            load_road_below_layer_manifest(&out_dir).expect("layer manifest should load");
+        assert_eq!(manifest.canvas_width, 1536);
+        assert_eq!(manifest.canvas_height, 1152);
+        assert_eq!(manifest.layers.len(), 7);
+
+        let composed = compose_road_below_layers(&out_dir).expect("layers should compose");
+        let exported =
+            PixelImage::load_png(&export.composite_path).expect("exported composite should load");
+        assert_eq!(composed.to_rgba_bytes(), exported.to_rgba_bytes());
         let _ = std::fs::remove_dir_all(root);
     }
 

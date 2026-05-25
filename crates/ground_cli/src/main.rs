@@ -1,11 +1,11 @@
 use anyhow::{bail, Result};
 use ground_core::{
-    build_art_variant_contact_sheet, ensure_default_asset_files,
-    export_art_lab_road_below_beauty_composition, export_art_lab_road_below_preview,
-    export_art_variant_batch, export_edit_scenario_suite, export_tileset_bundle_with_palette,
-    generate_art_variants, load_art_lab_override_profile, load_workbench_assets,
-    parse_art_variant_cli, PixelImage, Rgba8, TerrainArtKit, TerrainMap, WorkbenchAssetPaths,
-    DEFAULT_PALETTE_PATH, DEFAULT_RECIPE_PATH,
+    build_art_variant_contact_sheet, compose_road_below_layers, ensure_default_asset_files,
+    export_art_lab_road_below_beauty_composition, export_art_lab_road_below_layers,
+    export_art_lab_road_below_preview, export_art_variant_batch, export_edit_scenario_suite,
+    export_tileset_bundle_with_palette, generate_art_variants, load_art_lab_override_profile,
+    load_workbench_assets, parse_art_variant_cli, PixelImage, Rgba8, TerrainArtKit, TerrainMap,
+    WorkbenchAssetPaths, DEFAULT_PALETTE_PATH, DEFAULT_RECIPE_PATH,
 };
 use ground_game::{
     export_assault_run, export_generated_campaign_set,
@@ -835,6 +835,53 @@ fn main() -> Result<()> {
             );
             println!("Preview: {}", preview_path.display());
         }
+        "art-pack-road-below-layers" => {
+            let profile_path = args
+                .next()
+                .unwrap_or_else(|| "assets/art_packs/art_pack_0_1/art_pack.json".to_string());
+            let out_dir = args
+                .next()
+                .unwrap_or_else(|| "exports/visual_target_0_1/layers".to_string());
+            let profile = load_art_lab_override_profile(&profile_path)?;
+            let export = export_art_lab_road_below_layers(&profile, &profile_path, &out_dir)?;
+            println!("Exported Road Below paintover layers from {profile_path}.");
+            println!("Manifest: {}", export.manifest_path.display());
+            println!("Composite: {}", export.composite_path.display());
+            println!("Layer count: {}", export.layer_paths.len());
+        }
+        "compose-road-below-layers" => {
+            let layer_dir = args
+                .next()
+                .unwrap_or_else(|| "exports/visual_target_0_1/layers".to_string());
+            let out_path = args
+                .next()
+                .unwrap_or_else(|| "exports/visual_target_0_1/paintover_composite.png".to_string());
+            let image = compose_road_below_layers(&layer_dir)?;
+            if let Some(parent) = std::path::Path::new(&out_path).parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            image.save_png(&out_path)?;
+            println!("Composited Road Below layers from {layer_dir}.");
+            println!("Output: {out_path}");
+        }
+        "promote-road-below-paintover" => {
+            let paintover_png = args
+                .next()
+                .unwrap_or_else(|| "exports/visual_target_0_1/paintover_composite.png".to_string());
+            let target_path = args.next().unwrap_or_else(|| {
+                "assets/art_packs/art_pack_0_1/road_below_beauty_paintover.png".to_string()
+            });
+            if !std::path::Path::new(&paintover_png).exists() {
+                bail!("paintover PNG does not exist: {paintover_png}");
+            }
+            if let Some(parent) = std::path::Path::new(&target_path).parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::copy(&paintover_png, &target_path)?;
+            println!("Promoted Road Below paintover.");
+            println!("Source: {paintover_png}");
+            println!("Target: {target_path}");
+        }
         "visual-target-compare" => {
             let Some(current_image) = args.next() else {
                 bail!("visual-target-compare requires a current image path");
@@ -847,6 +894,27 @@ fn main() -> Result<()> {
             };
             export_visual_target_compare(&current_image, &target_image, &out_path)?;
             println!("Exported visual target comparison to {out_path}.");
+        }
+        "visual-target-triple-compare" => {
+            let Some(original_image) = args.next() else {
+                bail!("visual-target-triple-compare requires an original image path");
+            };
+            let Some(paintover_image) = args.next() else {
+                bail!("visual-target-triple-compare requires a paintover image path");
+            };
+            let Some(target_image) = args.next() else {
+                bail!("visual-target-triple-compare requires a target image path");
+            };
+            let Some(out_path) = args.next() else {
+                bail!("visual-target-triple-compare requires an output image path");
+            };
+            export_visual_target_triple_compare(
+                &original_image,
+                &paintover_image,
+                &target_image,
+                &out_path,
+            )?;
+            println!("Exported visual target triple comparison to {out_path}.");
         }
         "render-mission" => {
             let out_dir = args
@@ -955,7 +1023,13 @@ fn print_help() {
     eprintln!("  cargo run -p ground_cli -- art-variants [family] [seed] [count] [out_dir]");
     eprintln!("  cargo run -p ground_cli -- art-pack-road-below-preview [profile_path] [out_root]");
     eprintln!("  cargo run -p ground_cli -- art-pack-road-below-beauty [profile_path] [out_path]");
+    eprintln!("  cargo run -p ground_cli -- art-pack-road-below-layers [profile_path] [out_dir]");
+    eprintln!("  cargo run -p ground_cli -- compose-road-below-layers [layer_dir] [out_path]");
+    eprintln!(
+        "  cargo run -p ground_cli -- promote-road-below-paintover [paintover_png] [target_path]"
+    );
     eprintln!("  cargo run -p ground_cli -- visual-target-compare [current_image] [target_image] [out_path]");
+    eprintln!("  cargo run -p ground_cli -- visual-target-triple-compare [original] [paintover] [target] [out_path]");
     eprintln!("  cargo run -p ground_cli -- render-mission [out_dir] [mission_spec.ron|json]");
     eprintln!(
         "  cargo run -p ground_cli -- calibrate-themes [out_dir] [--count 200] [--seed 99418113]"
@@ -987,6 +1061,40 @@ fn export_visual_target_compare(
     );
     sheet.blit(&current, 0, header);
     sheet.blit(&target, current.width + gutter, header);
+    if let Some(parent) = std::path::Path::new(out_path).parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    sheet.save_png(out_path)?;
+    Ok(())
+}
+
+fn export_visual_target_triple_compare(
+    original_image: &str,
+    paintover_image: &str,
+    target_image: &str,
+    out_path: &str,
+) -> Result<()> {
+    let original = PixelImage::load_png(original_image)?;
+    let paintover = PixelImage::load_png(paintover_image)?;
+    let target = PixelImage::load_png(target_image)?;
+    let compare_height = 560;
+    let original = resize_nearest_to_height(&original, compare_height);
+    let paintover = resize_nearest_to_height(&paintover, compare_height);
+    let target = resize_nearest_to_height(&target, compare_height);
+    let gutter = 18;
+    let header = 16;
+    let width = original.width + paintover.width + target.width + gutter * 2;
+    let height = compare_height + header;
+    let mut sheet = PixelImage::new(width, height, Rgba8::opaque(16, 18, 17));
+    let mut x = 0;
+    sheet.fill_rect(x, 0, original.width, header, Rgba8::opaque(128, 85, 46));
+    sheet.blit(&original, x, header);
+    x += original.width + gutter;
+    sheet.fill_rect(x, 0, paintover.width, header, Rgba8::opaque(87, 111, 67));
+    sheet.blit(&paintover, x, header);
+    x += paintover.width + gutter;
+    sheet.fill_rect(x, 0, target.width, header, Rgba8::opaque(54, 92, 122));
+    sheet.blit(&target, x, header);
     if let Some(parent) = std::path::Path::new(out_path).parent() {
         std::fs::create_dir_all(parent)?;
     }
