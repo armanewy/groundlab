@@ -6,9 +6,10 @@ GroundLab's active roadmap is paused on new game/procgen/campaign expansion whil
 mission art direction is locked. SpriteGen remains the terrain art forge, and Mission Lab remains
 the 2.5D tactical engineering defense workbench, but the current priority is making one generated
 mission beauty render read as a coherent high-oblique pixel-art terrain scene rather than a
-schematic board. Visual Lock 5 keeps the benchmark fixed and focuses on authored terrain
-substitution: piece-aware path/trench/berm override PNGs, override-backed prepared renders,
-before/after comparison images, high-impact terrain targets, and visual-impact audit data.
+schematic board. Visual Lock 6 keeps the benchmark fixed and focuses on production-style source
+art substitution: committed path/trench/berm override PNGs, copied-through authored overrides,
+fallback reporting, before/after comparison images, high-impact terrain targets, and visual-impact
+audit data.
 
 ## GamePivot 1 — Mission workbench seed
 
@@ -584,6 +585,31 @@ Implemented in this drop.
 This milestone still does not add mechanics, themes, campaign UI, campaign packaging, new
 SpriteGen material families, or a renderer rewrite. It uses the override workflow to make the
 prepared terrain layer less symbolic while preserving the gameplay/procgen systems unchanged.
+
+## Visual Lock 6 — Production art replacement set
+
+Implemented in this drop.
+
+- keeps the systems freeze in place and changes only the Visual Lock override-art source path
+- adds committed benchmark terrain override PNGs under
+  `assets/sprite_styles/cozy_upland_sparse/overrides/` for the audit-selected high-impact pieces:
+  `path_mask_10`, `dirt_tile_01`, `path_mask_02`, `path_mask_08`, `trench_mask_02`,
+  `trench_mask_08`, `berm_mask_02`, and `berm_mask_08`
+- adds a small Visual Lock 6 object placeholder source pack for tree, log, rock, and objective
+  marker targets under `assets/visual_lock_06/object_placeholders/`
+- updates the benchmark override exporter so existing style-profile overrides are copied through
+  as source art instead of being procedurally recolored again
+- keeps procedural fallback generation only for missing benchmark terrain targets and reports those
+  fallback IDs explicitly
+- expands `benchmark_override_report.json` with source override directories, authored source files,
+  procedural fallback IDs, and object source files
+- keeps the same generated-prepared-baseline -> source override pack -> rerender ->
+  before/after/diff/audit benchmark contract
+
+This milestone still does not add gameplay, procgen, campaign UI, campaign packaging, new terrain
+families, tuning controls, or a renderer rewrite. It promotes the visible benchmark replacement
+set into actual source art so the next visual reviews judge authored PNG overrides rather than
+another code-only color treatment pass.
 
 ## Milestone 0 — Project seed
 

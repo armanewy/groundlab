@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
 use ground_core::{
     generate_effective_terrain_sprites, GeneratedTerrainSprite, PixelImage, Rgba8,
-    TerrainSpriteKind, TerrainSpriteRecipe, DEFAULT_SPRITE_STYLE_PATH,
+    TerrainSpriteKind, TerrainSpriteRecipe, TerrainSpriteSource, DEFAULT_SPRITE_STYLE_PATH,
 };
 use image::{Rgba, RgbaImage};
 use serde::de::DeserializeOwned;
@@ -1771,7 +1771,12 @@ pub struct VisualLockOverridePackReport {
     pub output_dir: String,
     pub profile: String,
     pub style_profile_path: String,
+    pub terrain_source_override_dir: String,
+    pub object_source_dir: String,
     pub generated_files: Vec<String>,
+    pub authored_source_files: Vec<String>,
+    pub procedural_fallback_files: Vec<String>,
+    pub object_source_files: Vec<String>,
     pub terrain_targets: Vec<VisualLockVisibleSpriteImpact>,
     pub missing_terrain_targets: Vec<String>,
     pub placeholder_targets: Vec<VisualLockPlaceholderImpact>,
@@ -3284,8 +3289,20 @@ pub fn export_visual_lock_benchmark(
     let mut prepared_before_overrides = None;
     let prepared = if let Some(script) = visual_lock_best_script(&selected.best_plan_label) {
         let prepared_state = run_work_order_script(spec.clone(), &script);
-        let prepared_before_audit =
-            export_visual_lock_stage(out_dir, "benchmark_prepared_before", &prepared_state)?;
+        let mut prepared_generated_state = prepared_state.clone();
+        let generated_baseline_profile = visual_lock_generated_baseline_profile(
+            out_dir,
+            &prepared_state.spec.visual_theme.sprite_style_profile,
+        )?;
+        prepared_generated_state
+            .spec
+            .visual_theme
+            .sprite_style_profile = generated_baseline_profile;
+        let prepared_before_audit = export_visual_lock_stage(
+            out_dir,
+            "benchmark_prepared_before",
+            &prepared_generated_state,
+        )?;
         let override_report = export_visual_lock_override_pack(
             out_dir,
             &prepared_before_audit,
@@ -10925,6 +10942,17 @@ fn export_visual_lock_override_pack(
         .unwrap_or_else(|_| TerrainSpriteRecipe::from_default_style_profile());
     recipe.sanitize();
     let bundle = generate_effective_terrain_sprites(&recipe);
+    let terrain_source_override_dir = recipe.override_dir.clone();
+    let source_override_files = bundle
+        .report
+        .entries
+        .iter()
+        .filter_map(|entry| {
+            (entry.source == TerrainSpriteSource::Override)
+                .then(|| entry.file.clone().map(|file| (entry.id.clone(), file)))
+                .flatten()
+        })
+        .collect::<HashMap<_, _>>();
     let terrain_targets = audit
         .visible_sprite_impacts
         .iter()
@@ -10938,6 +10966,9 @@ fn export_visual_lock_override_pack(
         .cloned()
         .collect::<Vec<_>>();
     let mut generated_files = Vec::new();
+    let mut authored_source_files = Vec::new();
+    let mut procedural_fallback_files = Vec::new();
+    let mut object_source_files = Vec::new();
     let mut missing_terrain_targets = Vec::new();
     let mut written_ids = HashSet::new();
     for target in &terrain_targets {
@@ -10950,7 +10981,17 @@ fn export_visual_lock_override_pack(
                 .iter()
                 .find(|sprite| sprite.id == sprite_id)
             {
-                let image = visual_lock_override_variant(&sprite.image, &target.role, &sprite.id);
+                let image = if sprite.source == TerrainSpriteSource::Override {
+                    if let Some(source_file) = source_override_files.get(&sprite.id) {
+                        authored_source_files.push(source_file.clone());
+                    }
+                    sprite.image.clone()
+                } else {
+                    let image =
+                        visual_lock_override_variant(&sprite.image, &target.role, &sprite.id);
+                    procedural_fallback_files.push(sprite.id.clone());
+                    image
+                };
                 let path = terrain_dir.join(format!("{}.png", sprite.id));
                 image.save_png(&path)?;
                 generated_files.push(path.to_string_lossy().to_string());
@@ -10966,13 +11007,28 @@ fn export_visual_lock_override_pack(
         .take(8)
         .cloned()
         .collect::<Vec<_>>();
+    let object_source_dir = PathBuf::from("assets/visual_lock_06/object_placeholders");
     for target in &placeholder_targets {
         let path = object_dir.join(format!("{}.png", target.placeholder));
-        save_visual_lock_object_placeholder(&path, &target.placeholder)?;
+        let source_path = object_source_dir.join(format!("{}.png", target.placeholder));
+        if source_path.exists() {
+            fs::copy(&source_path, &path)
+                .with_context(|| format!("failed to copy {}", source_path.display()))?;
+            object_source_files.push(source_path.to_string_lossy().to_string());
+        } else {
+            save_visual_lock_object_placeholder(&path, &target.placeholder)?;
+        }
         generated_files.push(path.to_string_lossy().to_string());
     }
     let objective_path = object_dir.join("objective_marker.png");
-    save_visual_lock_object_placeholder(&objective_path, "objective_marker")?;
+    let objective_source_path = object_source_dir.join("objective_marker.png");
+    if objective_source_path.exists() {
+        fs::copy(&objective_source_path, &objective_path)
+            .with_context(|| format!("failed to copy {}", objective_source_path.display()))?;
+        object_source_files.push(objective_source_path.to_string_lossy().to_string());
+    } else {
+        save_visual_lock_object_placeholder(&objective_path, "objective_marker")?;
+    }
     generated_files.push(objective_path.to_string_lossy().to_string());
 
     recipe.override_dir = terrain_dir.to_string_lossy().to_string();
@@ -10985,17 +11041,35 @@ fn export_visual_lock_override_pack(
         output_dir: pack_dir.to_string_lossy().to_string(),
         profile: profile.to_string(),
         style_profile_path: style_profile_path.to_string_lossy().to_string(),
+        terrain_source_override_dir,
+        object_source_dir: object_source_dir.to_string_lossy().to_string(),
         generated_files,
+        authored_source_files,
+        procedural_fallback_files,
+        object_source_files,
         terrain_targets,
         missing_terrain_targets,
         placeholder_targets,
         notes: vec![
-            "Terrain PNGs under overrides/ can be copied into a style profile override folder for manual art replacement.".to_string(),
-            "Object placeholder PNGs are benchmark art targets; object sprite manifests are not runtime-integrated yet.".to_string(),
+            "Existing style profile overrides are copied through as source art; generated fallback PNGs are used only for missing benchmark targets.".to_string(),
+            "Terrain PNGs under benchmark_override_pack/overrides/ are the effective Visual Lock replacement set for this benchmark.".to_string(),
+            "Object placeholder PNGs are copied from the Visual Lock 6 source pack when available; object sprite manifests are still benchmark targets, not runtime-integrated art-kit pieces.".to_string(),
         ],
     };
     write_json(out_dir.join("benchmark_override_report.json"), &report)?;
     Ok(report)
+}
+
+fn visual_lock_generated_baseline_profile(out_dir: &Path, profile: &str) -> Result<String> {
+    let mut recipe = TerrainSpriteRecipe::from_style_profile_path(profile)
+        .unwrap_or_else(|_| TerrainSpriteRecipe::from_default_style_profile());
+    recipe.sanitize();
+    let empty_override_dir = out_dir.join("benchmark_generated_empty_overrides");
+    fs::create_dir_all(&empty_override_dir)?;
+    recipe.override_dir = empty_override_dir.to_string_lossy().to_string();
+    let style_profile_path = out_dir.join("benchmark_generated_baseline_style.ron");
+    recipe.save_style_profile_path(&style_profile_path)?;
+    Ok(style_profile_path.to_string_lossy().to_string())
 }
 
 fn visual_lock_override_sprite_ids(piece: &str) -> Vec<String> {

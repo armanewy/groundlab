@@ -639,7 +639,7 @@ fn main() -> Result<()> {
         "visual-lock-benchmark" => {
             let out_dir = args
                 .next()
-                .unwrap_or_else(|| "exports/visual_lock_05".to_string());
+                .unwrap_or_else(|| "exports/visual_lock_06".to_string());
             let mut seed = 99_418_113;
             let mut count = 8;
             let mut theme = MissionTheme::RidgeTrap;
