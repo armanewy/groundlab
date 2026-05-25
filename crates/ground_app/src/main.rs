@@ -524,24 +524,9 @@ impl GroundLabApp {
         ui.separator();
 
         ui.group(|ui| {
-            ui.strong("Step 2 - Select");
+            ui.strong("Step 2 - Select / Inspect");
             ui.small("Click a thumbnail in the variant grid to choose the candidate you want to inspect.");
-            if let Some(variant) = self.selected_art_variant() {
-                ui.label(format!("Selected: {}", variant.id));
-                ui.small(format!(
-                    "style: roughness {:.2} · contrast {:.2} · edge {:.2} · noise {:.2} · warmth {:.2}",
-                    variant.style.roughness,
-                    variant.style.contrast,
-                    variant.style.edge_emphasis,
-                    variant.style.noise,
-                    variant.style.warmth
-                ));
-                for note in &variant.notes {
-                    ui.small(note);
-                }
-            } else {
-                ui.label("No variant selected. Generate a batch, then click a thumbnail.");
-            }
+            self.show_selected_art_variant_inspector(ui);
         });
         ui.separator();
 
@@ -718,6 +703,59 @@ impl GroundLabApp {
                     }
                 }
             });
+    }
+
+    fn show_selected_art_variant_inspector(&self, ui: &mut egui::Ui) {
+        let Some(index) = self.art_selected_variant_index else {
+            ui.label("Generate variants and select one to inspect it.");
+            return;
+        };
+        let Some(batch) = &self.art_batch else {
+            ui.label("Generate variants and select one to inspect it.");
+            return;
+        };
+        let Some(variant) = batch.variants.get(index) else {
+            ui.label("Selected variant is no longer available.");
+            return;
+        };
+
+        ui.horizontal(|ui| {
+            if let Some(texture) = self.art_variant_textures.get(index) {
+                let sized = egui::load::SizedTexture::new(texture.id(), egui::Vec2::splat(128.0));
+                ui.add(
+                    egui::Image::from_texture(sized).texture_options(egui::TextureOptions::NEAREST),
+                );
+            }
+            ui.vertical(|ui| {
+                ui.label(format!("Selected: {}", variant.id));
+                ui.small(format!("Family: {}", variant.family.label()));
+                ui.small(format!("Seed: {}", variant.seed));
+                ui.small(format!("Variant index: {}", variant.variant_index));
+                ui.small(format!(
+                    "Size: {}x{}",
+                    variant.image.width, variant.image.height
+                ));
+                if let Some(parent_id) = &variant.parent_id {
+                    ui.small(format!("Parent: {parent_id}"));
+                }
+                ui.small(format!(
+                    "Style: roughness {:.2} · contrast {:.2} · edge {:.2} · noise {:.2} · warmth {:.2}",
+                    variant.style.roughness,
+                    variant.style.contrast,
+                    variant.style.edge_emphasis,
+                    variant.style.noise,
+                    variant.style.warmth
+                ));
+            });
+        });
+
+        if !variant.notes.is_empty() {
+            ui.separator();
+            ui.strong("Notes");
+            for note in &variant.notes {
+                ui.small(note);
+            }
+        }
     }
 
     fn generate_art_variants_for_lab(&mut self, ctx: &egui::Context) {
