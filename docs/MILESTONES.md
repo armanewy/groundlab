@@ -6,9 +6,9 @@ GroundLab's active roadmap is paused on new game/procgen/campaign expansion whil
 mission art direction is locked. SpriteGen remains the terrain art forge, and Mission Lab remains
 the 2.5D tactical engineering defense workbench, but the current priority is making one generated
 mission beauty render read as a coherent high-oblique pixel-art terrain scene rather than a
-schematic board. Visual Lock 4 keeps the benchmark fixed and focuses on active art substitution:
-override-backed prepared renders, before/after comparison images, high-impact terrain targets, and
-visual-impact audit data.
+schematic board. Visual Lock 5 keeps the benchmark fixed and focuses on authored terrain
+substitution: piece-aware path/trench/berm override PNGs, override-backed prepared renders,
+before/after comparison images, high-impact terrain targets, and visual-impact audit data.
 
 ## GamePivot 1 — Mission workbench seed
 
@@ -565,6 +565,25 @@ Implemented in this drop.
 This milestone still does not add mechanics, themes, campaign UI, campaign packaging, new
 SpriteGen material families, or a renderer rewrite. It proves that the benchmark can be improved
 through effective override assets and compared against the generated baseline.
+
+## Visual Lock 5 — Authored terrain override pass
+
+Implemented in this drop.
+
+- keeps the systems freeze in place and changes only the Visual Lock override-art generation path
+- replaces the simple tint override pass with piece-aware authored-style override generation
+- trench overrides now use warmer recessed floors, softer dark centers, broken dirt lips,
+  dirt/grass intrusion, subtle plank/detail marks, and transition pixels outside hard masks
+- berm overrides now use more mounded earth coloring, grass/dirt top blending, darker lower face
+  shading, edge speckles, and softer outside transition pixels
+- path overrides now use softer dirt/grass blending, dust detail, rut marks, and more grass
+  intrusion around hard mask edges
+- the same generated-prepared-baseline -> override-profile -> rerender -> before/after/diff/audit
+  benchmark contract remains active
+
+This milestone still does not add mechanics, themes, campaign UI, campaign packaging, new
+SpriteGen material families, or a renderer rewrite. It uses the override workflow to make the
+prepared terrain layer less symbolic while preserving the gameplay/procgen systems unchanged.
 
 ## Milestone 0 — Project seed
 

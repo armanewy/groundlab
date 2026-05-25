@@ -4,7 +4,7 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: Visual Lock 4 — high-impact override pack
+## Current status: Visual Lock 5 — authored terrain override pass
 
 GroundLab has paused new systems, campaign layers, mechanics, and SpriteGen family expansion to
 lock a minimum generated-mission art bar. The primary product direction is still a 2.5D tactical
@@ -13,9 +13,10 @@ prep-phase work orders, transforms terrain and local objects, then tests those c
 predictable enemy doctrine. The current benchmark takes one accepted generated mission, renders
 beauty/routes/debug views, applies the best known prep script, and audits the visual asset usage so
 art direction can be judged in gameplay context instead of isolated sprites or schematic boards.
-Visual Lock 4 keeps that benchmark fixed and focuses only on art substitution: it generates a
-high-impact override profile, rerenders the prepared benchmark through effective override assets,
-and exports before/after comparison images for trench, berm, path, and placeholder target review.
+Visual Lock 5 keeps that benchmark fixed and focuses only on authored-style terrain replacement:
+it generates piece-aware override PNGs for the high-impact prepared path, trench, berm, and dirt
+sprites, rerenders the prepared benchmark through effective override assets, and exports
+before/after comparison images for review.
 
 SpriteGen remains in the repository as the terrain art forge. It still provides swappable style
 profiles, override PNGs, sprite manifests, validation, and exportable grass/dirt/path/trench/berm/
@@ -90,7 +91,7 @@ GamePivot 8 and ProcGen 1-8.1 build on the `ground_game` crate with:
 - benchmark beauty/routes/debug visual exports for the initial mission and the prepared mission state
 - full-board, playable-crop, and close-detail benchmark exports for judging mission-scale scene art
 - prepared diff and prepared feature-overlay exports for comparing what the prep plan changed
-- a benchmark override pack with high-impact terrain PNGs, a temporary style profile, placeholder prop targets, and before/after override comparison exports
+- an authored-style benchmark override pack with high-impact terrain PNGs, a temporary style profile, placeholder prop targets, and before/after override comparison exports
 - a visual audit that records generated/effective/override/fallback sprite usage, placeholder object counts, dominant scene features, sprite role summaries, estimated visible sprite impact, placeholder impact, and highest-priority visual notes
 - a Mission Lab file loader for opening generated `mission.ron` candidates directly from disk
 - assault summary and debrief exports for debugging why the plan worked or failed
@@ -334,13 +335,13 @@ exports/procgen_08_1/
 Export the Visual Lock generated-mission benchmark:
 
 ```bash
-cargo run -p ground_cli -- visual-lock-benchmark exports/visual_lock_04 --theme ridge_trap --seed 99418113 --count 8
+cargo run -p ground_cli -- visual-lock-benchmark exports/visual_lock_05 --theme ridge_trap --seed 99418113 --count 8
 ```
 
 Visual Lock output includes:
 
 ```txt
-exports/visual_lock_04/
+exports/visual_lock_05/
   benchmark_mission.ron
   benchmark_mission.json
   benchmark_candidate_evaluation.json
@@ -432,9 +433,15 @@ missions through deterministic visual previews, ProcGen 6.1 separates beauty/rou
 ProcGen 7 and 7.1 validate generated packs, and ProcGen 8/8.1 package and quality-gate campaign
 sets. The active work is now visually narrower: use the generated-content pipeline only as a source
 of fixed benchmark missions, then improve the high-oblique beauty render until it no longer reads as
-a debug board. Visual Lock 4 keeps that freeze in place and uses the override pack as active
-effective art for the prepared benchmark, so high-impact pieces can be judged before and after
-replacement without adding more systems.
+a debug board. Visual Lock 5 keeps that freeze in place and upgrades the active override pack with
+piece-aware authored-style terrain replacements, so high-impact pieces can be judged before and
+after replacement without adding more systems.
+
+## Previous status: Visual Lock 4 — high-impact override pack
+
+Visual Lock 4 made the override pack active: it wrote a temporary style profile, rerendered the
+prepared benchmark through effective override assets, and exported before/after override
+comparisons.
 
 ## Previous status: Visual Lock 3 — mission-scale scene composition + override pack
 

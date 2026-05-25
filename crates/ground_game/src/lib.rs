@@ -11015,109 +11015,371 @@ fn visual_lock_override_sprite_ids(piece: &str) -> Vec<String> {
 }
 
 fn visual_lock_override_variant(source: &PixelImage, role: &str, sprite_id: &str) -> PixelImage {
+    if role == "trench/recessed terrain" || sprite_id.starts_with("trench_") {
+        return visual_lock_authored_trench_override(source, sprite_id);
+    }
+    if role == "berm/raised terrain" || sprite_id.starts_with("berm_") {
+        return visual_lock_authored_berm_override(source, sprite_id);
+    }
+    if role == "path/dirt surface"
+        || sprite_id.starts_with("path_mask_")
+        || sprite_id.starts_with("dirt_tile")
+    {
+        return visual_lock_authored_path_override(source, sprite_id);
+    }
+
     let mut out = source.clone();
-    let original = source.clone();
     for y in 0..out.height {
         for x in 0..out.width {
-            let mut pixel = original.get(x, y);
+            let pixel = source.get(x, y);
             if pixel.a == 0 {
-                out.set(x, y, pixel);
                 continue;
             }
-            match role {
-                "trench/recessed terrain" => {
-                    pixel = visual_lock_trench_color(&original, x, y, pixel);
-                }
-                "berm/raised terrain" => {
-                    pixel = visual_lock_berm_color(&original, x, y, pixel);
-                }
-                "path/dirt surface" => {
-                    pixel = visual_lock_path_color(&original, x, y, pixel);
-                }
-                _ => {}
-            }
             if visual_lock_hash01(sprite_id, x, y, 0x51) > 0.985 {
-                pixel = pixel.lighten(0.08);
+                out.set(x, y, pixel.lighten(0.08));
             }
-            out.set(x, y, pixel);
         }
     }
     out
 }
 
-fn visual_lock_trench_color(source: &PixelImage, x: u32, y: u32, pixel: Rgba8) -> Rgba8 {
-    let warm_floor = Rgba8::opaque(96, 69, 47);
-    let wall = Rgba8::opaque(142, 91, 52);
-    let lip = Rgba8::opaque(184, 124, 65);
-    let grass = Rgba8::opaque(84, 122, 63);
-    let mut color = if pixel.luma() < 70 {
-        pixel.blend(warm_floor, 0.86)
-    } else if pixel.luma() < 95 {
-        pixel.blend(warm_floor, 0.54)
-    } else if visual_lock_is_brown(pixel) {
-        pixel.blend(wall, 0.34)
-    } else {
-        pixel
-    };
-    if visual_lock_has_neighbor(source, x, y, visual_lock_is_green) {
-        color = color.blend(lip, 0.25).blend(grass, 0.12);
+fn visual_lock_authored_trench_override(source: &PixelImage, sprite_id: &str) -> PixelImage {
+    let mut out = PixelImage::transparent(source.width, source.height);
+    let w = source.width.max(1);
+    let h = source.height.max(1);
+
+    let floor_dark = Rgba8::opaque(72, 51, 37);
+    let floor_mid = Rgba8::opaque(92, 64, 43);
+    let wall_warm = Rgba8::opaque(132, 88, 54);
+    let wall_dark = Rgba8::opaque(86, 55, 38);
+    let lip = Rgba8::opaque(178, 119, 68);
+    let lip_light = Rgba8::opaque(205, 148, 83);
+    let grass = Rgba8::opaque(86, 125, 66);
+    let grass_light = Rgba8::opaque(124, 153, 78);
+    let spoil = Rgba8::opaque(151, 101, 60);
+
+    for y in 0..h {
+        let yf = y as f32 / h as f32;
+        for x in 0..w {
+            let src = source.get(x, y);
+            let solid = src.a > 16;
+            let near_solid = !solid && visual_lock_has_neighbor(source, x, y, |c| c.a > 16);
+            let noise = visual_lock_hash01(sprite_id, x, y, 0x1750);
+
+            if solid {
+                let edge = visual_lock_alpha_edge(source, x, y);
+                let mut color = if sprite_id.contains("lip") {
+                    if edge {
+                        lip_light
+                    } else if noise > 0.76 {
+                        spoil
+                    } else {
+                        lip
+                    }
+                } else if sprite_id.contains("wall") {
+                    if yf > 0.66 {
+                        wall_dark.darken(0.10)
+                    } else if noise > 0.82 {
+                        lip.blend(wall_warm, 0.55)
+                    } else {
+                        wall_warm
+                    }
+                } else if sprite_id.contains("cap") || sprite_id.contains("corner") {
+                    if edge {
+                        lip.blend(grass, 0.15)
+                    } else if yf > 0.54 {
+                        wall_dark
+                    } else {
+                        wall_warm.blend(floor_mid, 0.20)
+                    }
+                } else {
+                    // Floor and full trench mask pieces: dark recessed center, warmer walls/edges.
+                    if edge {
+                        lip.blend(spoil, 0.28)
+                    } else if yf > 0.72 {
+                        floor_dark.darken(0.10)
+                    } else if yf < 0.20 {
+                        floor_mid.blend(wall_warm, 0.22)
+                    } else {
+                        floor_dark.blend(floor_mid, 0.35)
+                    }
+                };
+
+                if visual_lock_has_neighbor(source, x, y, visual_lock_is_green) {
+                    color = color.blend(grass, 0.18);
+                }
+                if edge && noise > 0.58 {
+                    color = color.blend(grass_light, 0.18);
+                }
+                if noise > 0.90 {
+                    color = color.lighten(0.10);
+                } else if noise < 0.08 {
+                    color = color.darken(0.08);
+                }
+                out.set(x, y, color.with_alpha(src.a.max(218)));
+            } else if near_solid {
+                // This adds a deliberately soft dirt/grass transition outside the original
+                // hard mask, which is the main "authored" improvement over Visual Lock 4.
+                let n = visual_lock_hash01(sprite_id, x, y, 0x1751);
+                if n > 0.52 {
+                    out.set(x, y, spoil.blend(grass, 0.32).with_alpha(126));
+                } else if n > 0.28 {
+                    out.set(x, y, grass.blend(lip, 0.18).with_alpha(88));
+                }
+            }
+        }
     }
-    let n = visual_lock_hash01("trench", x, y, 0x7701);
-    if n > 0.84 {
-        color = color.blend(lip, 0.28);
-    } else if n < 0.08 {
-        color = color.darken(0.04);
-    }
-    color.with_alpha(pixel.a)
+
+    visual_lock_add_trench_plank_details(&mut out, sprite_id);
+    visual_lock_add_edge_speckles(&mut out, source, sprite_id, lip_light, grass_light, 0x1752);
+    out
 }
 
-fn visual_lock_berm_color(source: &PixelImage, x: u32, y: u32, pixel: Rgba8) -> Rgba8 {
-    let mound = Rgba8::opaque(150, 111, 64);
-    let grass_top = Rgba8::opaque(103, 138, 70);
-    let light_soil = Rgba8::opaque(195, 146, 80);
-    let mut color = if visual_lock_is_brown(pixel) {
-        pixel.blend(mound, 0.32)
-    } else {
-        pixel
-    };
-    if pixel.luma() < 72 {
-        color = color.blend(mound.darken(0.08), 0.55);
+fn visual_lock_authored_berm_override(source: &PixelImage, sprite_id: &str) -> PixelImage {
+    let mut out = PixelImage::transparent(source.width, source.height);
+    let w = source.width.max(1);
+    let h = source.height.max(1);
+
+    let grass = Rgba8::opaque(95, 133, 70);
+    let grass_light = Rgba8::opaque(130, 158, 83);
+    let top_dirt = Rgba8::opaque(164, 118, 70);
+    let face = Rgba8::opaque(139, 93, 56);
+    let face_dark = Rgba8::opaque(89, 60, 42);
+    let shadow = Rgba8::opaque(50, 37, 29);
+    let lip = Rgba8::opaque(198, 142, 78);
+
+    for y in 0..h {
+        let yf = y as f32 / h as f32;
+        for x in 0..w {
+            let src = source.get(x, y);
+            let solid = src.a > 16;
+            let near_solid = !solid && visual_lock_has_neighbor(source, x, y, |c| c.a > 16);
+            let noise = visual_lock_hash01(sprite_id, x, y, 0x2760);
+
+            if solid {
+                let edge = visual_lock_alpha_edge(source, x, y);
+                let mut color = if sprite_id.contains("top") {
+                    if noise > 0.62 {
+                        top_dirt.blend(grass_light, 0.34)
+                    } else {
+                        top_dirt.blend(grass, 0.26)
+                    }
+                } else if sprite_id.contains("face") {
+                    if yf > 0.68 {
+                        face_dark.blend(shadow, 0.24)
+                    } else if edge && yf < 0.36 {
+                        lip.blend(grass, 0.20)
+                    } else {
+                        face
+                    }
+                } else if sprite_id.contains("cap") || sprite_id.contains("corner") {
+                    if yf > 0.62 {
+                        face_dark
+                    } else if edge {
+                        top_dirt.blend(grass, 0.32)
+                    } else {
+                        face.blend(top_dirt, 0.30)
+                    }
+                } else {
+                    // Full berm mask.
+                    if yf < 0.34 {
+                        top_dirt.blend(grass, 0.30)
+                    } else if yf > 0.70 {
+                        face_dark.blend(shadow, 0.18)
+                    } else {
+                        face
+                    }
+                };
+
+                if edge && noise > 0.38 {
+                    color = color.blend(grass_light, 0.20);
+                }
+                if noise > 0.88 {
+                    color = color.blend(lip, 0.20);
+                } else if noise < 0.10 {
+                    color = color.darken(0.07);
+                }
+                out.set(x, y, color.with_alpha(src.a.max(218)));
+            } else if near_solid {
+                let n = visual_lock_hash01(sprite_id, x, y, 0x2761);
+                if n > 0.46 {
+                    out.set(x, y, grass.blend(top_dirt, 0.22).with_alpha(118));
+                } else if n > 0.20 {
+                    out.set(x, y, face.blend(grass, 0.44).with_alpha(76));
+                }
+            }
+        }
     }
-    if visual_lock_has_neighbor(source, x, y, visual_lock_is_green) {
-        color = color.blend(grass_top, 0.30);
-    }
-    let n = visual_lock_hash01("berm", x, y, 0x8801);
-    if n > 0.82 {
-        color = color.blend(light_soil, 0.26);
-    } else if n < 0.10 {
-        color = color.darken(0.05);
-    }
-    color.with_alpha(pixel.a)
+
+    visual_lock_add_mound_strata(&mut out, sprite_id);
+    visual_lock_add_edge_speckles(&mut out, source, sprite_id, top_dirt, grass_light, 0x2762);
+    out
 }
 
-fn visual_lock_path_color(source: &PixelImage, x: u32, y: u32, pixel: Rgba8) -> Rgba8 {
-    let dirt = Rgba8::opaque(169, 111, 63);
-    let dust = Rgba8::opaque(207, 159, 96);
-    let grass = Rgba8::opaque(94, 135, 69);
-    let mut color = if visual_lock_is_brown(pixel) {
-        pixel.blend(dirt, 0.24)
-    } else {
-        pixel
-    };
-    if visual_lock_is_brown(pixel) && visual_lock_has_neighbor(source, x, y, visual_lock_is_green) {
-        color = color.blend(grass, 0.28);
+fn visual_lock_authored_path_override(source: &PixelImage, sprite_id: &str) -> PixelImage {
+    let mut out = PixelImage::transparent(source.width, source.height);
+    let w = source.width.max(1);
+    let h = source.height.max(1);
+
+    let dirt = Rgba8::opaque(166, 112, 66);
+    let dirt_dark = Rgba8::opaque(117, 78, 48);
+    let dust = Rgba8::opaque(203, 154, 90);
+    let grass = Rgba8::opaque(94, 134, 69);
+    let grass_light = Rgba8::opaque(126, 153, 78);
+
+    for y in 0..h {
+        for x in 0..w {
+            let src = source.get(x, y);
+            let noise = visual_lock_hash01(sprite_id, x, y, 0x3760);
+            let is_brown = visual_lock_is_brown(src);
+            let is_green = visual_lock_is_green(src);
+            let edge = visual_lock_has_neighbor(source, x, y, visual_lock_is_green)
+                || visual_lock_has_neighbor(source, x, y, visual_lock_is_brown);
+
+            if is_brown {
+                let mut color = dirt;
+                if noise > 0.82 {
+                    color = color.blend(dust, 0.32);
+                } else if noise < 0.10 {
+                    color = color.blend(dirt_dark, 0.30);
+                }
+                if edge {
+                    color = color.blend(grass, 0.20);
+                }
+                out.set(x, y, color.with_alpha(src.a.max(226)));
+            } else if is_green {
+                let mut color = src.blend(grass, 0.34);
+                if edge && noise > 0.46 {
+                    color = color.blend(dirt, 0.20);
+                }
+                if noise > 0.92 {
+                    color = color.blend(grass_light, 0.25);
+                }
+                out.set(x, y, color.with_alpha(src.a));
+            } else if src.a > 16 {
+                out.set(x, y, src.blend(dirt, 0.20));
+            }
+        }
     }
-    let n = visual_lock_hash01("path", x, y, 0x9901);
-    if n > 0.86 {
-        color = color.blend(dust, 0.28);
-    } else if n < 0.06 {
-        color = color.blend(grass, 0.16);
+
+    visual_lock_add_path_ruts(&mut out, sprite_id);
+    out
+}
+
+fn visual_lock_add_trench_plank_details(image: &mut PixelImage, sprite_id: &str) {
+    if image.width < 10 || image.height < 10 {
+        return;
     }
-    color.with_alpha(pixel.a)
+    let detail = Rgba8::opaque(52, 36, 28);
+    let highlight = Rgba8::opaque(142, 91, 55);
+    for y in (image.height / 5..image.height.saturating_sub(3)).step_by(9) {
+        if visual_lock_hash01(sprite_id, y, 0, 0x4550) > 0.25 {
+            for x in 4..image.width.saturating_sub(4) {
+                if image.get(x, y).a > 20 {
+                    image.blend_pixel(x, y, detail, 0.25);
+                    if y > 0 {
+                        image.blend_pixel(x, y - 1, highlight, 0.10);
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn visual_lock_add_mound_strata(image: &mut PixelImage, sprite_id: &str) {
+    if image.width < 10 || image.height < 10 {
+        return;
+    }
+    let dark = Rgba8::opaque(78, 52, 38);
+    let light = Rgba8::opaque(183, 132, 76);
+    for y in (image.height / 3..image.height.saturating_sub(2)).step_by(7) {
+        let row_noise = visual_lock_hash01(sprite_id, y, 0, 0x4650);
+        for x in 4..image.width.saturating_sub(4) {
+            let px = image.get(x, y);
+            if px.a > 20 && visual_lock_hash01(sprite_id, x, y, 0x4651) > 0.42 + row_noise * 0.18 {
+                image.blend_pixel(x, y, dark, 0.18);
+                if y > 0 && visual_lock_hash01(sprite_id, x, y, 0x4652) > 0.82 {
+                    image.blend_pixel(x, y - 1, light, 0.11);
+                }
+            }
+        }
+    }
+}
+
+fn visual_lock_add_path_ruts(image: &mut PixelImage, sprite_id: &str) {
+    let dark = Rgba8::opaque(113, 76, 48);
+    let dust = Rgba8::opaque(203, 154, 90);
+    if image.width < 8 || image.height < 8 {
+        return;
+    }
+    for i in 0..6 {
+        let y = 2
+            + (visual_lock_hash01(sprite_id, i, 0, 0x4750) * image.height.saturating_sub(4) as f32)
+                as u32;
+        let x0 =
+            (visual_lock_hash01(sprite_id, i, 1, 0x4751) * (image.width / 2).max(1) as f32) as u32;
+        let len = 4 + (visual_lock_hash01(sprite_id, i, 2, 0x4752) * 10.0) as u32;
+        for dx in 0..len {
+            let x = (x0 + dx).min(image.width - 1);
+            if image.get(x, y).a > 20 {
+                image.blend_pixel(x, y, dark, 0.22);
+                if y > 0 {
+                    image.blend_pixel(x, y - 1, dust, 0.08);
+                }
+            }
+        }
+    }
+}
+
+fn visual_lock_add_edge_speckles(
+    image: &mut PixelImage,
+    source: &PixelImage,
+    sprite_id: &str,
+    dirt: Rgba8,
+    grass: Rgba8,
+    salt: u64,
+) {
+    for y in 0..image.height {
+        for x in 0..image.width {
+            if source.get(x, y).a > 16 || !visual_lock_has_neighbor(source, x, y, |c| c.a > 16) {
+                continue;
+            }
+            let n = visual_lock_hash01(sprite_id, x, y, salt);
+            if n > 0.90 {
+                image.set(x, y, dirt.with_alpha(145));
+            } else if n > 0.78 {
+                image.set(x, y, grass.with_alpha(112));
+            }
+        }
+    }
+}
+
+fn visual_lock_alpha_edge(source: &PixelImage, x: u32, y: u32) -> bool {
+    let here = source.get(x, y).a > 16;
+    if !here {
+        return false;
+    }
+    !visual_lock_has_all_cardinal_neighbors(source, x, y, |c| c.a > 16)
+}
+
+fn visual_lock_has_all_cardinal_neighbors(
+    image: &PixelImage,
+    x: u32,
+    y: u32,
+    predicate: fn(Rgba8) -> bool,
+) -> bool {
+    for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
+        let nx = x as i32 + dx;
+        let ny = y as i32 + dy;
+        if !image.in_bounds(nx, ny) || !predicate(image.get(nx as u32, ny as u32)) {
+            return false;
+        }
+    }
+    true
 }
 
 fn visual_lock_is_brown(color: Rgba8) -> bool {
-    color.a > 12 && color.r > color.g && color.g >= color.b && color.r > 70 && color.b < 110
+    color.a > 12 && color.r > color.g && color.g >= color.b && color.r > 70 && color.b < 120
 }
 
 fn visual_lock_is_green(color: Rgba8) -> bool {
@@ -11130,7 +11392,16 @@ fn visual_lock_has_neighbor(
     y: u32,
     predicate: fn(Rgba8) -> bool,
 ) -> bool {
-    for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1)] {
+    for (dx, dy) in [
+        (-1, 0),
+        (1, 0),
+        (0, -1),
+        (0, 1),
+        (-1, -1),
+        (1, 1),
+        (1, -1),
+        (-1, 1),
+    ] {
         let nx = x as i32 + dx;
         let ny = y as i32 + dy;
         if image.in_bounds(nx, ny) && predicate(image.get(nx as u32, ny as u32)) {

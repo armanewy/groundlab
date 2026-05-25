@@ -3,7 +3,7 @@
 GroundLab is intentionally not a general engine. It is a custom terrain/art/simulation workbench
 for one future game family: terrain-first prepared-ground defense.
 
-The active roadmap has paused generated-campaign and game-system expansion for Visual Lock 4.
+The active roadmap has paused generated-campaign and game-system expansion for Visual Lock 5.
 SpriteGen remains the terrain art forge, while `ground_game` owns mission specs, prep-phase work
 orders, local materials,
 environment-object states, doctrine route preview, deterministic assault sandbox, assault
@@ -63,9 +63,10 @@ score, reject, and export compact terrain-defense problems.
 - Mission visual theme bindings, high-oblique generated mission beauty previews, visual route/debug
   overlays, generated feature maps, and visual asset reports
 - Visual Lock benchmark export, prepared-state benchmark rendering, full-board/playable-crop/detail
-  renders, prepared diff/feature overlay, benchmark override-pack export, override-backed prepared
-  rerendering, before/after override comparison, dominant-feature audit, visible sprite impact
-  estimates, sprite role summaries, and placeholder/fallback/override diagnostics
+  renders, prepared diff/feature overlay, authored-style benchmark override-pack export,
+  override-backed prepared rerendering, before/after override comparison, dominant-feature audit,
+  visible sprite impact estimates, sprite role summaries, and placeholder/fallback/override
+  diagnostics
 - Terrain editing brushes
 - Pixel tile recipes
 - Palette ramps and palette file format
@@ -150,7 +151,7 @@ MissionGeneratorSpec + MissionTheme
   -> visual-lock benchmark candidate selection
   -> initial/prepared beauty, route, debug, feature-map, and asset-report exports
   -> full-board, playable-crop, and close-detail benchmark views
-  -> high-impact override-pack target export
+  -> high-impact authored-style override-pack target export
   -> override-backed prepared rerender + before/after comparison
   -> benchmark_visual_audit.json for art-direction decisions
   -> Mission Lab inspection / playable retry
@@ -193,7 +194,7 @@ MissionGeneratorSpec + fixed seed/theme
   -> initial beauty/routes/debug visual exports
   -> best known prep script, when available
   -> prepared-before-overrides beauty/routes/debug visual exports
-  -> benchmark_override_pack with high-impact terrain/object placeholder targets
+  -> benchmark_override_pack with high-impact authored terrain/object placeholder targets
   -> temporary override style profile
   -> prepared beauty/routes/debug visual exports through effective override assets
   -> prepared diff and prepared feature-overlay exports
