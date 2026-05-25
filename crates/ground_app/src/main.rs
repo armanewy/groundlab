@@ -284,6 +284,7 @@ struct GroundLabApp {
     mission_visual_pack_texture: Option<egui::TextureHandle>,
     mission_visual_role_textures: HashMap<ArtLabOverrideRole, egui::TextureHandle>,
     mission_visual_pack_status: String,
+    mission_recent_completed_cells: Vec<CellCoord>,
     route_overlay_mode: RouteOverlayMode,
     route_group_filter: usize,
     balance_dashboard: Vec<MissionBalanceDashboardRow>,
@@ -376,6 +377,7 @@ impl GroundLabApp {
             mission_visual_pack_texture: None,
             mission_visual_role_textures: HashMap::new(),
             mission_visual_pack_status: "Visual pack: default/generated fallback.".to_string(),
+            mission_recent_completed_cells: Vec::new(),
             route_overlay_mode: RouteOverlayMode::Current,
             route_group_filter: 0,
             balance_dashboard: build_balance_dashboard(),
@@ -1399,17 +1401,28 @@ impl GroundLabApp {
             }
             if ui.button("Run next").clicked() {
                 match self.mission_state.run_next_queued_order() {
-                    Some(order) => self.notify(format!(
-                        "Ran order #{:02}: {} · {}",
-                        order.id,
-                        order.kind.label(),
-                        order.status.label()
-                    )),
+                    Some(order) => {
+                        self.mission_recent_completed_cells = order_feedback_cells(&order);
+                        self.notify(format!(
+                            "Ran order #{:02}: {} · {}",
+                            order.id,
+                            order.kind.label(),
+                            order.status.label()
+                        ));
+                    }
                     None => self.notify("No queued work order to run."),
                 }
             }
             if ui.button("Run all").clicked() {
                 self.mission_state.run_all_queued_orders();
+                self.mission_recent_completed_cells = self
+                    .mission_state
+                    .work_orders
+                    .iter()
+                    .rev()
+                    .take(12)
+                    .flat_map(order_feedback_cells)
+                    .collect();
                 self.notify("Ran all queued work orders.");
             }
             if ui.button("Clear queue").clicked() {
@@ -1510,12 +1523,21 @@ impl GroundLabApp {
                     self.notify("Start prep before applying a scripted plan.");
                 } else {
                     self.mission_state.apply_seed_orders();
+                    self.mission_recent_completed_cells = self
+                        .mission_state
+                        .work_orders
+                        .iter()
+                        .rev()
+                        .take(12)
+                        .flat_map(order_feedback_cells)
+                        .collect();
                     self.notify("Applied scripted Road Below engineering plan immediately.");
                 }
             }
             if ui.button("Reset mission").clicked() {
                 self.mission_state = playable_road_below_state();
                 self.selected_mission_cell = CellCoord::new(5, 4);
+                self.mission_recent_completed_cells.clear();
                 self.notify("Reset Road Below mission state.");
             }
             if ui.button("Export mission seed").clicked() {
@@ -1859,6 +1881,7 @@ impl GroundLabApp {
             for note in &preview.preview.notes {
                 ui.small(format!("Effect: {note}"));
             }
+            ui.small(format!("Visual result: {}", visual_result_hint(kind)));
             if matches!(
                 preview.status,
                 ground_game::WorkOrderStatus::Rejected { .. }
@@ -2674,6 +2697,7 @@ impl GroundLabApp {
                         egui::StrokeKind::Inside,
                     );
                 }
+                self.draw_mission_prep_feedback(&painter, tile_rect, coord);
                 let glyph = mission_cell_glyph(&self.mission_state, coord, cell);
                 if !glyph.is_empty() && !drew_visual_art {
                     painter.text(
@@ -2693,6 +2717,39 @@ impl GroundLabApp {
         ui.label(
             "Blue route = initial plan. Gold/red route = current terrain. Hazards show predicted rolling-log paths; delay/pressure/actual modes use assault timeline data.",
         );
+    }
+
+    fn draw_mission_prep_feedback(
+        &self,
+        painter: &egui::Painter,
+        tile_rect: egui::Rect,
+        coord: CellCoord,
+    ) {
+        if self.mission_map_mode != MissionMapMode::Visual {
+            return;
+        }
+        if self
+            .mission_state
+            .work_queue
+            .iter()
+            .flat_map(order_feedback_cells)
+            .any(|cell| cell == coord)
+        {
+            painter.rect_stroke(
+                tile_rect.shrink(6.0),
+                0.0,
+                egui::Stroke::new(2.0, egui::Color32::from_rgb(90, 170, 245)),
+                egui::StrokeKind::Inside,
+            );
+        }
+        if self.mission_recent_completed_cells.contains(&coord) {
+            painter.rect_stroke(
+                tile_rect.shrink(9.0),
+                0.0,
+                egui::Stroke::new(2.0, egui::Color32::from_rgb(235, 196, 88)),
+                egui::StrokeKind::Inside,
+            );
+        }
     }
 
     fn draw_mission_visual_art_cell(
@@ -3357,6 +3414,25 @@ fn mission_object_art_role(object: &EnvironmentObject) -> ArtLabOverrideRole {
         EnvironmentObjectKind::Wire(_) => ArtLabOverrideRole::Wire,
         EnvironmentObjectKind::Stakes(_) => ArtLabOverrideRole::Stakes,
         EnvironmentObjectKind::FightingPosition(_) => ArtLabOverrideRole::BermRaisedTerrain,
+    }
+}
+
+fn order_feedback_cells(order: &ground_game::WorkOrder) -> Vec<CellCoord> {
+    if !order.preview.affected_cells.is_empty() {
+        return order.preview.affected_cells.clone();
+    }
+    order.target.affected_cells()
+}
+
+fn visual_result_hint(kind: WorkOrderKind) -> &'static str {
+    match kind {
+        WorkOrderKind::DigTrench => "selected cell becomes trench art in Visual mode",
+        WorkOrderKind::RaiseBerm => "selected cell becomes raised berm art in Visual mode",
+        WorkOrderKind::Flatten => "earthwork art clears back to scraped ground",
+        WorkOrderKind::FellTree => "tree object changes into log/trunk art after running work",
+        WorkOrderKind::CutIntoLogs => "fallen trunk becomes usable log material",
+        WorkOrderKind::PlaceStakes => "stakes obstacle art appears on the selected cell",
+        WorkOrderKind::PrepareRollingLog => "log remains visible and gains a predicted hazard path",
     }
 }
 
