@@ -27,6 +27,135 @@ pub enum ArtSpriteFamily {
     SpawnMarker,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ArtLabOverrideRole {
+    PathDirtSurface,
+    TrenchRecessedTerrain,
+    BermRaisedTerrain,
+    Tree,
+    Log,
+    Rock,
+    Wall,
+    Stakes,
+    Wire,
+    ObjectiveMarker,
+    SpawnMarker,
+}
+
+impl ArtLabOverrideRole {
+    pub const ALL: [ArtLabOverrideRole; 11] = [
+        ArtLabOverrideRole::PathDirtSurface,
+        ArtLabOverrideRole::TrenchRecessedTerrain,
+        ArtLabOverrideRole::BermRaisedTerrain,
+        ArtLabOverrideRole::Tree,
+        ArtLabOverrideRole::Log,
+        ArtLabOverrideRole::Rock,
+        ArtLabOverrideRole::Wall,
+        ArtLabOverrideRole::Stakes,
+        ArtLabOverrideRole::Wire,
+        ArtLabOverrideRole::ObjectiveMarker,
+        ArtLabOverrideRole::SpawnMarker,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ArtLabOverrideRole::PathDirtSurface => "path / dirt surface",
+            ArtLabOverrideRole::TrenchRecessedTerrain => "trench / recessed terrain",
+            ArtLabOverrideRole::BermRaisedTerrain => "berm / raised terrain",
+            ArtLabOverrideRole::Tree => "tree",
+            ArtLabOverrideRole::Log => "log",
+            ArtLabOverrideRole::Rock => "rock",
+            ArtLabOverrideRole::Wall => "wall",
+            ArtLabOverrideRole::Stakes => "stakes",
+            ArtLabOverrideRole::Wire => "wire",
+            ArtLabOverrideRole::ObjectiveMarker => "objective marker",
+            ArtLabOverrideRole::SpawnMarker => "spawn marker",
+        }
+    }
+
+    pub fn slug(self) -> &'static str {
+        match self {
+            ArtLabOverrideRole::PathDirtSurface => "path_dirt_surface",
+            ArtLabOverrideRole::TrenchRecessedTerrain => "trench_recessed_terrain",
+            ArtLabOverrideRole::BermRaisedTerrain => "berm_raised_terrain",
+            ArtLabOverrideRole::Tree => "tree",
+            ArtLabOverrideRole::Log => "log",
+            ArtLabOverrideRole::Rock => "rock",
+            ArtLabOverrideRole::Wall => "wall",
+            ArtLabOverrideRole::Stakes => "stakes",
+            ArtLabOverrideRole::Wire => "wire",
+            ArtLabOverrideRole::ObjectiveMarker => "objective_marker",
+            ArtLabOverrideRole::SpawnMarker => "spawn_marker",
+        }
+    }
+
+    pub fn suggested_family(self) -> ArtSpriteFamily {
+        match self {
+            ArtLabOverrideRole::PathDirtSurface => ArtSpriteFamily::Path,
+            ArtLabOverrideRole::TrenchRecessedTerrain => ArtSpriteFamily::Trench,
+            ArtLabOverrideRole::BermRaisedTerrain => ArtSpriteFamily::Berm,
+            ArtLabOverrideRole::Tree => ArtSpriteFamily::Tree,
+            ArtLabOverrideRole::Log => ArtSpriteFamily::Log,
+            ArtLabOverrideRole::Rock => ArtSpriteFamily::Rock,
+            ArtLabOverrideRole::Wall => ArtSpriteFamily::Wall,
+            ArtLabOverrideRole::Stakes => ArtSpriteFamily::Stakes,
+            ArtLabOverrideRole::Wire => ArtSpriteFamily::Wire,
+            ArtLabOverrideRole::ObjectiveMarker => ArtSpriteFamily::ObjectiveMarker,
+            ArtLabOverrideRole::SpawnMarker => ArtSpriteFamily::SpawnMarker,
+        }
+    }
+}
+
+impl fmt::Display for ArtLabOverrideRole {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.slug())
+    }
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ArtLabOverrideAssignment {
+    pub role: ArtLabOverrideRole,
+    pub path: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variant_id: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct ArtLabOverrideProfile {
+    pub assignments: Vec<ArtLabOverrideAssignment>,
+}
+
+impl ArtLabOverrideProfile {
+    pub fn set_assignment(
+        &mut self,
+        role: ArtLabOverrideRole,
+        path: PathBuf,
+        variant_id: Option<String>,
+    ) {
+        if let Some(existing) = self
+            .assignments
+            .iter_mut()
+            .find(|assignment| assignment.role == role)
+        {
+            existing.path = path;
+            existing.variant_id = variant_id;
+        } else {
+            self.assignments.push(ArtLabOverrideAssignment {
+                role,
+                path,
+                variant_id,
+            });
+        }
+    }
+
+    pub fn assignment_path(&self, role: ArtLabOverrideRole) -> Option<&Path> {
+        self.assignments
+            .iter()
+            .find(|assignment| assignment.role == role)
+            .map(|assignment| assignment.path.as_path())
+    }
+}
+
 impl ArtSpriteFamily {
     pub const ALL: [ArtSpriteFamily; 12] = [
         ArtSpriteFamily::TerrainBase,
@@ -361,6 +490,87 @@ pub fn export_art_contact_sheet(
     Ok(path)
 }
 
+pub fn save_art_lab_override_profile(
+    profile: &ArtLabOverrideProfile,
+    root_dir: impl AsRef<Path>,
+) -> Result<PathBuf> {
+    let dir = root_dir.as_ref().join("approved");
+    std::fs::create_dir_all(&dir).with_context(|| format!("failed to create {}", dir.display()))?;
+    let path = dir.join("art_lab_overrides.json");
+    std::fs::write(&path, serde_json::to_string_pretty(profile)?)
+        .with_context(|| format!("failed to write {}", path.display()))?;
+    Ok(path)
+}
+
+pub fn load_art_lab_override_profile(path: impl AsRef<Path>) -> Result<ArtLabOverrideProfile> {
+    let path = path.as_ref();
+    let data = std::fs::read_to_string(path)
+        .with_context(|| format!("failed to read {}", path.display()))?;
+    serde_json::from_str(&data).with_context(|| format!("failed to parse {}", path.display()))
+}
+
+pub fn render_art_lab_override_preview(profile: &ArtLabOverrideProfile) -> PixelImage {
+    let mut image = PixelImage::new(320, 208, Rgba8::opaque(38, 52, 38));
+    fill_art_preview_background(&mut image);
+
+    let path = art_role_image(profile, ArtLabOverrideRole::PathDirtSurface);
+    let trench = art_role_image(profile, ArtLabOverrideRole::TrenchRecessedTerrain);
+    let berm = art_role_image(profile, ArtLabOverrideRole::BermRaisedTerrain);
+    let tree = art_role_image(profile, ArtLabOverrideRole::Tree);
+    let log = art_role_image(profile, ArtLabOverrideRole::Log);
+    let rock = art_role_image(profile, ArtLabOverrideRole::Rock);
+    let wall = art_role_image(profile, ArtLabOverrideRole::Wall);
+    let stakes = art_role_image(profile, ArtLabOverrideRole::Stakes);
+    let wire = art_role_image(profile, ArtLabOverrideRole::Wire);
+    let objective = art_role_image(profile, ArtLabOverrideRole::ObjectiveMarker);
+    let spawn = art_role_image(profile, ArtLabOverrideRole::SpawnMarker);
+
+    for (x, y) in [
+        (32, 112),
+        (64, 104),
+        (96, 96),
+        (128, 88),
+        (160, 80),
+        (192, 72),
+        (224, 64),
+    ] {
+        blit_scaled_nearest_alpha(&mut image, &path, x, y, 2);
+    }
+    for (x, y) in [(72, 132), (104, 128), (136, 124)] {
+        blit_scaled_nearest_alpha(&mut image, &trench, x, y, 2);
+    }
+    for (x, y) in [(158, 112), (190, 108), (222, 104)] {
+        blit_scaled_nearest_alpha(&mut image, &berm, x, y, 2);
+    }
+
+    blit_scaled_nearest_alpha(&mut image, &tree, 48, 46, 2);
+    blit_scaled_nearest_alpha(&mut image, &tree, 78, 38, 2);
+    blit_scaled_nearest_alpha(&mut image, &tree, 248, 56, 2);
+    blit_scaled_nearest_alpha(&mut image, &log, 114, 56, 2);
+    blit_scaled_nearest_alpha(&mut image, &rock, 236, 120, 2);
+    blit_scaled_nearest_alpha(&mut image, &wall, 30, 146, 2);
+    blit_scaled_nearest_alpha(&mut image, &stakes, 176, 146, 2);
+    blit_scaled_nearest_alpha(&mut image, &wire, 210, 146, 2);
+    blit_scaled_nearest_alpha(&mut image, &spawn, 34, 86, 2);
+    blit_scaled_nearest_alpha(&mut image, &objective, 254, 82, 2);
+
+    image.outline_rect(8, 8, 304, 192, Rgba8::opaque(77, 88, 70));
+    image
+}
+
+pub fn export_art_lab_override_preview(
+    profile: &ArtLabOverrideProfile,
+    root_dir: impl AsRef<Path>,
+) -> Result<PathBuf> {
+    let dir = root_dir.as_ref().join("previews");
+    std::fs::create_dir_all(&dir).with_context(|| format!("failed to create {}", dir.display()))?;
+    let path = dir.join("art_lab_preview.png");
+    render_art_lab_override_preview(profile)
+        .save_png(&path)
+        .with_context(|| format!("failed to save {}", path.display()))?;
+    Ok(path)
+}
+
 fn generate_family_image(
     request: &ArtVariantRequest,
     variant_index: u32,
@@ -382,6 +592,47 @@ fn generate_family_image(
         ArtSpriteFamily::SpawnMarker => draw_marker(&mut image, false, rng),
     }
     image
+}
+
+fn art_role_image(profile: &ArtLabOverrideProfile, role: ArtLabOverrideRole) -> PixelImage {
+    if let Some(path) = profile.assignment_path(role) {
+        if let Ok(image) = PixelImage::load_png(path) {
+            return image;
+        }
+    }
+    generate_art_variants(&ArtVariantRequest {
+        family: role.suggested_family(),
+        seed: 7_301 + role as u64 * 97,
+        count: 1,
+        width: 32,
+        height: 32,
+        style: ArtStyleControls::default(),
+        parent_id: None,
+    })
+    .variants
+    .remove(0)
+    .image
+}
+
+fn fill_art_preview_background(image: &mut PixelImage) {
+    for y in 0..image.height {
+        for x in 0..image.width {
+            let vignette = ((x as f32 - 160.0).abs() / 190.0 + (y as f32 - 104.0).abs() / 140.0)
+                .clamp(0.0, 1.0);
+            let base = Rgba8::opaque(73, 103, 55).blend(Rgba8::opaque(28, 39, 31), vignette * 0.55);
+            image.set(x, y, base);
+        }
+    }
+    for y in 0..image.height {
+        for x in 0..image.width {
+            if (x + y * 3) % 17 == 0 {
+                image.blend_pixel(x, y, Rgba8::opaque(113, 138, 76), 0.12);
+            }
+            if (x * 5 + y) % 29 == 0 {
+                image.blend_pixel(x, y, Rgba8::opaque(42, 70, 39), 0.10);
+            }
+        }
+    }
 }
 
 fn draw_terrain_base(image: &mut PixelImage, rng: &mut TinyRng) {
@@ -843,22 +1094,10 @@ fn draw_wall(image: &mut PixelImage, rng: &mut TinyRng) {
 fn draw_stakes(image: &mut PixelImage, rng: &mut TinyRng) {
     draw_shadow(image, 0.34);
     for i in 0..5 {
-        let x = 8 + i * 4 + rng.range_i32(-1, 2) as u32;
-        let y = 19 + rng.range_i32(-2, 2) as u32;
-        image.draw_line(
-            x as i32,
-            y as i32,
-            x as i32,
-            y as i32 - 12,
-            Rgba8::opaque(117, 73, 38),
-        );
-        image.draw_line(
-            x as i32 - 2,
-            y as i32 - 7,
-            x as i32 + 2,
-            y as i32 - 9,
-            Rgba8::opaque(184, 126, 63),
-        );
+        let x = 8 + i * 4 + rng.range_i32(-1, 2);
+        let y = 19 + rng.range_i32(-2, 2);
+        image.draw_line(x, y, x, y - 12, Rgba8::opaque(117, 73, 38));
+        image.draw_line(x - 2, y - 7, x + 2, y - 9, Rgba8::opaque(184, 126, 63));
     }
 }
 
@@ -955,6 +1194,37 @@ fn blit_scaled_nearest(target: &mut PixelImage, source: &PixelImage, x0: u32, y0
             for sy in 0..scale {
                 for sx in 0..scale {
                     target.set(x0 + x * scale + sx, y0 + y * scale + sy, color);
+                }
+            }
+        }
+    }
+}
+
+fn blit_scaled_nearest_alpha(
+    target: &mut PixelImage,
+    source: &PixelImage,
+    x0: u32,
+    y0: u32,
+    scale: u32,
+) {
+    for y in 0..source.height {
+        for x in 0..source.width {
+            let color = source.get(x, y);
+            if color.a == 0 {
+                continue;
+            }
+            for sy in 0..scale {
+                for sx in 0..scale {
+                    let tx = x0 + x * scale + sx;
+                    let ty = y0 + y * scale + sy;
+                    if tx >= target.width || ty >= target.height {
+                        continue;
+                    }
+                    if color.a == 255 {
+                        target.set(tx, ty, color);
+                    } else {
+                        target.blend_pixel(tx, ty, color, color.a as f32 / 255.0);
+                    }
                 }
             }
         }
@@ -1221,5 +1491,49 @@ mod tests {
             .notes
             .iter()
             .any(|note| note.contains("mutated from")));
+    }
+
+    #[test]
+    fn art_lab_override_profile_replaces_roles_and_renders_preview() {
+        let mut profile = ArtLabOverrideProfile::default();
+        profile.set_assignment(
+            ArtLabOverrideRole::PathDirtSurface,
+            PathBuf::from("missing/path_a.png"),
+            Some("path_a".to_string()),
+        );
+        profile.set_assignment(
+            ArtLabOverrideRole::PathDirtSurface,
+            PathBuf::from("missing/path_b.png"),
+            Some("path_b".to_string()),
+        );
+        assert_eq!(profile.assignments.len(), 1);
+        assert_eq!(
+            profile
+                .assignment_path(ArtLabOverrideRole::PathDirtSurface)
+                .and_then(Path::file_name)
+                .and_then(|name| name.to_str()),
+            Some("path_b.png")
+        );
+
+        let preview = render_art_lab_override_preview(&profile);
+        assert_eq!(preview.width, 320);
+        assert_eq!(preview.height, 208);
+    }
+
+    #[test]
+    fn art_lab_override_profile_round_trips() {
+        let root =
+            std::env::temp_dir().join(format!("groundlab_art_profile_test_{}", std::process::id()));
+        let mut profile = ArtLabOverrideProfile::default();
+        profile.set_assignment(
+            ArtLabOverrideRole::Tree,
+            PathBuf::from("exports/art_lab/approved/tree/test.png"),
+            Some("tree_test".to_string()),
+        );
+        let path = save_art_lab_override_profile(&profile, &root).expect("profile should save");
+        let loaded = load_art_lab_override_profile(&path).expect("profile should load");
+        assert_eq!(loaded.assignments.len(), 1);
+        assert_eq!(loaded.assignments[0].role, ArtLabOverrideRole::Tree);
+        let _ = std::fs::remove_dir_all(root);
     }
 }

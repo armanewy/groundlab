@@ -3,14 +3,15 @@ use std::path::PathBuf;
 use eframe::egui;
 use ground_core::{
     build_seam_test_sheet, derive_mutated_art_seed, ensure_default_asset_files,
-    export_art_contact_sheet as export_art_contact_sheet_file, export_art_variant_approved,
-    export_edit_scenario_suite, export_tileset_bundle_with_palette, find_path,
-    generate_art_variants, load_workbench_assets, muted_field_32, preview_pixel_to_cell,
-    render_terrain_preview, save_palette_file, save_recipe_file, validate_tileset, ArtSpriteFamily,
-    ArtStyleControls, ArtVariantBatch, ArtVariantRequest, Brush, BrushKind, FileSnapshot,
-    GroundMaterial, LightDirection, Palette, PixelImage, PreviewMode, PreviewOptions,
-    ProjectionKind, TerrainMap, Tileset, TilesetRecipe, ValidationReport, ViewOrientation,
-    WorkbenchAssetPaths,
+    export_art_contact_sheet as export_art_contact_sheet_file, export_art_lab_override_preview,
+    export_art_variant_approved, export_edit_scenario_suite, export_tileset_bundle_with_palette,
+    find_path, generate_art_variants, load_workbench_assets, muted_field_32, preview_pixel_to_cell,
+    render_art_lab_override_preview, render_terrain_preview, save_art_lab_override_profile,
+    save_palette_file, save_recipe_file, validate_tileset, ArtLabOverrideProfile,
+    ArtLabOverrideRole, ArtSpriteFamily, ArtStyleControls, ArtVariantBatch, ArtVariantRequest,
+    Brush, BrushKind, FileSnapshot, GroundMaterial, LightDirection, Palette, PixelImage,
+    PreviewMode, PreviewOptions, ProjectionKind, TerrainMap, Tileset, TilesetRecipe,
+    ValidationReport, ViewOrientation, WorkbenchAssetPaths,
 };
 use ground_game::{
     export_road_below_seed, load_generated_mission_browser_index, load_generated_mission_pack,
@@ -205,6 +206,9 @@ struct GroundLabApp {
     art_variant_count: u32,
     art_selected_variant_index: Option<usize>,
     art_style: ArtStyleControls,
+    art_override_role: ArtLabOverrideRole,
+    art_override_profile: ArtLabOverrideProfile,
+    art_preview_texture: Option<egui::TextureHandle>,
     art_batch: Option<ArtVariantBatch>,
     art_variant_textures: Vec<egui::TextureHandle>,
     art_status: String,
@@ -275,6 +279,9 @@ impl GroundLabApp {
             art_variant_count: 12,
             art_selected_variant_index: None,
             art_style: ArtStyleControls::default(),
+            art_override_role: ArtLabOverrideRole::TrenchRecessedTerrain,
+            art_override_profile: ArtLabOverrideProfile::default(),
+            art_preview_texture: None,
             art_batch: None,
             art_variant_textures: Vec::new(),
             art_status: "Art Lab ready. Choose a sprite family and generate variants.".to_string(),
@@ -568,6 +575,40 @@ impl GroundLabApp {
         ui.separator();
 
         ui.group(|ui| {
+            ui.strong("Override preview");
+            egui::ComboBox::from_id_salt("art_override_role_selector")
+                .selected_text(self.art_override_role.label())
+                .show_ui(ui, |ui| {
+                    for role in ArtLabOverrideRole::ALL {
+                        ui.selectable_value(&mut self.art_override_role, role, role.label());
+                    }
+                });
+            ui.horizontal_wrapped(|ui| {
+                let can_assign = self.selected_art_variant().is_some();
+                if ui
+                    .add_enabled(
+                        can_assign,
+                        egui::Button::new("Assign selected variant to role"),
+                    )
+                    .clicked()
+                {
+                    self.assign_selected_art_variant_to_role();
+                }
+                if ui.button("Save override profile").clicked() {
+                    self.save_art_override_profile();
+                }
+                if ui.button("Render preview with Art Lab overrides").clicked() {
+                    self.render_art_override_preview(ctx);
+                }
+            });
+            ui.small(format!(
+                "{} assigned role(s)",
+                self.art_override_profile.assignments.len()
+            ));
+        });
+        ui.separator();
+
+        ui.group(|ui| {
             ui.strong("Status");
             ui.label(&self.art_status);
         });
@@ -583,6 +624,16 @@ impl GroundLabApp {
         if batch.variants.is_empty() {
             ui.label("No variants generated.");
             return;
+        }
+
+        if let Some(texture) = &self.art_preview_texture {
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Art Lab override preview");
+                ui.small("fixed scene using assigned roles");
+            });
+            let sized = egui::load::SizedTexture::new(texture.id(), texture.size_vec2() * 2.0);
+            ui.add(egui::Image::from_texture(sized).texture_options(egui::TextureOptions::NEAREST));
+            ui.separator();
         }
 
         ui.horizontal_wrapped(|ui| {
@@ -733,6 +784,57 @@ impl GroundLabApp {
             }
             Err(err) => {
                 self.art_status = format!("Export contact sheet failed: {err}");
+            }
+        }
+    }
+
+    fn assign_selected_art_variant_to_role(&mut self) {
+        let role = self.art_override_role;
+        let Some(variant) = self.selected_art_variant().cloned() else {
+            self.art_status = "Select a variant before assigning it to a role.".to_string();
+            return;
+        };
+        match export_art_variant_approved(&variant, "exports/art_lab") {
+            Ok((png_path, _json_path)) => {
+                self.art_override_profile.set_assignment(
+                    role,
+                    png_path.clone(),
+                    Some(variant.id.clone()),
+                );
+                self.art_status = format!("Assigned {} to {}", variant.id, role.label());
+            }
+            Err(err) => {
+                self.art_status = format!("Assign override role failed: {err}");
+            }
+        }
+    }
+
+    fn save_art_override_profile(&mut self) {
+        match save_art_lab_override_profile(&self.art_override_profile, "exports/art_lab") {
+            Ok(path) => {
+                self.art_status = format!("Saved Art Lab override profile to {}", path.display());
+            }
+            Err(err) => {
+                self.art_status = format!("Save override profile failed: {err}");
+            }
+        }
+    }
+
+    fn render_art_override_preview(&mut self, ctx: &egui::Context) {
+        let preview = render_art_lab_override_preview(&self.art_override_profile);
+        put_texture(
+            ctx,
+            &mut self.art_preview_texture,
+            "art_lab_override_preview",
+            &preview,
+        );
+        match export_art_lab_override_preview(&self.art_override_profile, "exports/art_lab") {
+            Ok(path) => {
+                self.art_status =
+                    format!("Rendered Art Lab override preview to {}", path.display());
+            }
+            Err(err) => {
+                self.art_status = format!("Render override preview export failed: {err}");
             }
         }
     }
