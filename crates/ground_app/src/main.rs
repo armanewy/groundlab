@@ -570,40 +570,16 @@ impl GroundLabApp {
     fn show_mission_controls(&mut self, ui: &mut egui::Ui) {
         self.show_panel_tabs(ui);
         ui.heading("Mission Lab");
-        ui.label(
-            "ProcGen 8.1: generated mission sets, campaign quality reports, and playable candidate browser",
-        );
+        ui.label("Playable Slice 0.1: Road Below prep, assault, debrief, and retry.");
         ui.separator();
 
-        self.show_mission_status_panel(ui);
-        ui.separator();
-        self.show_mission_visual_pack_panel(ui);
-        ui.separator();
         self.show_mission_lifecycle_panel(ui);
         ui.separator();
-        self.show_generated_mission_browser_panel(ui);
-        ui.separator();
-        self.show_tutorial_panel(ui);
-        ui.separator();
-        self.show_mission_action_toolbar(ui);
+        self.show_mission_phase_focus_panel(ui);
         ui.separator();
         self.show_mission_route_panel(ui);
         ui.separator();
-        self.show_prep_impact_panel(ui);
-        ui.separator();
-        self.show_assault_panel(ui);
-        ui.separator();
-        self.show_selected_mission_context(ui);
-        ui.separator();
-        self.show_work_order_queue_panel(ui);
-        ui.separator();
-        self.show_enemy_intel_panel(ui);
-        ui.separator();
-        self.show_objective_panel(ui);
-        ui.separator();
-        self.show_mission_scenario_controls(ui);
-        ui.separator();
-        self.show_balance_dashboard_panel(ui);
+        self.show_mission_secondary_workbench_panel(ui);
         ui.separator();
         self.show_feedback_panel(ui);
     }
@@ -647,6 +623,26 @@ impl GroundLabApp {
                     .collect::<Vec<_>>()
                     .join(" · ")
             ));
+        });
+    }
+
+    fn show_mission_resource_strip(&self, ui: &mut egui::Ui) {
+        ui.horizontal_wrapped(|ui| {
+            ui.small(format!("Mission: {}", self.mission_state.spec.title));
+            ui.separator();
+            ui.small(format!(
+                "Prep {}",
+                format_duration(self.mission_state.remaining_prep_seconds)
+            ));
+            ui.separator();
+            ui.small(format!(
+                "Labor {}",
+                format_duration(self.mission_state.remaining_labor_seconds)
+            ));
+            ui.separator();
+            ui.small(format!("Queued {}", self.mission_state.work_queue.len()));
+            ui.separator();
+            ui.small(&self.mission_visual_pack_status);
         });
     }
 
@@ -694,10 +690,25 @@ impl GroundLabApp {
     }
 
     fn show_mission_lifecycle_panel(&mut self, ui: &mut egui::Ui) {
-        ui.strong("Mission flow");
-        self.show_current_goal_panel(ui);
-        self.show_primary_mission_action(ui);
-        ui.small("Secondary controls");
+        egui::Frame::group(ui.style()).show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.strong("Primary play path");
+                ui.label(format!(
+                    "Phase: {}",
+                    mission_phase_label(self.mission_state.phase)
+                ));
+            });
+            ui.small(mission_phase_next_step(self.mission_state.phase));
+            self.show_mission_resource_strip(ui);
+            ui.add_space(4.0);
+            self.show_current_goal_panel(ui);
+            ui.add_space(4.0);
+            self.show_primary_mission_action(ui);
+        });
+    }
+
+    fn show_mission_secondary_flow_controls(&mut self, ui: &mut egui::Ui) {
+        ui.strong("Flow and file controls");
         ui.horizontal_wrapped(|ui| {
             if ui
                 .add_enabled(
@@ -784,6 +795,69 @@ impl GroundLabApp {
             }
         });
         ui.small("Playable flow: briefing -> prep -> assault -> debrief -> retry.");
+    }
+
+    fn show_mission_phase_focus_panel(&mut self, ui: &mut egui::Ui) {
+        egui::Frame::group(ui.style()).show(ui, |ui| {
+            ui.strong(format!(
+                "{} focus",
+                mission_phase_label(self.mission_state.phase)
+            ));
+            ui.small(mission_phase_focus_hint(self.mission_state.phase));
+            ui.separator();
+            match self.mission_state.phase {
+                MissionPhase::Briefing => {
+                    self.show_objective_panel(ui);
+                    ui.separator();
+                    self.show_enemy_intel_panel(ui);
+                }
+                MissionPhase::Prep => {
+                    self.show_mission_action_toolbar(ui);
+                    ui.separator();
+                    self.show_selected_mission_context(ui);
+                    ui.separator();
+                    self.show_work_order_queue_panel(ui);
+                    ui.separator();
+                    self.show_prep_impact_panel(ui);
+                }
+                MissionPhase::Assault => {
+                    self.show_assault_panel(ui);
+                }
+                MissionPhase::Debrief => {
+                    self.show_debrief_focus_panel(ui);
+                    ui.separator();
+                    self.show_prep_impact_panel(ui);
+                }
+            }
+        });
+    }
+
+    fn show_debrief_focus_panel(&self, ui: &mut egui::Ui) {
+        if let Some(debrief) = self.mission_state.assault_debrief() {
+            self.show_debrief_breakdown(ui, &debrief);
+            self.show_what_mattered_panel(ui, &debrief);
+            ui.small("Use the primary action above to retry with this plan or reset to briefing.");
+        } else {
+            ui.small("Run the assault to completion to unlock debrief and What mattered notes.");
+        }
+    }
+
+    fn show_mission_secondary_workbench_panel(&mut self, ui: &mut egui::Ui) {
+        ui.collapsing("Secondary workbench tools", |ui| {
+            self.show_mission_status_panel(ui);
+            ui.separator();
+            self.show_mission_visual_pack_panel(ui);
+            ui.separator();
+            self.show_mission_secondary_flow_controls(ui);
+            ui.separator();
+            self.show_generated_mission_browser_panel(ui);
+            ui.separator();
+            self.show_tutorial_panel(ui);
+            ui.separator();
+            self.show_mission_scenario_controls(ui);
+            ui.separator();
+            self.show_balance_dashboard_panel(ui);
+        });
     }
 
     fn show_current_goal_panel(&self, ui: &mut egui::Ui) {
@@ -3653,6 +3727,43 @@ fn route_filter_label(routes: &ground_game::DoctrineRouteSet, route_filter: usiz
         .get(route_filter.saturating_sub(1))
         .map(|route| route.group_label.clone())
         .unwrap_or_else(|| "all groups".to_string())
+}
+
+fn mission_phase_label(phase: MissionPhase) -> &'static str {
+    match phase {
+        MissionPhase::Briefing => "Briefing",
+        MissionPhase::Prep => "Prep",
+        MissionPhase::Assault => "Assault",
+        MissionPhase::Debrief => "Debrief",
+    }
+}
+
+fn mission_phase_next_step(phase: MissionPhase) -> &'static str {
+    match phase {
+        MissionPhase::Briefing => "Read the objective and enemy route, then start prep.",
+        MissionPhase::Prep => "Select the map, queue engineering work, run the queue, then commit.",
+        MissionPhase::Assault => {
+            "Run or step the assault and watch whether prep changed the result."
+        }
+        MissionPhase::Debrief => {
+            "Read What mattered, then retry the same plan or reset to briefing."
+        }
+    }
+}
+
+fn mission_phase_focus_hint(phase: MissionPhase) -> &'static str {
+    match phase {
+        MissionPhase::Briefing => {
+            "Objective and enemy intel are the only decisions that matter yet."
+        }
+        MissionPhase::Prep => {
+            "Recommended actions, queue state, and prep impact stay here while planning."
+        }
+        MissionPhase::Assault => {
+            "Assault controls and live outcome replace prep planning controls."
+        }
+        MissionPhase::Debrief => "Debrief and What mattered explain why the plan worked or failed.",
+    }
 }
 
 fn playable_road_below_state() -> MissionState {
