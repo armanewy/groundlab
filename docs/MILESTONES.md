@@ -6,10 +6,10 @@ GroundLab's active roadmap is paused on new game/procgen/campaign expansion whil
 mission art direction is locked. SpriteGen remains the terrain art forge, and Mission Lab remains
 the 2.5D tactical engineering defense workbench, but the current priority is making one generated
 mission beauty render read as a coherent high-oblique pixel-art terrain scene rather than a
-schematic board. Visual Lock 6 keeps the benchmark fixed and focuses on production-style source
-art substitution: committed path/trench/berm override PNGs, copied-through authored overrides,
-fallback reporting, before/after comparison images, high-impact terrain targets, and visual-impact
-audit data.
+schematic board. Visual Lock 7 checks that the production-style source override workflow holds
+across generated theme classes: one accepted mission per theme, generated-only versus authored
+override renders, per-theme before/after images, contact sheets, shared high-impact terrain
+targets, placeholder object load, and fallback reporting.
 
 ## GamePivot 1 — Mission workbench seed
 
@@ -610,6 +610,29 @@ This milestone still does not add gameplay, procgen, campaign UI, campaign packa
 families, tuning controls, or a renderer rewrite. It promotes the visible benchmark replacement
 set into actual source art so the next visual reviews judge authored PNG overrides rather than
 another code-only color treatment pass.
+
+## Visual Lock 7 — Theme visual consistency check
+
+Implemented in this drop.
+
+- adds `cargo run -p ground_cli -- visual-lock-theme-consistency [out_dir] [--seed 99418113]
+  [--count 20]`
+- generates one accepted mission per existing theme class and renders each through a generated-only
+  style profile plus an authored override profile
+- keeps each theme's base style while pointing the authored profile at the Visual Lock 6 source
+  terrain overrides
+- exports per-theme `generated_beauty.png`, `override_beauty.png`, `before_after.png`, and
+  `visual_audit.json`
+- exports root contact sheets for generated-only, override-backed, and before/after theme views
+- writes `theme_visual_consistency_report.json` with shared high-impact sprite pieces, shared
+  placeholder object impacts, fallback usage, override issue counts, and the weakest visual identity
+  theme
+- confirms that the authored terrain override profile can be applied across all six theme classes
+  without fallback visual pieces
+
+This milestone still does not add mechanics, procgen themes, campaign UI, campaign packaging, new
+terrain families, tuning controls, or a renderer rewrite. It uses the generated mission pipeline as
+a visual QA harness and identifies props/object silhouettes as the likely next art bottleneck.
 
 ## Milestone 0 — Project seed
 

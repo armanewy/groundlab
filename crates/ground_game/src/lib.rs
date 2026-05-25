@@ -1783,6 +1783,61 @@ pub struct VisualLockOverridePackReport {
     pub notes: Vec<String>,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VisualLockThemeConsistencyReport {
+    pub seed: u64,
+    pub count_per_theme: u32,
+    pub generated_contact_sheet_path: String,
+    pub override_contact_sheet_path: String,
+    pub before_after_contact_sheet_path: String,
+    pub theme_entries: Vec<VisualLockThemeConsistencyEntry>,
+    pub shared_high_impact_pieces: Vec<VisualLockSharedPieceImpact>,
+    pub shared_placeholder_impacts: Vec<VisualLockSharedPlaceholderImpact>,
+    pub weakest_visual_identity_theme: Option<String>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VisualLockThemeConsistencyEntry {
+    pub theme: MissionTheme,
+    pub theme_slug: String,
+    pub mission_id: String,
+    pub title: String,
+    pub seed: u64,
+    pub accepted_score: i32,
+    pub best_plan_label: String,
+    pub used_prepared_state: bool,
+    pub generated_beauty_path: String,
+    pub override_beauty_path: String,
+    pub before_after_path: String,
+    pub visual_audit_path: String,
+    pub generated_asset_report: MissionVisualAssetReport,
+    pub override_asset_report: MissionVisualAssetReport,
+    pub generated_visible_sprite_impacts: Vec<VisualLockVisibleSpriteImpact>,
+    pub override_visible_sprite_impacts: Vec<VisualLockVisibleSpriteImpact>,
+    pub placeholder_impacts: Vec<VisualLockPlaceholderImpact>,
+    pub notes: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VisualLockSharedPieceImpact {
+    pub piece: String,
+    pub role: String,
+    pub theme_count: u32,
+    pub themes: Vec<String>,
+    pub total_cell_count: u32,
+    pub total_estimated_screen_area_px: u32,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct VisualLockSharedPlaceholderImpact {
+    pub placeholder: String,
+    pub theme_count: u32,
+    pub themes: Vec<String>,
+    pub total_count: u32,
+    pub total_estimated_screen_area_px: u32,
+}
+
 #[derive(Clone, Debug)]
 struct GeneratedMissionArtifact {
     spec: MissionSpec,
@@ -3430,6 +3485,212 @@ pub fn export_visual_lock_benchmark(
         notes,
     };
     write_json(out_dir.join("benchmark_visual_audit.json"), &report)?;
+    Ok(report)
+}
+
+pub fn export_visual_lock_theme_consistency(
+    out_dir: impl AsRef<Path>,
+    base_generator: MissionGeneratorSpec,
+    count_per_theme: u32,
+) -> Result<VisualLockThemeConsistencyReport> {
+    let out_dir = out_dir.as_ref();
+    fs::create_dir_all(out_dir)
+        .with_context(|| format!("failed to create {}", out_dir.display()))?;
+    let per_theme_dir = out_dir.join("per_theme");
+    let source_candidates_dir = out_dir.join("source_candidates");
+    fs::create_dir_all(&per_theme_dir)
+        .with_context(|| format!("failed to create {}", per_theme_dir.display()))?;
+    fs::create_dir_all(&source_candidates_dir)
+        .with_context(|| format!("failed to create {}", source_candidates_dir.display()))?;
+
+    let mut entries = Vec::new();
+    for (theme_index, theme) in MissionTheme::GENERATABLE.iter().copied().enumerate() {
+        let theme_slug = theme.slug();
+        let theme_dir = per_theme_dir.join(theme_slug);
+        fs::create_dir_all(&theme_dir)
+            .with_context(|| format!("failed to create {}", theme_dir.display()))?;
+        let mut generator = base_generator.clone();
+        generator.theme = theme;
+        generator.seed = base_generator
+            .seed
+            .wrapping_add((theme_index as u64).wrapping_mul(0xd1b5_4a32_d192_ed03));
+        let batch_report = export_generated_mission_batch(
+            source_candidates_dir.join(theme_slug),
+            generator,
+            count_per_theme,
+        )?;
+        let selected = batch_report
+            .ranked_candidates
+            .first()
+            .cloned()
+            .with_context(|| {
+                format!(
+                    "visual lock theme consistency found no accepted {theme_slug} candidate in {count_per_theme} generated mission(s)"
+                )
+            })?;
+        let mission_path = selected
+            .mission_path
+            .as_ref()
+            .context("accepted theme consistency candidate has no mission path")?;
+        let spec = load_mission_spec(mission_path)?;
+        save_mission_spec(theme_dir.join("mission.ron"), &spec)?;
+        write_json(theme_dir.join("mission.json"), &spec)?;
+        write_json(theme_dir.join("candidate_evaluation.json"), &selected)?;
+
+        let (state, used_prepared_state) =
+            if let Some(script) = visual_lock_best_script(&selected.best_plan_label) {
+                let prepared = run_work_order_script(spec.clone(), &script);
+                write_json(theme_dir.join("prepared_order_script.json"), &script)?;
+                write_ron(theme_dir.join("prepared_order_script.ron"), &script)?;
+                (prepared, true)
+            } else {
+                (MissionState::from_spec(spec.clone()), false)
+            };
+
+        let generated_profile = visual_lock_generated_baseline_profile(
+            &theme_dir,
+            &state.spec.visual_theme.sprite_style_profile,
+        )?;
+        let authored_profile = visual_lock_authored_override_profile(
+            &theme_dir,
+            &state.spec.visual_theme.sprite_style_profile,
+        )?;
+
+        let mut generated_state = state.clone();
+        generated_state.spec.visual_theme.sprite_style_profile = generated_profile;
+        let generated_audit = export_visual_lock_stage(&theme_dir, "generated", &generated_state)?;
+        let generated_beauty_path = theme_dir.join("generated_beauty.png");
+        copy_visual_alias(&generated_audit.beauty_path, &generated_beauty_path)?;
+
+        let mut override_state = state;
+        override_state.spec.visual_theme.sprite_style_profile = authored_profile;
+        let override_audit = export_visual_lock_stage(&theme_dir, "override", &override_state)?;
+        let override_beauty_path = theme_dir.join("override_beauty.png");
+        copy_visual_alias(&override_audit.beauty_path, &override_beauty_path)?;
+
+        let before_after_path = theme_dir.join("before_after.png");
+        save_visual_lock_before_after(
+            &generated_audit.beauty_path,
+            &override_audit.beauty_path,
+            &override_state,
+            &before_after_path,
+        )?;
+
+        let mut notes = Vec::new();
+        if override_audit.asset_report.overridden_sprite_count == 0 {
+            notes.push(
+                "No authored terrain override was active for this theme; visual comparison is generated profile only.".to_string(),
+            );
+        }
+        if override_audit.asset_report.override_issue_count > 0 {
+            notes.push(format!(
+                "{} override issue(s) reported for this theme.",
+                override_audit.asset_report.override_issue_count
+            ));
+        }
+        if !override_audit.asset_report.fallback_pieces_used.is_empty() {
+            notes.push(format!(
+                "Fallback pieces used: {}.",
+                override_audit.asset_report.fallback_pieces_used.join(", ")
+            ));
+        }
+        if notes.is_empty() {
+            notes.push("Authored override profile rendered without asset issues.".to_string());
+        }
+
+        let visual_audit_path = theme_dir.join("visual_audit.json");
+        let entry = VisualLockThemeConsistencyEntry {
+            theme,
+            theme_slug: theme_slug.to_string(),
+            mission_id: selected.mission_id,
+            title: selected.title,
+            seed: selected.seed,
+            accepted_score: selected.tactical_interest_score,
+            best_plan_label: selected.best_plan_label,
+            used_prepared_state,
+            generated_beauty_path: generated_beauty_path.to_string_lossy().to_string(),
+            override_beauty_path: override_beauty_path.to_string_lossy().to_string(),
+            before_after_path: before_after_path.to_string_lossy().to_string(),
+            visual_audit_path: visual_audit_path.to_string_lossy().to_string(),
+            generated_asset_report: generated_audit.asset_report,
+            override_asset_report: override_audit.asset_report,
+            generated_visible_sprite_impacts: generated_audit.visible_sprite_impacts,
+            override_visible_sprite_impacts: override_audit.visible_sprite_impacts,
+            placeholder_impacts: override_audit.placeholder_impacts,
+            notes,
+        };
+        write_json(&visual_audit_path, &entry)?;
+        entries.push(entry);
+    }
+
+    let generated_contact_sheet_path = out_dir.join("theme_visual_contact_sheet_generated.png");
+    let override_contact_sheet_path = out_dir.join("theme_visual_contact_sheet_overrides.png");
+    let before_after_contact_sheet_path =
+        out_dir.join("theme_visual_contact_sheet_before_after.png");
+    save_visual_lock_theme_contact_sheet(
+        &generated_contact_sheet_path,
+        &entries,
+        VisualLockThemeContactSheetKind::Generated,
+    )?;
+    save_visual_lock_theme_contact_sheet(
+        &override_contact_sheet_path,
+        &entries,
+        VisualLockThemeContactSheetKind::Override,
+    )?;
+    save_visual_lock_theme_contact_sheet(
+        &before_after_contact_sheet_path,
+        &entries,
+        VisualLockThemeContactSheetKind::BeforeAfter,
+    )?;
+
+    let shared_high_impact_pieces = visual_lock_shared_piece_impacts(&entries);
+    let shared_placeholder_impacts = visual_lock_shared_placeholder_impacts(&entries);
+    let weakest_visual_identity_theme = entries
+        .iter()
+        .max_by_key(|entry| {
+            entry
+                .placeholder_impacts
+                .iter()
+                .map(|impact| impact.estimated_screen_area_px)
+                .sum::<u32>()
+                + entry.override_asset_report.fallback_pieces_used.len() as u32 * 10_000
+        })
+        .map(|entry| entry.theme_slug.clone());
+    let override_active_count = entries
+        .iter()
+        .filter(|entry| entry.override_asset_report.overridden_sprite_count > 0)
+        .count();
+    let fallback_theme_count = entries
+        .iter()
+        .filter(|entry| !entry.override_asset_report.fallback_pieces_used.is_empty())
+        .count();
+    let notes = vec![
+        format!(
+            "Authored terrain overrides were active in {override_active_count}/{} theme render(s).",
+            entries.len()
+        ),
+        format!("{fallback_theme_count} theme render(s) used fallback visual pieces."),
+        "Object placeholders remain benchmark silhouettes; use this report to decide whether the next art pass should target props.".to_string(),
+    ];
+
+    let report = VisualLockThemeConsistencyReport {
+        seed: base_generator.seed,
+        count_per_theme,
+        generated_contact_sheet_path: generated_contact_sheet_path.to_string_lossy().to_string(),
+        override_contact_sheet_path: override_contact_sheet_path.to_string_lossy().to_string(),
+        before_after_contact_sheet_path: before_after_contact_sheet_path
+            .to_string_lossy()
+            .to_string(),
+        theme_entries: entries,
+        shared_high_impact_pieces,
+        shared_placeholder_impacts,
+        weakest_visual_identity_theme,
+        notes,
+    };
+    write_json(
+        out_dir.join("theme_visual_consistency_report.json"),
+        &report,
+    )?;
     Ok(report)
 }
 
@@ -11070,6 +11331,202 @@ fn visual_lock_generated_baseline_profile(out_dir: &Path, profile: &str) -> Resu
     let style_profile_path = out_dir.join("benchmark_generated_baseline_style.ron");
     recipe.save_style_profile_path(&style_profile_path)?;
     Ok(style_profile_path.to_string_lossy().to_string())
+}
+
+fn visual_lock_authored_override_profile(out_dir: &Path, profile: &str) -> Result<String> {
+    let mut recipe = TerrainSpriteRecipe::from_style_profile_path(profile)
+        .unwrap_or_else(|_| TerrainSpriteRecipe::from_default_style_profile());
+    recipe.sanitize();
+    let source_override_dir = fs::canonicalize("assets/sprite_styles/cozy_upland_sparse/overrides")
+        .context("Visual Lock 7 requires Visual Lock 6 terrain source overrides")?;
+    recipe.override_dir = source_override_dir.to_string_lossy().to_string();
+    let style_profile_path = out_dir.join("authored_override_style.ron");
+    recipe.save_style_profile_path(&style_profile_path)?;
+    Ok(style_profile_path.to_string_lossy().to_string())
+}
+
+#[derive(Clone, Copy)]
+enum VisualLockThemeContactSheetKind {
+    Generated,
+    Override,
+    BeforeAfter,
+}
+
+fn save_visual_lock_theme_contact_sheet(
+    path: impl AsRef<Path>,
+    entries: &[VisualLockThemeConsistencyEntry],
+    kind: VisualLockThemeContactSheetKind,
+) -> Result<()> {
+    let path = path.as_ref();
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let preview_w = if matches!(kind, VisualLockThemeContactSheetKind::BeforeAfter) {
+        360
+    } else {
+        240
+    };
+    let preview_h = 172;
+    let label_h = 16;
+    let gap = 10;
+    let columns = entries.len().clamp(1, 3) as u32;
+    let rows = (entries.len() as u32).div_ceil(columns).max(1);
+    let mut sheet = RgbaImage::from_pixel(
+        columns * preview_w + (columns + 1) * gap,
+        rows * (preview_h + label_h) + (rows + 1) * gap,
+        Rgba([21, 23, 22, 255]),
+    );
+    for (index, entry) in entries.iter().enumerate() {
+        let image_path = match kind {
+            VisualLockThemeContactSheetKind::Generated => &entry.generated_beauty_path,
+            VisualLockThemeContactSheetKind::Override => &entry.override_beauty_path,
+            VisualLockThemeContactSheetKind::BeforeAfter => &entry.before_after_path,
+        };
+        let visual = image::open(image_path)
+            .with_context(|| format!("failed to read {image_path}"))?
+            .to_rgba8();
+        let thumb = image::imageops::resize(
+            &visual,
+            preview_w,
+            preview_h,
+            image::imageops::FilterType::Nearest,
+        );
+        let col = index as u32 % columns;
+        let row = index as u32 / columns;
+        let x0 = gap + col * (preview_w + gap);
+        let y0 = gap + row * (preview_h + label_h + gap);
+        blit_image(&mut sheet, &thumb, x0, y0);
+        let border_color = theme_preview_color(entry.theme);
+        draw_preview_border(&mut sheet, x0, y0, preview_w, preview_h, border_color);
+        fill_preview_rect(
+            &mut sheet,
+            x0,
+            y0 + preview_h,
+            preview_w,
+            label_h,
+            Rgba([34, 37, 34, 255]),
+        );
+        let override_width =
+            ((entry.override_asset_report.overridden_sprite_count.min(12) as u32) * preview_w) / 12;
+        fill_preview_rect(
+            &mut sheet,
+            x0,
+            y0 + preview_h + 3,
+            override_width.max(1),
+            3,
+            border_color,
+        );
+        let placeholder_area = entry
+            .placeholder_impacts
+            .iter()
+            .map(|impact| impact.estimated_screen_area_px)
+            .sum::<u32>();
+        let placeholder_width = (placeholder_area.min(24_000) * preview_w) / 24_000;
+        fill_preview_rect(
+            &mut sheet,
+            x0,
+            y0 + preview_h + 8,
+            placeholder_width.max(1),
+            2,
+            Rgba([220, 162, 76, 255]),
+        );
+        let score_width = ((entry.accepted_score.max(0) as u32).min(100) * preview_w) / 100;
+        fill_preview_rect(
+            &mut sheet,
+            x0,
+            y0 + preview_h + 12,
+            score_width.max(1),
+            2,
+            Rgba([88, 184, 112, 255]),
+        );
+    }
+    sheet
+        .save(path)
+        .with_context(|| format!("failed to save {}", path.display()))
+}
+
+fn visual_lock_shared_piece_impacts(
+    entries: &[VisualLockThemeConsistencyEntry],
+) -> Vec<VisualLockSharedPieceImpact> {
+    let mut by_piece: HashMap<(String, String), (HashSet<String>, u32, u32)> = HashMap::new();
+    for entry in entries {
+        for impact in &entry.override_visible_sprite_impacts {
+            let key = (impact.piece.clone(), impact.role.clone());
+            let summary = by_piece.entry(key).or_default();
+            summary.0.insert(entry.theme_slug.clone());
+            summary.1 += impact.cell_count;
+            summary.2 += impact.estimated_screen_area_px;
+        }
+    }
+    let mut impacts = by_piece
+        .into_iter()
+        .map(
+            |((piece, role), (themes, total_cell_count, total_estimated_screen_area_px))| {
+                let mut themes = themes.into_iter().collect::<Vec<_>>();
+                themes.sort();
+                VisualLockSharedPieceImpact {
+                    piece,
+                    role,
+                    theme_count: themes.len() as u32,
+                    themes,
+                    total_cell_count,
+                    total_estimated_screen_area_px,
+                }
+            },
+        )
+        .collect::<Vec<_>>();
+    impacts.sort_by(|a, b| {
+        b.theme_count
+            .cmp(&a.theme_count)
+            .then_with(|| {
+                b.total_estimated_screen_area_px
+                    .cmp(&a.total_estimated_screen_area_px)
+            })
+            .then_with(|| a.piece.cmp(&b.piece))
+    });
+    impacts
+}
+
+fn visual_lock_shared_placeholder_impacts(
+    entries: &[VisualLockThemeConsistencyEntry],
+) -> Vec<VisualLockSharedPlaceholderImpact> {
+    let mut by_placeholder: HashMap<String, (HashSet<String>, u32, u32)> = HashMap::new();
+    for entry in entries {
+        for impact in &entry.placeholder_impacts {
+            let summary = by_placeholder
+                .entry(impact.placeholder.clone())
+                .or_default();
+            summary.0.insert(entry.theme_slug.clone());
+            summary.1 += impact.count;
+            summary.2 += impact.estimated_screen_area_px;
+        }
+    }
+    let mut impacts = by_placeholder
+        .into_iter()
+        .map(
+            |(placeholder, (themes, total_count, total_estimated_screen_area_px))| {
+                let mut themes = themes.into_iter().collect::<Vec<_>>();
+                themes.sort();
+                VisualLockSharedPlaceholderImpact {
+                    placeholder,
+                    theme_count: themes.len() as u32,
+                    themes,
+                    total_count,
+                    total_estimated_screen_area_px,
+                }
+            },
+        )
+        .collect::<Vec<_>>();
+    impacts.sort_by(|a, b| {
+        b.theme_count
+            .cmp(&a.theme_count)
+            .then_with(|| {
+                b.total_estimated_screen_area_px
+                    .cmp(&a.total_estimated_screen_area_px)
+            })
+            .then_with(|| a.placeholder.cmp(&b.placeholder))
+    });
+    impacts
 }
 
 fn visual_lock_override_sprite_ids(piece: &str) -> Vec<String> {

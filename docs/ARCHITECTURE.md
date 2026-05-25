@@ -3,7 +3,7 @@
 GroundLab is intentionally not a general engine. It is a custom terrain/art/simulation workbench
 for one future game family: terrain-first prepared-ground defense.
 
-The active roadmap has paused generated-campaign and game-system expansion for Visual Lock 6.
+The active roadmap has paused generated-campaign and game-system expansion for Visual Lock 7.
 SpriteGen remains the terrain art forge, while `ground_game` owns mission specs, prep-phase work
 orders, local materials,
 environment-object states, doctrine route preview, deterministic assault sandbox, assault
@@ -23,9 +23,12 @@ difficulty/complexity curves, visual QA, and weak-campaign diagnostics. Visual L
 pipeline only as a source of fixed benchmark missions, then exports initial/prepared beauty,
 route-overlay, debug, diff, feature-overlay, full-board, playable-crop, close-detail,
 asset-report, feature-map, audit, override-pack, and before/after comparison artifacts to guide
-art-direction work in gameplay context. Visual Lock 6 moves the benchmark's high-impact path,
+art-direction work in gameplay context. Visual Lock 6 moved the benchmark's high-impact path,
 trench, berm, and dirt replacements into committed source PNG overrides so prepared rerenders
-exercise the same generated/effective/override contract that production art will use.
+exercise the same generated/effective/override contract that production art will use. Visual Lock
+7 applies that authored override profile across all generated theme classes and reports shared
+high-impact terrain pieces, placeholder object load, fallbacks, and the weakest visual-identity
+theme before any systems work resumes.
 `ground_app` now treats Mission Lab as the primary tactical prep surface rather than a generic
 terrain editor panel, and Road Below starts as a playable briefing-to-debrief slice. The same
 mission loop now evaluates generated Road-Below-like candidates so GroundLab can batch-generate,

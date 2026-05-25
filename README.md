@@ -4,7 +4,7 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: Visual Lock 6 — production art replacement set
+## Current status: Visual Lock 7 — theme visual consistency check
 
 GroundLab has paused new systems, campaign layers, mechanics, and SpriteGen family expansion to
 lock a minimum generated-mission art bar. The primary product direction is still a 2.5D tactical
@@ -13,11 +13,10 @@ prep-phase work orders, transforms terrain and local objects, then tests those c
 predictable enemy doctrine. The current benchmark takes one accepted generated mission, renders
 beauty/routes/debug views, applies the best known prep script, and audits the visual asset usage so
 art direction can be judged in gameplay context instead of isolated sprites or schematic boards.
-Visual Lock 6 keeps that benchmark fixed and switches the high-impact prepared terrain pieces to
-committed source-art PNG overrides under `assets/sprite_styles/cozy_upland_sparse/overrides/`.
-The benchmark exporter now copies authored style-profile overrides through directly, uses generated
-fallback art only for missing targets, and reports which terrain/object source files were active
-before rerendering the prepared benchmark and before/after comparison images.
+Visual Lock 7 checks the same override workflow across all generated theme classes. It renders one
+accepted mission per theme with a generated-only profile and an authored override profile, exports
+per-theme before/after comparisons, and writes contact sheets plus a consistency report so the next
+art pass can be driven by cross-theme evidence instead of a single ridge benchmark.
 
 SpriteGen remains in the repository as the terrain art forge. It still provides swappable style
 profiles, override PNGs, sprite manifests, validation, and exportable grass/dirt/path/trench/berm/
