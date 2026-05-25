@@ -58,3 +58,14 @@ Reviewed questions:
 ## Next Decision
 
 Road Below is readable enough to use Art Pack 0.1 as the default visual pack for Mission Lab previews in the next implementation step. Keep the next art-only pass narrow: path kit composition, wall identity, and marker style only.
+
+## Mission Lab Integration
+
+Art Pack 0.1 is now loaded by Mission Lab by default, rendered directly into the
+Visual-mode tactical grid, and used alongside queued/completed prep feedback,
+selected-cell action guidance, prep consequence summaries, and debrief "What
+mattered" notes.
+
+The next decision checkpoint is `docs/PLAYABLE_SLICE_0_1_REVIEW.md`, which
+should decide whether Road Below is accepted for internal iteration or needs one
+more narrow UI, art, or content pass before new systems resume.
