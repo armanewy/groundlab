@@ -17,6 +17,7 @@ terrain scene.
 - Summary: `assets/art_packs/art_pack_0_1/art_pack_summary.json`
 - Preview: `assets/art_packs/art_pack_0_1/preview.png`
 - Road Below preview: `assets/art_packs/art_pack_0_1/road_below_preview.png`
+- Road Below beauty prototype: `assets/art_packs/art_pack_0_1/road_below_beauty.png`
 - Selected sheet: `assets/art_packs/art_pack_0_1/selected_sheet.png`
 - Required role coverage: 11/11
 - Path kit coverage: 7/7
@@ -90,6 +91,11 @@ high-oblique target. The next visual milestone is:
 
 Use `docs/VISUAL_TARGET_0_1.md` as the target spec before doing more art or
 renderer work.
+
+The first beauty-composition prototype is now versioned at
+`assets/art_packs/art_pack_0_1/road_below_beauty.png`. It is closer to the
+target because it removes the tactical grid and draws continuous scene shapes,
+but it is still a prototype, not visual acceptance.
 
 ## Mission Lab Integration
 

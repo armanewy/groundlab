@@ -72,12 +72,35 @@ visual target.
 When a desired reference image is available, compare GroundLab output against it
 directly instead of judging pipeline success alone.
 
-Planned command:
+Export the current Road Below beauty prototype:
 
 ```powershell
-cargo run -p ground_cli -- visual-target-compare assets/art_packs/art_pack_0_1/road_below_preview.png assets/reference/desired_visual.png exports/visual_target_compare.png
+cargo run -p ground_cli -- art-pack-road-below-beauty assets/art_packs/art_pack_0_1/art_pack.json assets/art_packs/art_pack_0_1/road_below_beauty.png
+```
+
+Compare it against the current target reference:
+
+```powershell
+cargo run -p ground_cli -- visual-target-compare assets/art_packs/art_pack_0_1/road_below_beauty.png assets/visual_targets/dry_upland_outpost_01/visual_target.png exports/visual_target_0_1/beauty_vs_target.png
 ```
 
 The comparison should make the current gap obvious: Art Pack 0.1 is a connected
 placeholder pipeline, while Visual Target 0.1 requires a cohesive high-oblique
 composition.
+
+## First Prototype Status
+
+`assets/art_packs/art_pack_0_1/road_below_beauty.png` is the first beauty
+composition prototype. It intentionally avoids the visible tactical grid and
+draws continuous path, trench, and berm shapes before placing Art Pack props.
+
+It is closer to the target than the stamped grid preview because it is composed
+as a scene, but it is still not visually accepted. The comparison still shows
+major gaps:
+
+- Road and earthwork shapes are too soft and airbrushed.
+- Trench depth lacks the crisp wood/soil wall detail in the reference.
+- Props still come from simple pixel sprites and do not match the richer
+  illustrated object style.
+- Marker language remains too symbolic.
+- Grass and lighting need more authored variation and scene-level direction.

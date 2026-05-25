@@ -1,10 +1,11 @@
 use anyhow::{bail, Result};
 use ground_core::{
-    build_art_variant_contact_sheet, ensure_default_asset_files, export_art_lab_road_below_preview,
+    build_art_variant_contact_sheet, ensure_default_asset_files,
+    export_art_lab_road_below_beauty_composition, export_art_lab_road_below_preview,
     export_art_variant_batch, export_edit_scenario_suite, export_tileset_bundle_with_palette,
     generate_art_variants, load_art_lab_override_profile, load_workbench_assets,
-    parse_art_variant_cli, TerrainArtKit, TerrainMap, WorkbenchAssetPaths, DEFAULT_PALETTE_PATH,
-    DEFAULT_RECIPE_PATH,
+    parse_art_variant_cli, PixelImage, Rgba8, TerrainArtKit, TerrainMap, WorkbenchAssetPaths,
+    DEFAULT_PALETTE_PATH, DEFAULT_RECIPE_PATH,
 };
 use ground_game::{
     export_assault_run, export_generated_campaign_set,
@@ -819,6 +820,34 @@ fn main() -> Result<()> {
             );
             println!("Preview: {}", preview_path.display());
         }
+        "art-pack-road-below-beauty" => {
+            let profile_path = args
+                .next()
+                .unwrap_or_else(|| "assets/art_packs/art_pack_0_1/art_pack.json".to_string());
+            let out_path = args
+                .next()
+                .unwrap_or_else(|| "exports/visual_target_0_1/road_below_beauty.png".to_string());
+            let profile = load_art_lab_override_profile(&profile_path)?;
+            let preview_path = export_art_lab_road_below_beauty_composition(&profile, &out_path)?;
+            println!(
+                "Exported Road Below beauty composition from {}.",
+                profile_path
+            );
+            println!("Preview: {}", preview_path.display());
+        }
+        "visual-target-compare" => {
+            let Some(current_image) = args.next() else {
+                bail!("visual-target-compare requires a current image path");
+            };
+            let Some(target_image) = args.next() else {
+                bail!("visual-target-compare requires a target image path");
+            };
+            let Some(out_path) = args.next() else {
+                bail!("visual-target-compare requires an output image path");
+            };
+            export_visual_target_compare(&current_image, &target_image, &out_path)?;
+            println!("Exported visual target comparison to {out_path}.");
+        }
         "render-mission" => {
             let out_dir = args
                 .next()
@@ -925,8 +954,64 @@ fn print_help() {
     eprintln!("  cargo run -p ground_cli -- visual-lock-art-acceptance [out_dir] [--theme ridge_trap] [--seed 99418113] [--benchmark-count 8] [--count 20]");
     eprintln!("  cargo run -p ground_cli -- art-variants [family] [seed] [count] [out_dir]");
     eprintln!("  cargo run -p ground_cli -- art-pack-road-below-preview [profile_path] [out_root]");
+    eprintln!("  cargo run -p ground_cli -- art-pack-road-below-beauty [profile_path] [out_path]");
+    eprintln!("  cargo run -p ground_cli -- visual-target-compare [current_image] [target_image] [out_path]");
     eprintln!("  cargo run -p ground_cli -- render-mission [out_dir] [mission_spec.ron|json]");
     eprintln!(
         "  cargo run -p ground_cli -- calibrate-themes [out_dir] [--count 200] [--seed 99418113]"
     );
+}
+
+fn export_visual_target_compare(
+    current_image: &str,
+    target_image: &str,
+    out_path: &str,
+) -> Result<()> {
+    let current = PixelImage::load_png(current_image)?;
+    let target = PixelImage::load_png(target_image)?;
+    let compare_height = 640;
+    let current = resize_nearest_to_height(&current, compare_height);
+    let target = resize_nearest_to_height(&target, compare_height);
+    let gutter = 18;
+    let header = 16;
+    let width = current.width + target.width + gutter;
+    let height = compare_height + header;
+    let mut sheet = PixelImage::new(width, height, Rgba8::opaque(16, 18, 17));
+    sheet.fill_rect(0, 0, current.width, header, Rgba8::opaque(128, 85, 46));
+    sheet.fill_rect(
+        current.width + gutter,
+        0,
+        target.width,
+        header,
+        Rgba8::opaque(54, 92, 122),
+    );
+    sheet.blit(&current, 0, header);
+    sheet.blit(&target, current.width + gutter, header);
+    if let Some(parent) = std::path::Path::new(out_path).parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    sheet.save_png(out_path)?;
+    Ok(())
+}
+
+fn resize_nearest_to_height(image: &PixelImage, target_height: u32) -> PixelImage {
+    if image.height == target_height {
+        return image.clone();
+    }
+    let target_width = ((image.width as f32 * target_height as f32 / image.height.max(1) as f32)
+        .round()
+        .max(1.0)) as u32;
+    let mut out = PixelImage::transparent(target_width, target_height);
+    for y in 0..target_height {
+        for x in 0..target_width {
+            let sx = (x as u64 * image.width as u64 / target_width as u64) as u32;
+            let sy = (y as u64 * image.height as u64 / target_height as u64) as u32;
+            out.set(
+                x,
+                y,
+                image.get(sx.min(image.width - 1), sy.min(image.height - 1)),
+            );
+        }
+    }
+    out
 }

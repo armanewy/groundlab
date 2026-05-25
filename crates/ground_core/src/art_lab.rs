@@ -511,9 +511,10 @@ pub use export::{
     art_contact_sheet_path, art_override_preview_path, art_override_profile_path,
     art_pack_0_1_road_below_preview_path, art_variant_approved_paths,
     build_art_variant_contact_sheet, export_art_contact_sheet, export_art_lab_override_preview,
-    export_art_lab_road_below_preview, export_art_variant_approved, export_art_variant_batch,
-    load_art_lab_override_profile, promote_art_lab_art_pack, promoted_art_pack_profile_path,
-    render_art_lab_override_preview, render_art_lab_road_below_preview,
+    export_art_lab_road_below_beauty_composition, export_art_lab_road_below_preview,
+    export_art_variant_approved, export_art_variant_batch, load_art_lab_override_profile,
+    promote_art_lab_art_pack, promoted_art_pack_profile_path, render_art_lab_override_preview,
+    render_art_lab_road_below_beauty_composition, render_art_lab_road_below_preview,
     save_art_lab_override_profile,
 };
 
@@ -900,6 +901,79 @@ pub mod export {
         image
     }
 
+    pub fn render_art_lab_road_below_beauty_composition(
+        profile: &ArtLabOverrideProfile,
+    ) -> PixelImage {
+        let mut image = PixelImage::new(960, 640, Rgba8::opaque(27, 40, 30));
+        draw_beauty_grass_field(&mut image);
+
+        let main_path_points = [
+            (382.0, 0.0),
+            (392.0, 92.0),
+            (414.0, 190.0),
+            (454.0, 310.0),
+            (498.0, 438.0),
+            (552.0, 640.0),
+        ];
+        draw_beauty_path(&mut image, &main_path_points);
+
+        let cross_path_points = [
+            (0.0, 444.0),
+            (118.0, 436.0),
+            (244.0, 410.0),
+            (372.0, 374.0),
+            (520.0, 338.0),
+            (706.0, 294.0),
+            (960.0, 240.0),
+        ];
+        draw_beauty_path(&mut image, &cross_path_points);
+
+        let trench_points = [
+            (272.0, 552.0),
+            (344.0, 516.0),
+            (430.0, 480.0),
+            (526.0, 456.0),
+            (626.0, 432.0),
+        ];
+        draw_beauty_trench(&mut image, &trench_points);
+
+        let berm_points = [
+            (676.0, 394.0),
+            (748.0, 378.0),
+            (824.0, 352.0),
+            (902.0, 320.0),
+        ];
+        draw_beauty_berm(&mut image, &berm_points);
+        draw_beauty_stone_and_grass_decals(&mut image);
+
+        let tree = art_role_image(profile, ArtLabOverrideRole::Tree);
+        let log = art_role_image(profile, ArtLabOverrideRole::Log);
+        let rock = art_role_image(profile, ArtLabOverrideRole::Rock);
+        let wall = art_role_image(profile, ArtLabOverrideRole::Wall);
+        let stakes = art_role_image(profile, ArtLabOverrideRole::Stakes);
+        let wire = art_role_image(profile, ArtLabOverrideRole::Wire);
+        let objective = art_role_image(profile, ArtLabOverrideRole::ObjectiveMarker);
+        let spawn = art_role_image(profile, ArtLabOverrideRole::SpawnMarker);
+
+        draw_beauty_prop(&mut image, &tree, 84, 116, 5, 54, 14);
+        draw_beauty_prop(&mut image, &tree, 180, 86, 5, 54, 14);
+        draw_beauty_prop(&mut image, &log, 126, 496, 4, 64, 11);
+        draw_beauty_prop(&mut image, &tree, 812, 106, 4, 44, 13);
+        draw_beauty_prop(&mut image, &wall, 636, 126, 4, 62, 10);
+        draw_beauty_prop(&mut image, &rock, 170, 296, 4, 42, 12);
+        draw_beauty_prop(&mut image, &rock, 730, 468, 3, 34, 9);
+        draw_beauty_prop(&mut image, &stakes, 552, 176, 4, 48, 9);
+        draw_beauty_prop(&mut image, &wire, 778, 228, 4, 54, 8);
+
+        draw_diegetic_marker_backplate(&mut image, 92, 352, false);
+        draw_beauty_prop(&mut image, &spawn, 84, 336, 3, 34, 8);
+        draw_diegetic_marker_backplate(&mut image, 700, 110, true);
+        draw_beauty_prop(&mut image, &objective, 712, 90, 3, 34, 8);
+
+        draw_beauty_foreground_grass(&mut image);
+        image
+    }
+
     pub fn export_art_lab_override_preview(
         profile: &ArtLabOverrideProfile,
         root_dir: impl AsRef<Path>,
@@ -927,6 +1001,21 @@ pub mod export {
         std::fs::create_dir_all(dir)
             .with_context(|| format!("failed to create {}", dir.display()))?;
         render_art_lab_road_below_preview(profile)
+            .save_png(&path)
+            .with_context(|| format!("failed to save {}", path.display()))?;
+        Ok(path)
+    }
+
+    pub fn export_art_lab_road_below_beauty_composition(
+        profile: &ArtLabOverrideProfile,
+        out_path: impl AsRef<Path>,
+    ) -> Result<PathBuf> {
+        let path = out_path.as_ref().to_path_buf();
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)
+                .with_context(|| format!("failed to create {}", dir.display()))?;
+        }
+        render_art_lab_road_below_beauty_composition(profile)
             .save_png(&path)
             .with_context(|| format!("failed to save {}", path.display()))?;
         Ok(path)
@@ -1001,6 +1090,517 @@ fn fill_art_preview_background(image: &mut PixelImage) {
             }
             if (x * 5 + y) % 29 == 0 {
                 image.blend_pixel(x, y, Rgba8::opaque(42, 70, 39), 0.10);
+            }
+        }
+    }
+}
+
+fn draw_beauty_grass_field(image: &mut PixelImage) {
+    let rng = TinyRng::new(0x5eed_bea7_0001);
+    let center_x = image.width as f32 * 0.48;
+    let center_y = image.height as f32 * 0.50;
+    for y in 0..image.height {
+        for x in 0..image.width {
+            let nx = (x as f32 - center_x) / (image.width as f32 * 0.56);
+            let ny = (y as f32 - center_y) / (image.height as f32 * 0.50);
+            let vignette = (nx * nx + ny * ny).clamp(0.0, 1.2);
+            let slope = y as f32 / image.height as f32;
+            let mut color = Rgba8::opaque(75, 113, 59)
+                .blend(Rgba8::opaque(106, 139, 72), 0.18 + slope * 0.14)
+                .blend(Rgba8::opaque(24, 37, 29), vignette * 0.55);
+            let noise = rng.hash_xy(x, y);
+            if noise > 0.93 {
+                color = color.blend(Rgba8::opaque(132, 154, 84), 0.28);
+            } else if noise < 0.07 {
+                color = color.blend(Rgba8::opaque(37, 71, 39), 0.22);
+            }
+            image.set(x, y, color);
+        }
+    }
+
+    for y in (20..image.height.saturating_sub(20)).step_by(11) {
+        for x in (18..image.width.saturating_sub(18)).step_by(17) {
+            let h = rng.hash_xy(x, y);
+            if h > 0.74 {
+                image.blend_pixel(x, y, Rgba8::opaque(145, 165, 91), 0.22);
+                image.blend_pixel(
+                    (x + 1).min(image.width - 1),
+                    y,
+                    Rgba8::opaque(42, 81, 42),
+                    0.18,
+                );
+            }
+        }
+    }
+}
+
+fn draw_beauty_foreground_grass(image: &mut PixelImage) {
+    let mut rng = TinyRng::new(0x5eed_bea7_0002);
+    for _ in 0..420 {
+        let x = rng.next_u32() % image.width;
+        let y = 420 + rng.next_u32() % 190;
+        let height = 2 + (rng.next_u32() % 5) as i32;
+        let color = if rng.next_f32() > 0.5 {
+            Rgba8::opaque(113, 145, 77)
+        } else {
+            Rgba8::opaque(49, 88, 43)
+        };
+        image.draw_line(
+            x as i32,
+            y as i32,
+            x as i32 + rng.range_i32(-1, 2),
+            y as i32 - height,
+            color,
+        );
+    }
+}
+
+fn draw_beauty_stone_and_grass_decals(image: &mut PixelImage) {
+    let mut rng = TinyRng::new(0xdec0_0001);
+    for _ in 0..120 {
+        let x = rng.range_i32(60, image.width as i32 - 60);
+        let y = rng.range_i32(120, image.height as i32 - 70);
+        if rng.next_f32() < 0.55 {
+            ellipse(
+                image,
+                x,
+                y,
+                rng.range_i32(2, 6),
+                rng.range_i32(1, 4),
+                Rgba8::opaque(126, 127, 111),
+            );
+            blend_pixel_i32(image, x - 1, y - 1, Rgba8::opaque(190, 186, 158), 0.42);
+            blend_pixel_i32(image, x + 2, y + 2, Rgba8::opaque(54, 57, 50), 0.28);
+        } else {
+            let color = if rng.next_f32() > 0.5 {
+                Rgba8::opaque(143, 162, 82)
+            } else {
+                Rgba8::opaque(54, 96, 45)
+            };
+            for blade in 0..rng.range_i32(2, 5) {
+                image.draw_line(
+                    x + blade - 1,
+                    y,
+                    x + blade + rng.range_i32(-2, 3),
+                    y - rng.range_i32(4, 10),
+                    color,
+                );
+            }
+        }
+    }
+}
+
+fn draw_beauty_path(image: &mut PixelImage, points: &[(f32, f32)]) {
+    draw_soft_polyline(
+        image,
+        &offset_points(points, 5.0, 12.0),
+        50.0,
+        Rgba8::opaque(35, 30, 22),
+        0.18,
+    );
+    draw_soft_polyline(image, points, 49.0, Rgba8::opaque(74, 100, 52), 0.36);
+    draw_soft_polyline(image, points, 36.0, Rgba8::opaque(166, 112, 63), 0.82);
+    draw_soft_polyline(image, points, 25.0, Rgba8::opaque(195, 145, 83), 0.38);
+    draw_soft_polyline(
+        image,
+        &offset_points(points, -3.0, -5.0),
+        14.0,
+        Rgba8::opaque(215, 164, 101),
+        0.18,
+    );
+    scatter_near_polyline(
+        image,
+        points,
+        620,
+        44.0,
+        Rgba8::opaque(113, 77, 45),
+        0x9a7a_0001,
+        0.28,
+    );
+    scatter_near_polyline(
+        image,
+        points,
+        260,
+        47.0,
+        Rgba8::opaque(88, 124, 61),
+        0x9a7a_0002,
+        0.30,
+    );
+}
+
+fn draw_beauty_trench(image: &mut PixelImage, points: &[(f32, f32)]) {
+    draw_soft_polyline(
+        image,
+        &offset_points(points, 10.0, 18.0),
+        36.0,
+        Rgba8::opaque(15, 13, 11),
+        0.18,
+    );
+    draw_soft_polyline(image, points, 39.0, Rgba8::opaque(140, 93, 52), 0.56);
+    draw_soft_polyline(
+        image,
+        &offset_points(points, -4.0, -10.0),
+        28.0,
+        Rgba8::opaque(203, 143, 83),
+        0.34,
+    );
+    draw_soft_polyline(image, points, 18.0, Rgba8::opaque(82, 55, 37), 0.72);
+    draw_soft_polyline(
+        image,
+        &offset_points(points, 5.0, 8.0),
+        10.0,
+        Rgba8::opaque(34, 29, 25),
+        0.54,
+    );
+    draw_soft_polyline(
+        image,
+        &offset_points(points, -2.0, -14.0),
+        5.0,
+        Rgba8::opaque(224, 162, 96),
+        0.36,
+    );
+    draw_soft_polyline(
+        image,
+        &offset_points(points, 5.0, 15.0),
+        6.0,
+        Rgba8::opaque(67, 43, 30),
+        0.42,
+    );
+    draw_polyline_marks(
+        image,
+        points,
+        8,
+        Rgba8::opaque(103, 67, 42),
+        Rgba8::opaque(213, 153, 96),
+    );
+    scatter_near_polyline(
+        image,
+        points,
+        520,
+        42.0,
+        Rgba8::opaque(174, 117, 67),
+        0x7a3e_0001,
+        0.30,
+    );
+    scatter_near_polyline(
+        image,
+        points,
+        300,
+        48.0,
+        Rgba8::opaque(67, 101, 52),
+        0x7a3e_0002,
+        0.26,
+    );
+}
+
+fn draw_beauty_berm(image: &mut PixelImage, points: &[(f32, f32)]) {
+    draw_soft_polyline(
+        image,
+        &offset_points(points, 12.0, 24.0),
+        35.0,
+        Rgba8::opaque(23, 19, 14),
+        0.16,
+    );
+    draw_soft_polyline(image, points, 34.0, Rgba8::opaque(132, 88, 49), 0.62);
+    draw_soft_polyline(
+        image,
+        &offset_points(points, -2.0, -8.0),
+        25.0,
+        Rgba8::opaque(176, 124, 70),
+        0.52,
+    );
+    draw_soft_polyline(
+        image,
+        &offset_points(points, -6.0, -13.0),
+        18.0,
+        Rgba8::opaque(95, 129, 65),
+        0.36,
+    );
+    draw_soft_polyline(
+        image,
+        &offset_points(points, -9.0, -18.0),
+        6.0,
+        Rgba8::opaque(224, 162, 93),
+        0.30,
+    );
+    scatter_near_polyline(
+        image,
+        points,
+        420,
+        38.0,
+        Rgba8::opaque(92, 130, 66),
+        0xb36d_0001,
+        0.28,
+    );
+    scatter_near_polyline(
+        image,
+        points,
+        320,
+        32.0,
+        Rgba8::opaque(89, 58, 36),
+        0xb36d_0002,
+        0.22,
+    );
+}
+
+fn draw_diegetic_marker_backplate(image: &mut PixelImage, x: i32, y: i32, objective: bool) {
+    ellipse(image, x + 44, y + 82, 42, 12, Rgba8::BLACK.with_alpha(70));
+    if objective {
+        rect_i32(image, x + 9, y + 49, 82, 34, Rgba8::opaque(92, 88, 73));
+        rect_i32(image, x + 14, y + 43, 72, 11, Rgba8::opaque(139, 132, 102));
+        rect_i32(image, x + 23, y + 34, 54, 10, Rgba8::opaque(153, 144, 111));
+        for i in 0..6 {
+            image.draw_line(
+                x + 17 + i * 12,
+                y + 44,
+                x + 23 + i * 12,
+                y + 53,
+                Rgba8::opaque(68, 67, 59),
+            );
+        }
+    } else {
+        rect_i32(image, x + 16, y + 55, 72, 30, Rgba8::opaque(109, 76, 46));
+        rect_i32(image, x + 20, y + 50, 62, 10, Rgba8::opaque(151, 104, 59));
+        for i in 0..5 {
+            rect_i32(
+                image,
+                x + 23 + i * 11,
+                y + 54 + (i % 2),
+                8,
+                5,
+                Rgba8::opaque(77, 55, 38),
+            );
+        }
+    }
+    let flag_color = if objective {
+        Rgba8::opaque(170, 55, 45)
+    } else {
+        Rgba8::opaque(68, 119, 170)
+    };
+    rect_i32(image, x + 47, y + 22, 4, 42, Rgba8::opaque(91, 58, 35));
+    rect_i32(image, x + 51, y + 24, 34, 18, flag_color);
+}
+
+fn draw_beauty_prop(
+    image: &mut PixelImage,
+    sprite: &PixelImage,
+    x: i32,
+    y: i32,
+    scale: u32,
+    shadow_rx: i32,
+    shadow_ry: i32,
+) {
+    let width = sprite.width as i32 * scale as i32;
+    let height = sprite.height as i32 * scale as i32;
+    ellipse(
+        image,
+        x + width / 2 + 8,
+        y + height - 10,
+        shadow_rx,
+        shadow_ry,
+        Rgba8::BLACK.with_alpha(70),
+    );
+    blit_scaled_nearest_alpha_i32(image, sprite, x, y, scale);
+}
+
+fn offset_points(points: &[(f32, f32)], dx: f32, dy: f32) -> Vec<(f32, f32)> {
+    points.iter().map(|(x, y)| (x + dx, y + dy)).collect()
+}
+
+fn draw_soft_polyline(
+    image: &mut PixelImage,
+    points: &[(f32, f32)],
+    radius: f32,
+    color: Rgba8,
+    alpha: f32,
+) {
+    for window in points.windows(2) {
+        let (x0, y0) = window[0];
+        let (x1, y1) = window[1];
+        let dx = x1 - x0;
+        let dy = y1 - y0;
+        let distance = (dx * dx + dy * dy).sqrt().max(1.0);
+        let steps = (distance / 4.0).ceil() as u32;
+        for step in 0..=steps {
+            let t = step as f32 / steps.max(1) as f32;
+            let x = x0 + dx * t;
+            let y = y0 + dy * t;
+            draw_soft_disc(image, x, y, radius, color, alpha);
+        }
+    }
+}
+
+fn draw_soft_disc(image: &mut PixelImage, cx: f32, cy: f32, radius: f32, color: Rgba8, alpha: f32) {
+    let r = radius.ceil() as i32;
+    for y in (cy as i32 - r)..=(cy as i32 + r) {
+        for x in (cx as i32 - r)..=(cx as i32 + r) {
+            if !image.in_bounds(x, y) {
+                continue;
+            }
+            let dx = x as f32 - cx;
+            let dy = y as f32 - cy;
+            let dist = (dx * dx + dy * dy).sqrt();
+            if dist <= radius {
+                let edge = 1.0 - (dist / radius).powf(1.7);
+                blend_pixel_i32(image, x, y, color, alpha * edge.clamp(0.0, 1.0));
+            }
+        }
+    }
+}
+
+fn scatter_near_polyline(
+    image: &mut PixelImage,
+    points: &[(f32, f32)],
+    count: u32,
+    radius: f32,
+    color: Rgba8,
+    seed: u64,
+    alpha: f32,
+) {
+    let mut rng = TinyRng::new(seed);
+    for _ in 0..count {
+        let segment = (rng.next_u32() as usize) % points.len().saturating_sub(1).max(1);
+        let (x0, y0) = points[segment];
+        let (x1, y1) = points[(segment + 1).min(points.len() - 1)];
+        let t = rng.next_f32();
+        let angle = rng.next_f32() * std::f32::consts::TAU;
+        let distance = rng.next_f32().sqrt() * radius;
+        let x = x0 + (x1 - x0) * t + angle.cos() * distance;
+        let y = y0 + (y1 - y0) * t + angle.sin() * distance * 0.55;
+        let size = 1 + (rng.next_u32() % 3) as i32;
+        for dx in 0..size {
+            blend_pixel_i32(image, x.round() as i32 + dx, y.round() as i32, color, alpha);
+        }
+    }
+}
+
+fn draw_polyline_marks(
+    image: &mut PixelImage,
+    points: &[(f32, f32)],
+    count: u32,
+    dark: Rgba8,
+    light: Rgba8,
+) {
+    if points.len() < 2 {
+        return;
+    }
+    for index in 0..count {
+        let t = (index as f32 + 0.5) / count as f32;
+        let sample = sample_polyline(points, t);
+        let next = sample_polyline(points, (t + 0.02).min(1.0));
+        let dx = next.0 - sample.0;
+        let dy = next.1 - sample.1;
+        let len = (dx * dx + dy * dy).sqrt().max(1.0);
+        let nx = -dy / len;
+        let ny = dx / len;
+        let x0 = sample.0 - nx * 16.0;
+        let y0 = sample.1 - ny * 7.0;
+        let x1 = sample.0 + nx * 16.0;
+        let y1 = sample.1 + ny * 7.0;
+        draw_line_alpha(
+            image, x0 as i32, y0 as i32, x1 as i32, y1 as i32, dark, 0.50,
+        );
+        draw_line_alpha(
+            image,
+            x0 as i32,
+            y0 as i32 - 1,
+            x1 as i32,
+            y1 as i32 - 1,
+            light,
+            0.24,
+        );
+    }
+}
+
+fn sample_polyline(points: &[(f32, f32)], t: f32) -> (f32, f32) {
+    let total = points
+        .windows(2)
+        .map(|w| {
+            let dx = w[1].0 - w[0].0;
+            let dy = w[1].1 - w[0].1;
+            (dx * dx + dy * dy).sqrt()
+        })
+        .sum::<f32>()
+        .max(1.0);
+    let mut remaining = total * t.clamp(0.0, 1.0);
+    for window in points.windows(2) {
+        let dx = window[1].0 - window[0].0;
+        let dy = window[1].1 - window[0].1;
+        let length = (dx * dx + dy * dy).sqrt().max(1.0);
+        if remaining <= length {
+            let local = remaining / length;
+            return (window[0].0 + dx * local, window[0].1 + dy * local);
+        }
+        remaining -= length;
+    }
+    *points.last().unwrap_or(&(0.0, 0.0))
+}
+
+fn draw_line_alpha(
+    image: &mut PixelImage,
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+    color: Rgba8,
+    alpha: f32,
+) {
+    let mut x0 = x0;
+    let mut y0 = y0;
+    let dx = (x1 - x0).abs();
+    let sx = if x0 < x1 { 1 } else { -1 };
+    let dy = -(y1 - y0).abs();
+    let sy = if y0 < y1 { 1 } else { -1 };
+    let mut err = dx + dy;
+    loop {
+        blend_pixel_i32(image, x0, y0, color, alpha);
+        if x0 == x1 && y0 == y1 {
+            break;
+        }
+        let e2 = 2 * err;
+        if e2 >= dy {
+            err += dy;
+            x0 += sx;
+        }
+        if e2 <= dx {
+            err += dx;
+            y0 += sy;
+        }
+    }
+}
+
+fn blend_pixel_i32(image: &mut PixelImage, x: i32, y: i32, color: Rgba8, alpha: f32) {
+    if image.in_bounds(x, y) {
+        image.blend_pixel(x as u32, y as u32, color, alpha);
+    }
+}
+
+fn blit_scaled_nearest_alpha_i32(
+    target: &mut PixelImage,
+    source: &PixelImage,
+    x0: i32,
+    y0: i32,
+    scale: u32,
+) {
+    for y in 0..source.height {
+        for x in 0..source.width {
+            let color = source.get(x, y);
+            if color.a == 0 {
+                continue;
+            }
+            for sy in 0..scale {
+                for sx in 0..scale {
+                    let tx = x0 + (x * scale + sx) as i32;
+                    let ty = y0 + (y * scale + sy) as i32;
+                    if !target.in_bounds(tx, ty) {
+                        continue;
+                    }
+                    if color.a == 255 {
+                        target.set_i32(tx, ty, color);
+                    } else {
+                        blend_pixel_i32(target, tx, ty, color, color.a as f32 / 255.0);
+                    }
+                }
             }
         }
     }
@@ -2728,6 +3328,14 @@ mod tests {
         let road_preview = render_art_lab_road_below_preview(&profile);
         assert_eq!(road_preview.width, 384);
         assert_eq!(road_preview.height, 240);
+
+        let beauty = render_art_lab_road_below_beauty_composition(&profile);
+        assert_eq!(beauty.width, 960);
+        assert_eq!(beauty.height, 640);
+        assert!(beauty
+            .pixels
+            .iter()
+            .any(|pixel| pixel.rgb_distance(Rgba8::opaque(27, 40, 30)) > 20.0));
     }
 
     #[test]
