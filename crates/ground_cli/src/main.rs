@@ -1,8 +1,9 @@
 use anyhow::{bail, Result};
 use ground_core::{
-    ensure_default_asset_files, export_edit_scenario_suite, export_tileset_bundle_with_palette,
-    load_workbench_assets, TerrainArtKit, TerrainMap, WorkbenchAssetPaths, DEFAULT_PALETTE_PATH,
-    DEFAULT_RECIPE_PATH,
+    build_art_variant_contact_sheet, ensure_default_asset_files, export_art_variant_batch,
+    export_edit_scenario_suite, export_tileset_bundle_with_palette, generate_art_variants,
+    load_workbench_assets, parse_art_variant_cli, TerrainArtKit, TerrainMap, WorkbenchAssetPaths,
+    DEFAULT_PALETTE_PATH, DEFAULT_RECIPE_PATH,
 };
 use ground_game::{
     export_assault_run, export_generated_campaign_set,
@@ -778,6 +779,32 @@ fn main() -> Result<()> {
                 "Visual lock acceptance files: visual_lock_06_07_08_comparison.png, per_theme_close_detail_sheet.png, per_theme_playable_crop_sheet.png, visual_acceptance_report.json, remaining_art_risk_report.json"
             );
         }
+        "art-variants" => {
+            let Some(family) = args.next() else {
+                bail!("art-variants requires a sprite family");
+            };
+            let Some(seed) = args.next() else {
+                bail!("art-variants requires a seed");
+            };
+            let Some(count) = args.next() else {
+                bail!("art-variants requires a count");
+            };
+            let out_dir = args
+                .next()
+                .unwrap_or_else(|| "exports/art_lab/cli".to_string());
+            let request = parse_art_variant_cli(&family, &seed, &count)?;
+            let batch = generate_art_variants(&request);
+            export_art_variant_batch(&batch, &out_dir)?;
+            let contact_sheet_path = std::path::Path::new(&out_dir).join("contact_sheet.png");
+            build_art_variant_contact_sheet(&batch).save_png(&contact_sheet_path)?;
+            println!(
+                "Exported {} {} art variant(s) to {}.",
+                batch.variants.len(),
+                batch.request.family.label(),
+                out_dir
+            );
+            println!("Contact sheet: {}", contact_sheet_path.display());
+        }
         "render-mission" => {
             let out_dir = args
                 .next()
@@ -882,6 +909,7 @@ fn print_help() {
     eprintln!("  cargo run -p ground_cli -- visual-lock-benchmark [out_dir] [--theme ridge_trap] [--seed 99418113] [--count 8]");
     eprintln!("  cargo run -p ground_cli -- visual-lock-theme-consistency [out_dir] [--seed 99418113] [--count 20]");
     eprintln!("  cargo run -p ground_cli -- visual-lock-art-acceptance [out_dir] [--theme ridge_trap] [--seed 99418113] [--benchmark-count 8] [--count 20]");
+    eprintln!("  cargo run -p ground_cli -- art-variants [family] [seed] [count] [out_dir]");
     eprintln!("  cargo run -p ground_cli -- render-mission [out_dir] [mission_spec.ron|json]");
     eprintln!(
         "  cargo run -p ground_cli -- calibrate-themes [out_dir] [--count 200] [--seed 99418113]"

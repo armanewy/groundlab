@@ -4,19 +4,11 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: Visual Lock 9 — art acceptance gate
+## Current focus: Art Lab pivot
 
-GroundLab has paused new systems, campaign layers, mechanics, and SpriteGen family expansion to
-lock a minimum generated-mission art bar. The primary product direction is still a 2.5D tactical
-engineering defense game: the player is a commander / engineer who reads a compact level, issues
-prep-phase work orders, transforms terrain and local objects, then tests those choices against
-predictable enemy doctrine. The current benchmark takes one accepted generated mission, renders
-beauty/routes/debug views, applies the best known prep script, and audits the visual asset usage so
-art direction can be judged in gameplay context instead of isolated sprites or schematic boards.
-Visual Lock 9 runs a compact art acceptance gate over that override stack. It exports the fixed
-benchmark comparison, per-theme playable-crop and close-detail sheets, a pass/fail acceptance
-report, and a remaining art risk report so the project can decide whether to resume gameplay/procgen
-work or target one more focused art pass.
+GroundLab has paused new gameplay, campaign, procgen, and quality-gate expansion. The current focus
+is the Art Lab pivot: make the app useful for generating, comparing, approving, and exporting
+terrain/object sprites in one sitting. See [docs/ART_PIVOT.md](docs/ART_PIVOT.md).
 
 SpriteGen remains in the repository as the terrain art forge. It still provides swappable style
 profiles, override PNGs, sprite manifests, validation, and exportable grass/dirt/path/trench/berm/

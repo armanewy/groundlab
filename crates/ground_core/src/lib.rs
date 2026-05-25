@@ -1,3 +1,4 @@
+pub mod art_lab;
 pub mod color;
 pub mod edit_patch;
 pub mod edit_scenario;
@@ -23,6 +24,7 @@ pub mod validation;
 pub mod visual_scene;
 pub mod visual_target;
 
+pub use art_lab::*;
 pub use color::*;
 pub use edit_patch::*;
 pub use edit_scenario::*;

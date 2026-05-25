@@ -2,12 +2,14 @@ use std::path::PathBuf;
 
 use eframe::egui;
 use ground_core::{
-    build_seam_test_sheet, ensure_default_asset_files, export_edit_scenario_suite,
-    export_tileset_bundle_with_palette, find_path, load_workbench_assets, muted_field_32,
-    preview_pixel_to_cell, render_terrain_preview, save_palette_file, save_recipe_file,
-    validate_tileset, Brush, BrushKind, FileSnapshot, GroundMaterial, LightDirection, Palette,
-    PixelImage, PreviewMode, PreviewOptions, ProjectionKind, TerrainMap, Tileset, TilesetRecipe,
-    ValidationReport, ViewOrientation, WorkbenchAssetPaths,
+    build_seam_test_sheet, ensure_default_asset_files,
+    export_art_contact_sheet as export_art_contact_sheet_file, export_art_variant_approved,
+    export_edit_scenario_suite, export_tileset_bundle_with_palette, find_path,
+    generate_art_variants, load_workbench_assets, muted_field_32, preview_pixel_to_cell,
+    render_terrain_preview, save_palette_file, save_recipe_file, validate_tileset, ArtSpriteFamily,
+    ArtVariantBatch, ArtVariantRequest, Brush, BrushKind, FileSnapshot, GroundMaterial,
+    LightDirection, Palette, PixelImage, PreviewMode, PreviewOptions, ProjectionKind, TerrainMap,
+    Tileset, TilesetRecipe, ValidationReport, ViewOrientation, WorkbenchAssetPaths,
 };
 use ground_game::{
     export_road_below_seed, load_generated_mission_browser_index, load_generated_mission_pack,
@@ -41,15 +43,21 @@ fn main() -> eframe::Result {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum WorkbenchPanel {
+    ArtLab,
     MissionLab,
     TerrainForge,
 }
 
 impl WorkbenchPanel {
-    const ALL: [WorkbenchPanel; 2] = [WorkbenchPanel::MissionLab, WorkbenchPanel::TerrainForge];
+    const ALL: [WorkbenchPanel; 3] = [
+        WorkbenchPanel::ArtLab,
+        WorkbenchPanel::MissionLab,
+        WorkbenchPanel::TerrainForge,
+    ];
 
     fn label(self) -> &'static str {
         match self {
+            WorkbenchPanel::ArtLab => "Art Lab",
             WorkbenchPanel::MissionLab => "Mission Lab",
             WorkbenchPanel::TerrainForge => "Terrain Forge",
         }
@@ -191,6 +199,13 @@ struct MissionBalanceDashboardRow {
 
 struct GroundLabApp {
     active_panel: WorkbenchPanel,
+    art_family: ArtSpriteFamily,
+    art_seed: u64,
+    art_variant_count: u32,
+    art_selected_variant_index: Option<usize>,
+    art_batch: Option<ArtVariantBatch>,
+    art_variant_textures: Vec<egui::TextureHandle>,
+    art_status: String,
     mission_state: MissionState,
     selected_mission_cell: CellCoord,
     mission_action_mode: MissionActionMode,
@@ -252,7 +267,14 @@ impl GroundLabApp {
         });
         let terrain = TerrainMap::target_derived(16, 12, loaded.recipe.seed);
         let mut app = Self {
-            active_panel: WorkbenchPanel::MissionLab,
+            active_panel: WorkbenchPanel::ArtLab,
+            art_family: ArtSpriteFamily::Trench,
+            art_seed: 99_418_113,
+            art_variant_count: 12,
+            art_selected_variant_index: None,
+            art_batch: None,
+            art_variant_textures: Vec::new(),
+            art_status: "Art Lab ready. Choose a sprite family and generate variants.".to_string(),
             mission_state: playable_road_below_state(),
             selected_mission_cell: CellCoord::new(5, 4),
             mission_action_mode: MissionActionMode::Inspect,
@@ -314,7 +336,7 @@ impl GroundLabApp {
             dirty_assets: true,
             dirty_preview: true,
             last_preview_size: [1, 1],
-            status: "Ready. ProcGen 8.1 campaign quality tools are active.".to_string(),
+            status: "Ready. Art Lab is the current focus.".to_string(),
         };
         app.refresh_if_dirty(&cc.egui_ctx);
         app
@@ -442,6 +464,215 @@ impl GroundLabApp {
             }
         });
         ui.separator();
+    }
+
+    fn show_art_lab_controls(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        self.show_panel_tabs(ui);
+        ui.heading("Art Lab");
+        ui.label("Generate, compare, approve, and export terrain/object sprites.");
+        ui.separator();
+
+        ui.group(|ui| {
+            ui.strong("Sprite family");
+            egui::ComboBox::from_id_salt("art_family_selector")
+                .selected_text(self.art_family.label())
+                .show_ui(ui, |ui| {
+                    for family in ArtSpriteFamily::ALL {
+                        ui.selectable_value(&mut self.art_family, family, family.label());
+                    }
+                });
+        });
+        ui.separator();
+
+        ui.group(|ui| {
+            ui.strong("Variant controls");
+            ui.add(egui::DragValue::new(&mut self.art_seed).prefix("seed "));
+            ui.add(
+                egui::DragValue::new(&mut self.art_variant_count)
+                    .range(1..=64)
+                    .prefix("variants "),
+            );
+            ui.label("Sprite size: 32x32");
+            ui.horizontal_wrapped(|ui| {
+                if ui.button("Generate variants").clicked() {
+                    self.generate_art_variants_for_lab(ctx);
+                }
+                if ui.button("Clear variants").clicked() {
+                    self.art_batch = None;
+                    self.art_variant_textures.clear();
+                    self.art_selected_variant_index = None;
+                    self.art_status = "Cleared Art Lab variants.".to_string();
+                }
+            });
+            ui.horizontal_wrapped(|ui| {
+                let can_export = self.selected_art_variant().is_some();
+                if ui
+                    .add_enabled(can_export, egui::Button::new("Export selected override"))
+                    .clicked()
+                {
+                    self.export_selected_art_variant();
+                }
+                let can_sheet = self
+                    .art_batch
+                    .as_ref()
+                    .is_some_and(|batch| !batch.variants.is_empty());
+                if ui
+                    .add_enabled(can_sheet, egui::Button::new("Export contact sheet"))
+                    .clicked()
+                {
+                    self.export_art_contact_sheet();
+                }
+            });
+        });
+        ui.separator();
+
+        ui.group(|ui| {
+            ui.strong("Selection");
+            if let Some(variant) = self.selected_art_variant() {
+                ui.label(&variant.id);
+                for note in &variant.notes {
+                    ui.small(note);
+                }
+            } else {
+                ui.label("No variant selected.");
+            }
+        });
+        ui.separator();
+
+        ui.group(|ui| {
+            ui.strong("Status");
+            ui.label(&self.art_status);
+        });
+    }
+
+    fn show_art_lab_canvas(&mut self, ui: &mut egui::Ui) {
+        ui.heading("Art Lab Variants");
+        let Some(batch) = &self.art_batch else {
+            ui.label("Variant preview will be wired to SpriteGen in the next step.");
+            ui.small("For this first pass, use Generate variants to create deterministic Art Lab sprites.");
+            return;
+        };
+        if batch.variants.is_empty() {
+            ui.label("No variants generated.");
+            return;
+        }
+
+        ui.horizontal_wrapped(|ui| {
+            ui.label(format!(
+                "{} · seed {} · {} variant(s)",
+                batch.request.family.label(),
+                batch.request.seed,
+                batch.variants.len()
+            ));
+        });
+        ui.separator();
+
+        egui::Grid::new("art_lab_variant_grid")
+            .num_columns(4)
+            .spacing([14.0, 14.0])
+            .show(ui, |ui| {
+                for (index, variant) in batch.variants.iter().enumerate() {
+                    ui.vertical(|ui| {
+                        if let Some(texture) = self.art_variant_textures.get(index) {
+                            let selected = self.art_selected_variant_index == Some(index);
+                            let frame = egui::Frame::new()
+                                .fill(if selected {
+                                    egui::Color32::from_rgb(55, 74, 50)
+                                } else {
+                                    egui::Color32::from_rgb(28, 31, 28)
+                                })
+                                .stroke(egui::Stroke::new(
+                                    if selected { 2.0 } else { 1.0 },
+                                    if selected {
+                                        egui::Color32::from_rgb(166, 214, 116)
+                                    } else {
+                                        egui::Color32::from_rgb(72, 78, 70)
+                                    },
+                                ))
+                                .inner_margin(egui::Margin::same(6));
+                            frame.show(ui, |ui| {
+                                let size = egui::Vec2::splat(96.0);
+                                let sized = egui::load::SizedTexture::new(texture.id(), size);
+                                let response = ui.add(
+                                    egui::Image::from_texture(sized)
+                                        .texture_options(egui::TextureOptions::NEAREST)
+                                        .sense(egui::Sense::click()),
+                                );
+                                if response.clicked() {
+                                    self.art_selected_variant_index = Some(index);
+                                    self.art_status = format!("Selected {}", variant.id);
+                                }
+                            });
+                        }
+                        ui.small(format!("#{:02}", variant.variant_index));
+                    });
+                    if (index + 1) % 4 == 0 {
+                        ui.end_row();
+                    }
+                }
+            });
+    }
+
+    fn generate_art_variants_for_lab(&mut self, ctx: &egui::Context) {
+        let request = ArtVariantRequest {
+            family: self.art_family,
+            seed: self.art_seed,
+            count: self.art_variant_count,
+            width: 32,
+            height: 32,
+        };
+        let batch = generate_art_variants(&request);
+        self.art_variant_textures.clear();
+        for variant in &batch.variants {
+            let color_image = color_image_for_upload(&variant.image);
+            self.art_variant_textures.push(ctx.load_texture(
+                variant.id.clone(),
+                color_image,
+                egui::TextureOptions::NEAREST,
+            ));
+        }
+        self.art_selected_variant_index = batch.variants.first().map(|_| 0);
+        self.art_status = format!(
+            "Generated {} {} variant(s).",
+            batch.variants.len(),
+            batch.request.family.label()
+        );
+        self.art_batch = Some(batch);
+    }
+
+    fn selected_art_variant(&self) -> Option<&ground_core::ArtVariant> {
+        let index = self.art_selected_variant_index?;
+        self.art_batch.as_ref()?.variants.get(index)
+    }
+
+    fn export_selected_art_variant(&mut self) {
+        let Some(variant) = self.selected_art_variant() else {
+            self.art_status = "Select a variant before exporting.".to_string();
+            return;
+        };
+        match export_art_variant_approved(variant, "exports/art_lab") {
+            Ok((png_path, _json_path)) => {
+                self.art_status = format!("Exported {} to {}", variant.id, png_path.display());
+            }
+            Err(err) => {
+                self.art_status = format!("Export selected override failed: {err}");
+            }
+        }
+    }
+
+    fn export_art_contact_sheet(&mut self) {
+        let Some(batch) = &self.art_batch else {
+            self.art_status = "Generate variants before exporting a contact sheet.".to_string();
+            return;
+        };
+        match export_art_contact_sheet_file(batch, "exports/art_lab") {
+            Ok(path) => {
+                self.art_status = format!("Exported contact sheet to {}", path.display());
+            }
+            Err(err) => {
+                self.art_status = format!("Export contact sheet failed: {err}");
+            }
+        }
     }
 
     fn show_mission_controls(&mut self, ui: &mut egui::Ui) {
@@ -2838,6 +3069,7 @@ impl eframe::App for GroundLabApp {
             .max_size(520.0)
             .show_inside(ui, |ui| {
                 egui::ScrollArea::vertical().show(ui, |ui| match self.active_panel {
+                    WorkbenchPanel::ArtLab => self.show_art_lab_controls(ui, &ctx),
                     WorkbenchPanel::MissionLab => self.show_mission_controls(ui),
                     WorkbenchPanel::TerrainForge => self.show_controls(ui, &ctx),
                 });
@@ -2847,6 +3079,7 @@ impl eframe::App for GroundLabApp {
             egui::ScrollArea::both()
                 .auto_shrink([false, false])
                 .show(ui, |ui| match self.active_panel {
+                    WorkbenchPanel::ArtLab => self.show_art_lab_canvas(ui),
                     WorkbenchPanel::MissionLab => self.show_mission_canvas(ui),
                     WorkbenchPanel::TerrainForge => self.show_canvas(ui, &ctx),
                 });
