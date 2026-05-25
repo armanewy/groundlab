@@ -65,7 +65,8 @@ grid and Art Pack sprites are tools, not the final visual language.
 - Usable as final production art: no.
 - Needs Art Pack 0.2 before broader gameplay work: no.
 - Accepted as visual target: no.
-- Visual acceptance: pending `Visual Target 0.1`.
+- Visual acceptance: accepted for internal visual direction via Visual Target
+  0.1 paintover.
 
 Art Pack 0.1 should be treated as a working placeholder pack, not as proof that
 the final art direction is close. More individual 32x32 sprite generation will
@@ -111,10 +112,15 @@ alone. The next visual direction is the Layered Road Below paintover pipeline:
 export scene layers, improve them with authored or AI-assisted art, import the
 paintover, compare against the target, and score honestly.
 
-Visual Target 0.1 is not accepted until
-`docs/VISUAL_TARGET_0_1_SCORECARD.md` passes. The closure milestone is
-“Visual Target 0.1 Closure -- Road Below beauty composition matches the
-reference direction.”
+Visual Target 0.1 is gated by `docs/VISUAL_TARGET_0_1_SCORECARD.md`. The
+closure milestone is “Visual Target 0.1 Closure -- Road Below beauty
+composition matches the reference direction.”
+
+Update: Visual Target 0.1 is now accepted for internal visual direction through
+the promoted paintover candidate at
+`assets/art_packs/art_pack_0_1/road_below_beauty_paintover.png`. Art Pack 0.1
+itself remains a functional placeholder/integration pack; the paintover is the
+beauty/reference image that should guide future visual work.
 
 ## Mission Lab Integration
 

@@ -117,15 +117,15 @@ grid and Art Pack sprites are tools, not the final visual language.
 - Needs art pass before more systems: no for interaction iteration, yes before
   visual acceptance.
 - Needs content/balance pass before more systems: yes.
-- Visual acceptance: pending.
+- Visual acceptance: accepted for internal visual direction via Visual Target
+  0.1 paintover.
 
 The next visual milestone is `Visual Target 0.1 -- cohesive high-oblique Road
 Below scene`. See `docs/VISUAL_TARGET_0_1.md`.
 
-Visual Target 0.1 is not accepted until
-`docs/VISUAL_TARGET_0_1_SCORECARD.md` passes. The closure milestone is
-“Visual Target 0.1 Closure -- Road Below beauty composition matches the
-reference direction.”
+Visual Target 0.1 now passes `docs/VISUAL_TARGET_0_1_SCORECARD.md` through the
+promoted paintover candidate. The tactical-grid view remains the interaction
+view; the paintover is the beauty/reference direction.
 
 ## Next Narrow Fixes
 

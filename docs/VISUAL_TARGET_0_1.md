@@ -67,7 +67,7 @@ visual target.
 - `docs/VISUAL_TARGET_0_1_SCORECARD.md` passes: no category below 4 and average
   score at least 4.25.
 
-Visual Target 0.1 is not accepted until the scorecard passes.
+Visual Target 0.1 is accepted when the scorecard passes.
 
 ## Explicit Non-Goals
 
@@ -107,6 +107,21 @@ than grid-first or sprite-first rendering.
 
 Gate: [VISUAL_TARGET_0_1_SCORECARD.md](VISUAL_TARGET_0_1_SCORECARD.md).
 
+## Accepted Paintover Candidate
+
+`assets/art_packs/art_pack_0_1/road_below_beauty_paintover.png` is accepted as
+the Visual Target 0.1 internal visual direction image.
+
+This candidate closes the major gap that the procedural compositor could not:
+it reads as a cohesive high-oblique illustrated terrain scene with continuous
+ground, compacted roads, constructed earthworks, grounded props, dense foliage
+and stone detail, and unified lighting.
+
+The tactical-grid view remains the interaction view. The paintover is the
+beauty/reference view used to steer future art, layer replacement, and Mission
+Lab presentation work. It is not final production art and does not need to
+preserve every gameplay cell exactly.
+
 ## Current Prototype Status
 
 `assets/art_packs/art_pack_0_1/road_below_beauty.png` is the current beauty
@@ -136,7 +151,7 @@ visual assets.
 
 ## Layered Road Below Paintover Pipeline
 
-The next visual direction is a layered paintover workflow:
+The accepted visual target came from a layered paintover workflow:
 
 1. Export Road Below as editable scene layers.
 2. Paint or generate improved layers/assets against the target reference.
@@ -172,3 +187,10 @@ Compare original, paintover, and target:
 ```powershell
 cargo run -p ground_cli -- visual-target-triple-compare assets/art_packs/art_pack_0_1/road_below_beauty.png assets/art_packs/art_pack_0_1/road_below_beauty_paintover.png assets/visual_targets/dry_upland_outpost_01/visual_target.png exports/visual_target_0_1/original_paintover_target.png
 ```
+
+## Final Closure Decision
+
+Visual Target 0.1 is accepted for internal visual direction. Future visual work
+should be target-driven and should translate the accepted paintover back into
+usable layers/assets rather than expanding random sprite generation or
+procedural primitive drawing.
