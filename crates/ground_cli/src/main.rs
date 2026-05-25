@@ -1,9 +1,10 @@
 use anyhow::{bail, Result};
 use ground_core::{
-    build_art_variant_contact_sheet, ensure_default_asset_files, export_art_variant_batch,
-    export_edit_scenario_suite, export_tileset_bundle_with_palette, generate_art_variants,
-    load_workbench_assets, parse_art_variant_cli, TerrainArtKit, TerrainMap, WorkbenchAssetPaths,
-    DEFAULT_PALETTE_PATH, DEFAULT_RECIPE_PATH,
+    build_art_variant_contact_sheet, ensure_default_asset_files, export_art_lab_road_below_preview,
+    export_art_variant_batch, export_edit_scenario_suite, export_tileset_bundle_with_palette,
+    generate_art_variants, load_art_lab_override_profile, load_workbench_assets,
+    parse_art_variant_cli, TerrainArtKit, TerrainMap, WorkbenchAssetPaths, DEFAULT_PALETTE_PATH,
+    DEFAULT_RECIPE_PATH,
 };
 use ground_game::{
     export_assault_run, export_generated_campaign_set,
@@ -805,6 +806,19 @@ fn main() -> Result<()> {
             );
             println!("Contact sheet: {}", contact_sheet_path.display());
         }
+        "art-pack-road-below-preview" => {
+            let profile_path = args
+                .next()
+                .unwrap_or_else(|| "assets/art_packs/art_pack_0_1/art_pack.json".to_string());
+            let out_root = args.next().unwrap_or_else(|| "exports/art_lab".to_string());
+            let profile = load_art_lab_override_profile(&profile_path)?;
+            let preview_path = export_art_lab_road_below_preview(&profile, &out_root)?;
+            println!(
+                "Exported Road Below Art Pack preview from {}.",
+                profile_path
+            );
+            println!("Preview: {}", preview_path.display());
+        }
         "render-mission" => {
             let out_dir = args
                 .next()
@@ -910,6 +924,7 @@ fn print_help() {
     eprintln!("  cargo run -p ground_cli -- visual-lock-theme-consistency [out_dir] [--seed 99418113] [--count 20]");
     eprintln!("  cargo run -p ground_cli -- visual-lock-art-acceptance [out_dir] [--theme ridge_trap] [--seed 99418113] [--benchmark-count 8] [--count 20]");
     eprintln!("  cargo run -p ground_cli -- art-variants [family] [seed] [count] [out_dir]");
+    eprintln!("  cargo run -p ground_cli -- art-pack-road-below-preview [profile_path] [out_root]");
     eprintln!("  cargo run -p ground_cli -- render-mission [out_dir] [mission_spec.ron|json]");
     eprintln!(
         "  cargo run -p ground_cli -- calibrate-themes [out_dir] [--count 200] [--seed 99418113]"
