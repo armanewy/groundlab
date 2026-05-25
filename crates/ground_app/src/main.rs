@@ -695,6 +695,9 @@ impl GroundLabApp {
 
     fn show_mission_lifecycle_panel(&mut self, ui: &mut egui::Ui) {
         ui.strong("Mission flow");
+        self.show_current_goal_panel(ui);
+        self.show_primary_mission_action(ui);
+        ui.small("Secondary controls");
         ui.horizontal_wrapped(|ui| {
             if ui
                 .add_enabled(
@@ -781,6 +784,82 @@ impl GroundLabApp {
             }
         });
         ui.small("Playable flow: briefing -> prep -> assault -> debrief -> retry.");
+    }
+
+    fn show_current_goal_panel(&self, ui: &mut egui::Ui) {
+        egui::Frame::group(ui.style()).show(ui, |ui| {
+            ui.strong("Current goal");
+            ui.label(match self.mission_state.phase {
+                MissionPhase::Briefing => "Read the objective and enemy intel, then start prep.",
+                MissionPhase::Prep => {
+                    if self.mission_state.work_queue.is_empty() {
+                        "Select terrain or objects, use recommended actions, and queue a plan."
+                    } else {
+                        "Review blue queued cells, then run the queue or commit the plan."
+                    }
+                }
+                MissionPhase::Assault => {
+                    "Run or step the assault, then inspect what your prep changed."
+                }
+                MissionPhase::Debrief => {
+                    "Read what mattered, then retry with the same plan or reset to briefing."
+                }
+            });
+        });
+    }
+
+    fn show_primary_mission_action(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal_wrapped(|ui| match self.mission_state.phase {
+            MissionPhase::Briefing => {
+                if ui.button("Start Prep").clicked() {
+                    self.mission_state.phase = MissionPhase::Prep;
+                    self.notify(
+                        "Prep started. Select cells or objects and queue engineering work.",
+                    );
+                }
+            }
+            MissionPhase::Prep => {
+                let can_commit = self.mission_state.work_queue.is_empty();
+                if ui
+                    .add_enabled(can_commit, egui::Button::new("Commit Plan / Start Assault"))
+                    .clicked()
+                {
+                    self.mission_state.start_assault();
+                    self.notify("Assault started from current prepared terrain.");
+                }
+                if !can_commit {
+                    ui.small("Run or clear queued work before committing the plan.");
+                }
+            }
+            MissionPhase::Assault => {
+                if ui.button("Run Assault").clicked() {
+                    let summary = self.mission_state.run_assault_to_completion(160);
+                    self.notify(summary.outcome_label);
+                }
+                if ui.button("Step Assault").clicked() {
+                    let events = self.mission_state.step_assault();
+                    if let Some(event) = events.last() {
+                        self.notify(format!("Assault step: {}", event.note));
+                    } else {
+                        self.notify("Assault step produced no new event.");
+                    }
+                }
+            }
+            MissionPhase::Debrief => {
+                if ui.button("Retry with same plan").clicked() {
+                    let script = self.current_player_plan_script();
+                    self.reset_to_prep_with_script(&script, true);
+                    self.mission_state.start_assault();
+                    self.notify("Retried Road Below with the same prep plan.");
+                }
+                if ui.button("Retry from briefing").clicked() {
+                    self.mission_state = playable_road_below_state();
+                    self.selected_mission_cell = CellCoord::new(5, 4);
+                    self.mission_recent_completed_cells.clear();
+                    self.notify("Reset Road Below to briefing.");
+                }
+            }
+        });
     }
 
     fn load_mission_file(&mut self, path: &str) {
@@ -1202,6 +1281,10 @@ impl GroundLabApp {
                     ui.selectable_value(&mut self.route_overlay_mode, mode, mode.label());
                 }
             });
+        ui.small(format!(
+            "Route overlay: {}.",
+            route_overlay_help(self.route_overlay_mode)
+        ));
         let current_routes = self.mission_state.route_preview();
         if self.route_group_filter > current_routes.routes.len() {
             self.route_group_filter = 0;
@@ -3683,6 +3766,15 @@ fn visual_result_hint(kind: WorkOrderKind) -> &'static str {
         WorkOrderKind::CutIntoLogs => "fallen trunk becomes usable log material",
         WorkOrderKind::PlaceStakes => "stakes obstacle art appears on the selected cell",
         WorkOrderKind::PrepareRollingLog => "log remains visible and gains a predicted hazard path",
+    }
+}
+
+fn route_overlay_help(mode: RouteOverlayMode) -> &'static str {
+    match mode {
+        RouteOverlayMode::None => "routes are hidden so you can judge terrain and sprites",
+        RouteOverlayMode::Initial => "blue shows the enemy plan before prep changes",
+        RouteOverlayMode::Current => "gold/red shows the current route after your prep",
+        RouteOverlayMode::Delta => "blue is before prep, gold/red is after prep",
     }
 }
 
