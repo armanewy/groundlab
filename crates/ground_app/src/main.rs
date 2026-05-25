@@ -1,6 +1,6 @@
 mod art_lab;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use eframe::egui;
@@ -9,9 +9,10 @@ use ground_core::{
     export_tileset_bundle_with_palette, find_path, load_workbench_assets, muted_field_32,
     preview_pixel_to_cell, render_terrain_preview, save_palette_file, save_recipe_file,
     validate_tileset, ArtLabOverrideProfile, ArtLabOverrideRole, ArtSpriteFamily, ArtStyleControls,
-    ArtVariantBatch, ArtVariantMetadata, Brush, BrushKind, FileSnapshot, GroundMaterial,
-    LightDirection, Palette, PixelImage, PreviewMode, PreviewOptions, ProjectionKind, TerrainMap,
-    Tileset, TilesetRecipe, ValidationReport, ViewOrientation, WorkbenchAssetPaths,
+    ArtVariant, ArtVariantBatch, ArtVariantMetadata, Brush, BrushKind, FileSnapshot,
+    GroundMaterial, LightDirection, Palette, PixelImage, PreviewMode, PreviewOptions,
+    ProjectionKind, TerrainMap, Tileset, TilesetRecipe, ValidationReport, ViewOrientation,
+    WorkbenchAssetPaths,
 };
 use ground_game::{
     export_road_below_seed, load_generated_mission_browser_index, load_generated_mission_pack,
@@ -251,10 +252,14 @@ struct GroundLabApp {
     art_variant_count: u32,
     art_selected_variant_index: Option<usize>,
     art_style: ArtStyleControls,
+    art_lock_style: bool,
     art_override_role: ArtLabOverrideRole,
     art_override_profile: ArtLabOverrideProfile,
     art_approved_variants: HashMap<String, PathBuf>,
     art_batch_parent_id: Option<String>,
+    art_pinned_variant_ids: HashSet<String>,
+    art_pinned_variants: Vec<ArtVariant>,
+    art_pinned_textures: Vec<egui::TextureHandle>,
     art_gallery: Vec<ApprovedArtSprite>,
     art_gallery_textures: Vec<egui::TextureHandle>,
     art_selected_gallery_index: Option<usize>,
@@ -334,10 +339,14 @@ impl GroundLabApp {
             art_variant_count: 12,
             art_selected_variant_index: None,
             art_style: ArtStyleControls::default(),
+            art_lock_style: false,
             art_override_role: ArtLabOverrideRole::TrenchRecessedTerrain,
             art_override_profile: ArtLabOverrideProfile::default(),
             art_approved_variants: HashMap::new(),
             art_batch_parent_id: None,
+            art_pinned_variant_ids: HashSet::new(),
+            art_pinned_variants: Vec::new(),
+            art_pinned_textures: Vec::new(),
             art_gallery: Vec::new(),
             art_gallery_textures: Vec::new(),
             art_selected_gallery_index: None,
@@ -2945,7 +2954,7 @@ impl eframe::App for GroundLabApp {
             egui::ScrollArea::both()
                 .auto_shrink([false, false])
                 .show(ui, |ui| match self.active_panel {
-                    WorkbenchPanel::ArtLab => self.show_art_lab_canvas(ui),
+                    WorkbenchPanel::ArtLab => self.show_art_lab_canvas(ui, &ctx),
                     WorkbenchPanel::MissionLab => self.show_mission_canvas(ui),
                     WorkbenchPanel::TerrainForge => self.show_canvas(ui, &ctx),
                 });

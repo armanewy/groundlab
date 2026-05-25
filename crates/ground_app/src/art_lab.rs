@@ -6,7 +6,8 @@ use ground_core::{
     derive_mutated_art_seed, export_art_contact_sheet as export_art_contact_sheet_file,
     export_art_lab_override_preview, export_art_variant_approved, generate_art_variants,
     render_art_lab_override_preview, save_art_lab_override_profile, ArtLabOverrideRole,
-    ArtSpriteFamily, ArtVariantBatch, ArtVariantMetadata, ArtVariantRequest, PixelImage,
+    ArtSpriteFamily, ArtStyleControls, ArtVariant, ArtVariantBatch, ArtVariantMetadata,
+    ArtVariantRequest, PixelImage,
 };
 
 use crate::{
@@ -21,9 +22,39 @@ impl GroundLabApp {
         ui.label("Generate, compare, approve, assign, and preview sprites.");
         ui.separator();
 
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Generate").clicked() {
+                self.generate_art_variants_for_lab(ctx);
+            }
+            if ui.button("Reroll").clicked() {
+                self.reroll_art_seed();
+                self.generate_art_variants_for_lab(ctx);
+            }
+            let can_mutate = self.selected_art_variant().is_some();
+            if ui
+                .add_enabled(can_mutate, egui::Button::new("Mutate selected"))
+                .clicked()
+            {
+                self.mutate_selected_art_variant(ctx);
+            }
+            if ui
+                .add_enabled(can_mutate, egui::Button::new("Approve + assign"))
+                .clicked()
+            {
+                self.approve_assign_and_save_selected_art_variant_to_role();
+                self.refresh_art_override_preview_texture(ctx);
+            }
+            if ui.button("Refresh preview").clicked() {
+                self.refresh_art_override_preview(ctx);
+            }
+        });
+        ui.separator();
+
         ui.group(|ui| {
             ui.strong("Step 1 - Generate");
-            ui.small("Choose a family, tune the style, then generate a batch.");
+            ui.small(
+                "Choose a family, reroll quickly, or lock style while exploring random batches.",
+            );
             egui::ComboBox::from_id_salt("art_family_selector")
                 .selected_text(self.art_family.label())
                 .show_ui(ui, |ui| {
@@ -38,6 +69,25 @@ impl GroundLabApp {
                     .prefix("variants "),
             );
             ui.label("Sprite size: 32x32");
+            ui.checkbox(&mut self.art_lock_style, "Lock style");
+            ui.horizontal_wrapped(|ui| {
+                if ui.button("Reroll seed").clicked() {
+                    self.reroll_art_seed();
+                }
+                if ui.button("Randomize style").clicked() {
+                    self.randomize_art_style();
+                }
+                if ui.button("Generate random batch").clicked() {
+                    self.generate_random_art_batch(ctx);
+                }
+                if ui.button("Reroll unpinned").clicked() {
+                    self.reroll_unpinned_art_batch(ctx);
+                }
+                if ui.button("Reset style defaults").clicked() {
+                    self.art_style = ArtStyleControls::default();
+                    self.art_status = "Reset Art Lab style defaults.".to_string();
+                }
+            });
             ui.separator();
             ui.strong("Style controls");
             ui.add(egui::Slider::new(&mut self.art_style.roughness, 0.0..=1.0).text("roughness"));
@@ -66,7 +116,11 @@ impl GroundLabApp {
             ui.strong("Step 2 - Select / Inspect");
             ui.small("Click a thumbnail in the variant grid to choose the candidate you want to inspect.");
             self.show_selected_art_variant_inspector(ui);
-            self.show_art_review_panel(ui);
+            egui::CollapsingHeader::new("Review / rubric")
+                .default_open(false)
+                .show(ui, |ui| {
+                    self.show_art_review_panel(ui);
+                });
         });
         ui.separator();
 
@@ -228,7 +282,7 @@ impl GroundLabApp {
         });
     }
 
-    pub(crate) fn show_art_lab_canvas(&mut self, ui: &mut egui::Ui) {
+    pub(crate) fn show_art_lab_canvas(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.heading("Art Lab Variants");
         if let Some(texture) = &self.art_preview_texture {
             ui.horizontal_wrapped(|ui| {
@@ -240,6 +294,8 @@ impl GroundLabApp {
             ui.separator();
         }
 
+        self.show_pinned_art_variants(ui);
+
         let Some(batch) = &self.art_batch else {
             ui.label("No variant batch yet.");
             ui.small("Use Step 1 to generate deterministic sprite variants.");
@@ -249,28 +305,38 @@ impl GroundLabApp {
             ui.label("No variants generated.");
             return;
         }
+        let family_label = batch.request.family.label();
+        let seed = batch.request.seed;
+        let variants = batch.variants.clone();
 
         ui.horizontal_wrapped(|ui| {
             ui.label(format!(
                 "{} · seed {} · {} variant(s)",
-                batch.request.family.label(),
-                batch.request.seed,
-                batch.variants.len()
+                family_label,
+                seed,
+                variants.len()
             ));
         });
         ui.separator();
 
+        let available_width = ui.available_width().max(180.0);
+        let columns = ((available_width / 126.0).floor() as usize).clamp(2, 8);
+        let thumb_size = (available_width / columns as f32 - 30.0).clamp(72.0, 112.0);
+        let mut pin_toggle: Option<ArtVariant> = None;
         egui::Grid::new("art_lab_variant_grid")
-            .num_columns(4)
+            .num_columns(columns)
             .spacing([14.0, 14.0])
             .show(ui, |ui| {
-                for (index, variant) in batch.variants.iter().enumerate() {
+                for (index, variant) in variants.iter().enumerate() {
                     ui.vertical(|ui| {
                         if let Some(texture) = self.art_variant_textures.get(index) {
                             let selected = self.art_selected_variant_index == Some(index);
+                            let pinned = self.art_pinned_variant_ids.contains(&variant.id);
                             let frame = egui::Frame::new()
                                 .fill(if selected {
                                     egui::Color32::from_rgb(55, 74, 50)
+                                } else if pinned {
+                                    egui::Color32::from_rgb(65, 54, 34)
                                 } else {
                                     egui::Color32::from_rgb(28, 31, 28)
                                 })
@@ -278,13 +344,15 @@ impl GroundLabApp {
                                     if selected { 2.0 } else { 1.0 },
                                     if selected {
                                         egui::Color32::from_rgb(166, 214, 116)
+                                    } else if pinned {
+                                        egui::Color32::from_rgb(229, 181, 88)
                                     } else {
                                         egui::Color32::from_rgb(72, 78, 70)
                                     },
                                 ))
                                 .inner_margin(egui::Margin::same(6));
                             frame.show(ui, |ui| {
-                                let size = egui::Vec2::splat(96.0);
+                                let size = egui::Vec2::splat(thumb_size);
                                 let sized = egui::load::SizedTexture::new(texture.id(), size);
                                 let response = ui.add(
                                     egui::Image::from_texture(sized)
@@ -297,13 +365,59 @@ impl GroundLabApp {
                                 }
                             });
                         }
+                        let pinned = self.art_pinned_variant_ids.contains(&variant.id);
+                        if ui
+                            .small_button(if pinned { "Unpin" } else { "Pin" })
+                            .clicked()
+                        {
+                            pin_toggle = Some(variant.clone());
+                        }
                         ui.small(format!("#{:02}", variant.variant_index));
                     });
-                    if (index + 1) % 4 == 0 {
+                    if (index + 1) % columns == 0 {
                         ui.end_row();
                     }
                 }
             });
+        if let Some(variant) = pin_toggle {
+            self.toggle_pinned_art_variant(ctx, &variant);
+        }
+    }
+
+    fn show_pinned_art_variants(&self, ui: &mut egui::Ui) {
+        if self.art_pinned_variants.is_empty() {
+            return;
+        }
+        ui.group(|ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.strong("Kept variants");
+                ui.small("Pinned candidates remain here while the main grid rerolls.");
+            });
+            egui::Grid::new("art_lab_pinned_grid")
+                .num_columns(6)
+                .spacing([10.0, 8.0])
+                .show(ui, |ui| {
+                    for (index, variant) in self.art_pinned_variants.iter().enumerate() {
+                        ui.vertical(|ui| {
+                            if let Some(texture) = self.art_pinned_textures.get(index) {
+                                let sized = egui::load::SizedTexture::new(
+                                    texture.id(),
+                                    egui::Vec2::splat(64.0),
+                                );
+                                ui.add(
+                                    egui::Image::from_texture(sized)
+                                        .texture_options(egui::TextureOptions::NEAREST),
+                                );
+                            }
+                            ui.small(short_art_id(&variant.id));
+                        });
+                        if (index + 1) % 6 == 0 {
+                            ui.end_row();
+                        }
+                    }
+                });
+        });
+        ui.separator();
     }
 
     fn show_selected_art_variant_inspector(&self, ui: &mut egui::Ui) {
@@ -328,7 +442,11 @@ impl GroundLabApp {
                 );
             }
             ui.vertical(|ui| {
-                ui.label(format!("Selected: {}", variant.id));
+                ui.label(
+                    egui::RichText::new(format!("Selected: {}", short_art_id(&variant.id)))
+                        .monospace(),
+                )
+                .on_hover_text(&variant.id);
                 ui.small(format!("Family: {}", variant.family.label()));
                 ui.small(format!("Seed: {}", variant.seed));
                 ui.small(format!("Variant index: {}", variant.variant_index));
@@ -543,6 +661,53 @@ impl GroundLabApp {
         self.load_art_variant_batch(ctx, batch, "Generated");
     }
 
+    fn reroll_art_seed(&mut self) {
+        self.art_seed = self.next_art_seed();
+        self.art_status = format!("Rerolled seed to {}.", self.art_seed);
+    }
+
+    fn randomize_art_style(&mut self) {
+        self.art_style = style_from_seed(self.next_art_seed());
+        self.art_status = "Randomized style.".to_string();
+    }
+
+    fn generate_random_art_batch(&mut self, ctx: &egui::Context) {
+        self.art_seed = self.next_art_seed();
+        if !self.art_lock_style {
+            self.art_style = style_from_seed(self.art_seed);
+        }
+        self.generate_art_variants_for_lab(ctx);
+        self.art_status = if self.art_lock_style {
+            format!(
+                "Generated random batch with seed {} using locked style.",
+                self.art_seed
+            )
+        } else {
+            format!("Generated random batch with seed {}.", self.art_seed)
+        };
+    }
+
+    fn reroll_unpinned_art_batch(&mut self, ctx: &egui::Context) {
+        self.art_seed = self.next_art_seed();
+        if !self.art_lock_style {
+            self.art_style = style_from_seed(self.art_seed);
+        }
+        self.generate_art_variants_for_lab(ctx);
+        self.art_status = format!(
+            "Rerolled unpinned variants with seed {}; kept {} pinned candidate(s).",
+            self.art_seed,
+            self.art_pinned_variants.len()
+        );
+    }
+
+    fn next_art_seed(&self) -> u64 {
+        self.art_seed
+            .wrapping_mul(6_364_136_223_846_793_005)
+            .wrapping_add(1_442_695_040_888_963_407)
+            ^ (self.art_family as u64).wrapping_mul(1_099_511_628_211)
+            ^ (self.art_pinned_variants.len() as u64).wrapping_mul(97_531)
+    }
+
     fn mutate_selected_art_variant(&mut self, ctx: &egui::Context) {
         let Some(parent) = self.selected_art_variant().cloned() else {
             self.art_status = "Select a variant before mutating.".to_string();
@@ -594,6 +759,30 @@ impl GroundLabApp {
     fn selected_art_variant(&self) -> Option<&ground_core::ArtVariant> {
         let index = self.art_selected_variant_index?;
         self.art_batch.as_ref()?.variants.get(index)
+    }
+
+    fn toggle_pinned_art_variant(&mut self, ctx: &egui::Context, variant: &ArtVariant) {
+        if self.art_pinned_variant_ids.remove(&variant.id) {
+            if let Some(index) = self
+                .art_pinned_variants
+                .iter()
+                .position(|pinned| pinned.id == variant.id)
+            {
+                self.art_pinned_variants.remove(index);
+                let _ = self.art_pinned_textures.remove(index);
+            }
+            self.art_status = format!("Unpinned {}.", variant.id);
+            return;
+        }
+
+        self.art_pinned_variant_ids.insert(variant.id.clone());
+        self.art_pinned_textures.push(ctx.load_texture(
+            format!("pinned_{}", variant.id),
+            color_image_for_upload(&variant.image),
+            egui::TextureOptions::NEAREST,
+        ));
+        self.art_pinned_variants.push(variant.clone());
+        self.art_status = format!("Pinned {}.", variant.id);
     }
 
     fn export_selected_art_variant(&mut self) {
@@ -919,5 +1108,28 @@ impl GroundLabApp {
                 self.art_status = format!("Export session summary failed: {err}");
             }
         }
+    }
+}
+
+fn short_art_id(id: &str) -> String {
+    const MAX_LEN: usize = 30;
+    if id.len() <= MAX_LEN {
+        return id.to_string();
+    }
+    format!("{}...{}", &id[..18], &id[id.len() - 8..])
+}
+
+fn style_from_seed(seed: u64) -> ArtStyleControls {
+    fn unit(seed: u64, shift: u32) -> f32 {
+        (((seed.rotate_left(shift) ^ 0xa076_1d64_78bd_642f) >> 40) as f32 / ((1_u64 << 24) as f32))
+            .clamp(0.0, 1.0)
+    }
+
+    ArtStyleControls {
+        roughness: unit(seed, 5),
+        contrast: unit(seed, 17),
+        edge_emphasis: unit(seed, 29),
+        noise: unit(seed, 41),
+        warmth: unit(seed, 53),
     }
 }
