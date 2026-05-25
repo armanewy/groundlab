@@ -211,6 +211,7 @@ struct GroundLabApp {
     art_override_profile: ArtLabOverrideProfile,
     art_approved_variants: HashMap<String, PathBuf>,
     art_preview_texture: Option<egui::TextureHandle>,
+    art_preview_path: Option<PathBuf>,
     art_batch: Option<ArtVariantBatch>,
     art_variant_textures: Vec<egui::TextureHandle>,
     art_status: String,
@@ -285,6 +286,7 @@ impl GroundLabApp {
             art_override_profile: ArtLabOverrideProfile::default(),
             art_approved_variants: HashMap::new(),
             art_preview_texture: None,
+            art_preview_path: None,
             art_batch: None,
             art_variant_textures: Vec::new(),
             art_status: "Art Lab ready. Choose a sprite family and generate variants.".to_string(),
@@ -584,12 +586,14 @@ impl GroundLabApp {
                     .clicked()
                 {
                     self.assign_selected_art_variant_to_role();
+                    self.refresh_art_override_preview_texture(ctx);
                 }
                 if ui
                     .add_enabled(can_assign, egui::Button::new("Approve + assign to role"))
                     .clicked()
                 {
                     self.approve_assign_and_save_selected_art_variant_to_role();
+                    self.refresh_art_override_preview_texture(ctx);
                 }
             });
             if !self.art_override_profile.assignments.is_empty()
@@ -635,8 +639,11 @@ impl GroundLabApp {
             ui.strong("Step 5 - Preview");
             ui.small("Render a small fixed scene with the current Art Lab role assignments.");
             ui.horizontal_wrapped(|ui| {
-                if ui.button("Render preview with Art Lab overrides").clicked() {
-                    self.render_art_override_preview(ctx);
+                if ui.button("Refresh preview").clicked() {
+                    self.refresh_art_override_preview(ctx);
+                }
+                if ui.button("Export preview PNG").clicked() {
+                    self.export_art_override_preview();
                 }
                 let can_sheet = self
                     .art_batch
@@ -649,10 +656,18 @@ impl GroundLabApp {
                     self.export_art_contact_sheet();
                 }
             });
-            if self.art_override_profile.assignments.is_empty() {
+            if let Some(path) = &self.art_preview_path {
+                ui.small(format!("Preview export: {}", path.display()));
+            }
+            let missing_roles = self.art_missing_override_roles();
+            if missing_roles.is_empty() {
+                ui.small("All preview roles are assigned.");
+            } else if self.art_override_profile.assignments.is_empty() {
                 ui.small(
                     "No roles assigned yet. Assign a selected variant before judging the preview.",
                 );
+            } else {
+                ui.small(format!("Missing roles: {}", missing_roles.join(", ")));
             }
         });
         ui.separator();
@@ -665,16 +680,6 @@ impl GroundLabApp {
 
     fn show_art_lab_canvas(&mut self, ui: &mut egui::Ui) {
         ui.heading("Art Lab Variants");
-        let Some(batch) = &self.art_batch else {
-            ui.label("No variant batch yet.");
-            ui.small("Use Step 1 to generate deterministic sprite variants.");
-            return;
-        };
-        if batch.variants.is_empty() {
-            ui.label("No variants generated.");
-            return;
-        }
-
         if let Some(texture) = &self.art_preview_texture {
             ui.horizontal_wrapped(|ui| {
                 ui.label("Art Lab override preview");
@@ -683,6 +688,16 @@ impl GroundLabApp {
             let sized = egui::load::SizedTexture::new(texture.id(), texture.size_vec2() * 2.0);
             ui.add(egui::Image::from_texture(sized).texture_options(egui::TextureOptions::NEAREST));
             ui.separator();
+        }
+
+        let Some(batch) = &self.art_batch else {
+            ui.label("No variant batch yet.");
+            ui.small("Use Step 1 to generate deterministic sprite variants.");
+            return;
+        };
+        if batch.variants.is_empty() {
+            ui.label("No variants generated.");
+            return;
         }
 
         ui.horizontal_wrapped(|ui| {
@@ -966,7 +981,7 @@ impl GroundLabApp {
         }
     }
 
-    fn render_art_override_preview(&mut self, ctx: &egui::Context) {
+    fn refresh_art_override_preview_texture(&mut self, ctx: &egui::Context) {
         let preview = render_art_lab_override_preview(&self.art_override_profile);
         put_texture(
             ctx,
@@ -974,15 +989,32 @@ impl GroundLabApp {
             "art_lab_override_preview",
             &preview,
         );
+    }
+
+    fn refresh_art_override_preview(&mut self, ctx: &egui::Context) {
+        self.refresh_art_override_preview_texture(ctx);
+        self.art_status = "Refreshed Art Lab override preview.".to_string();
+    }
+
+    fn export_art_override_preview(&mut self) {
         match export_art_lab_override_preview(&self.art_override_profile, "exports/art_lab") {
             Ok(path) => {
+                self.art_preview_path = Some(path.clone());
                 self.art_status =
-                    format!("Rendered Art Lab override preview to {}", path.display());
+                    format!("Exported Art Lab override preview to {}", path.display());
             }
             Err(err) => {
-                self.art_status = format!("Render override preview export failed: {err}");
+                self.art_status = format!("Export override preview failed: {err}");
             }
         }
+    }
+
+    fn art_missing_override_roles(&self) -> Vec<&'static str> {
+        ArtLabOverrideRole::ALL
+            .into_iter()
+            .filter(|role| self.art_override_profile.assignment_path(*role).is_none())
+            .map(ArtLabOverrideRole::label)
+            .collect()
     }
 
     fn show_mission_controls(&mut self, ui: &mut egui::Ui) {
