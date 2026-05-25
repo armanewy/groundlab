@@ -223,6 +223,33 @@ impl ArtLabOverrideProfile {
     }
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PromotedArtPackFile {
+    pub role: ArtLabOverrideRole,
+    pub variant_id: Option<String>,
+    pub source_path: PathBuf,
+    pub promoted_path: PathBuf,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct PromotedArtPackSummary {
+    pub id: String,
+    pub title: String,
+    pub art_pack_path: PathBuf,
+    pub summary_path: PathBuf,
+    pub preview_path: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub selected_sheet_path: Option<PathBuf>,
+    pub assignment_count: usize,
+    pub required_assignment_count: usize,
+    pub required_role_count: usize,
+    pub path_kit_assignment_count: usize,
+    pub path_kit_role_count: usize,
+    pub missing_required_roles: Vec<ArtLabOverrideRole>,
+    pub broken_assignments: Vec<ArtLabOverrideAssignment>,
+    pub copied_files: Vec<PromotedArtPackFile>,
+}
+
 impl ArtSpriteFamily {
     pub const ALL: [ArtSpriteFamily; 12] = [
         ArtSpriteFamily::TerrainBase,
@@ -482,9 +509,12 @@ pub fn derive_mutated_art_seed(parent: &ArtVariant) -> u64 {
 
 pub use export::{
     art_contact_sheet_path, art_override_preview_path, art_override_profile_path,
-    art_variant_approved_paths, build_art_variant_contact_sheet, export_art_contact_sheet,
-    export_art_lab_override_preview, export_art_variant_approved, export_art_variant_batch,
-    load_art_lab_override_profile, render_art_lab_override_preview, save_art_lab_override_profile,
+    art_pack_0_1_road_below_preview_path, art_variant_approved_paths,
+    build_art_variant_contact_sheet, export_art_contact_sheet, export_art_lab_override_preview,
+    export_art_lab_road_below_preview, export_art_variant_approved, export_art_variant_batch,
+    load_art_lab_override_profile, promote_art_lab_art_pack, promoted_art_pack_profile_path,
+    render_art_lab_override_preview, render_art_lab_road_below_preview,
+    save_art_lab_override_profile,
 };
 
 pub mod export {
@@ -525,6 +555,21 @@ pub mod export {
             .as_ref()
             .join("previews")
             .join("art_lab_preview.png")
+    }
+
+    pub fn promoted_art_pack_profile_path(assets_root: impl AsRef<Path>, pack_id: &str) -> PathBuf {
+        assets_root.as_ref().join(pack_id).join("art_pack.json")
+    }
+
+    pub fn art_pack_0_1_road_below_preview_path(root_dir: impl AsRef<Path>) -> PathBuf {
+        root_dir
+            .as_ref()
+            .join("art_pack_0_1")
+            .join("road_below_preview.png")
+    }
+
+    fn normalized_profile_path(path: &Path) -> PathBuf {
+        PathBuf::from(path.to_string_lossy().replace('\\', "/"))
     }
 
     pub fn export_art_variant_approved(
@@ -632,6 +677,114 @@ pub mod export {
         serde_json::from_str(&data).with_context(|| format!("failed to parse {}", path.display()))
     }
 
+    pub fn promote_art_lab_art_pack(
+        profile: &ArtLabOverrideProfile,
+        pack_id: &str,
+        assets_root: impl AsRef<Path>,
+        scratch_root: impl AsRef<Path>,
+    ) -> Result<PromotedArtPackSummary> {
+        let assets_root = assets_root.as_ref();
+        let scratch_root = scratch_root.as_ref();
+        let pack_dir = assets_root.join(pack_id);
+        let sprites_dir = pack_dir.join("sprites");
+        std::fs::create_dir_all(&sprites_dir)
+            .with_context(|| format!("failed to create {}", sprites_dir.display()))?;
+
+        let mut promoted_profile = ArtLabOverrideProfile::default();
+        let mut copied_files = Vec::new();
+        let mut broken_assignments = Vec::new();
+
+        for assignment in &profile.assignments {
+            if !assignment.path.exists() {
+                broken_assignments.push(assignment.clone());
+                continue;
+            }
+            let promoted_file_path = sprites_dir.join(format!("{}.png", assignment.role.slug()));
+            std::fs::copy(&assignment.path, &promoted_file_path).with_context(|| {
+                format!(
+                    "failed to copy {} to {}",
+                    assignment.path.display(),
+                    promoted_file_path.display()
+                )
+            })?;
+            let promoted_profile_path = normalized_profile_path(&promoted_file_path);
+            promoted_profile.set_assignment(
+                assignment.role,
+                promoted_profile_path.clone(),
+                assignment.variant_id.clone(),
+            );
+            copied_files.push(PromotedArtPackFile {
+                role: assignment.role,
+                variant_id: assignment.variant_id.clone(),
+                source_path: normalized_profile_path(&assignment.path),
+                promoted_path: promoted_profile_path,
+            });
+        }
+
+        let art_pack_file_path = promoted_art_pack_profile_path(assets_root, pack_id);
+        std::fs::write(
+            &art_pack_file_path,
+            serde_json::to_string_pretty(&promoted_profile)?,
+        )
+        .with_context(|| format!("failed to write {}", art_pack_file_path.display()))?;
+
+        let preview_file_path = pack_dir.join("preview.png");
+        render_art_lab_override_preview(&promoted_profile)
+            .save_png(&preview_file_path)
+            .with_context(|| format!("failed to save {}", preview_file_path.display()))?;
+
+        let selected_sheet_source = scratch_root
+            .join(pack_id)
+            .join(format!("{pack_id}_selected_sheet.png"));
+        let selected_sheet_path = if selected_sheet_source.exists() {
+            let target = pack_dir.join("selected_sheet.png");
+            std::fs::copy(&selected_sheet_source, &target).with_context(|| {
+                format!(
+                    "failed to copy {} to {}",
+                    selected_sheet_source.display(),
+                    target.display()
+                )
+            })?;
+            Some(normalized_profile_path(&target))
+        } else {
+            None
+        };
+
+        let missing_required_roles = ArtLabOverrideRole::REQUIRED
+            .into_iter()
+            .filter(|role| promoted_profile.assignment_path(*role).is_none())
+            .collect::<Vec<_>>();
+        let required_assignment_count = ArtLabOverrideRole::REQUIRED
+            .into_iter()
+            .filter(|role| promoted_profile.assignment_path(*role).is_some())
+            .count();
+        let path_kit_assignment_count = ArtLabOverrideRole::PATH_KIT
+            .into_iter()
+            .filter(|role| promoted_profile.assignment_path(*role).is_some())
+            .count();
+        let summary_path = pack_dir.join("art_pack_summary.json");
+        let summary = PromotedArtPackSummary {
+            id: pack_id.to_string(),
+            title: "Art Pack 0.1".to_string(),
+            art_pack_path: normalized_profile_path(&art_pack_file_path),
+            summary_path: normalized_profile_path(&summary_path),
+            preview_path: normalized_profile_path(&preview_file_path),
+            selected_sheet_path,
+            assignment_count: promoted_profile.assignments.len(),
+            required_assignment_count,
+            required_role_count: ArtLabOverrideRole::REQUIRED.len(),
+            path_kit_assignment_count,
+            path_kit_role_count: ArtLabOverrideRole::PATH_KIT.len(),
+            missing_required_roles,
+            broken_assignments,
+            copied_files,
+        };
+        std::fs::write(&summary_path, serde_json::to_string_pretty(&summary)?)
+            .with_context(|| format!("failed to write {}", summary_path.display()))?;
+
+        Ok(summary)
+    }
+
     pub fn render_art_lab_override_preview(profile: &ArtLabOverrideProfile) -> PixelImage {
         let mut image = PixelImage::new(320, 208, Rgba8::opaque(38, 52, 38));
         fill_art_preview_background(&mut image);
@@ -686,6 +839,67 @@ pub mod export {
         image
     }
 
+    pub fn render_art_lab_road_below_preview(profile: &ArtLabOverrideProfile) -> PixelImage {
+        let mut image = PixelImage::new(384, 240, Rgba8::opaque(34, 49, 35));
+        fill_art_preview_background(&mut image);
+
+        let path = art_role_image(profile, ArtLabOverrideRole::PathDirtSurface);
+        let path_horizontal =
+            art_path_role_image(profile, ArtLabOverrideRole::PathStraightHorizontal);
+        let path_vertical = art_path_role_image(profile, ArtLabOverrideRole::PathStraightVertical);
+        let path_diagonal_down = art_path_role_image(profile, ArtLabOverrideRole::PathDiagonalDown);
+        let path_diagonal_up = art_path_role_image(profile, ArtLabOverrideRole::PathDiagonalUp);
+        let path_corner = art_path_role_image(profile, ArtLabOverrideRole::PathCorner);
+        let path_end = art_path_role_image(profile, ArtLabOverrideRole::PathEndCap);
+        let path_patch = art_path_role_image(profile, ArtLabOverrideRole::PathPatchBlob);
+        let trench = art_role_image(profile, ArtLabOverrideRole::TrenchRecessedTerrain);
+        let berm = art_role_image(profile, ArtLabOverrideRole::BermRaisedTerrain);
+        let tree = art_role_image(profile, ArtLabOverrideRole::Tree);
+        let log = art_role_image(profile, ArtLabOverrideRole::Log);
+        let rock = art_role_image(profile, ArtLabOverrideRole::Rock);
+        let wall = art_role_image(profile, ArtLabOverrideRole::Wall);
+        let stakes = art_role_image(profile, ArtLabOverrideRole::Stakes);
+        let wire = art_role_image(profile, ArtLabOverrideRole::Wire);
+        let objective = art_role_image(profile, ArtLabOverrideRole::ObjectiveMarker);
+        let spawn = art_role_image(profile, ArtLabOverrideRole::SpawnMarker);
+
+        for (sprite, x, y) in [
+            (&path_end, 28, 152),
+            (&path_diagonal_down, 60, 144),
+            (&path_diagonal_down, 92, 136),
+            (&path_corner, 124, 128),
+            (&path_horizontal, 156, 120),
+            (&path_horizontal, 188, 112),
+            (&path_diagonal_up, 220, 104),
+            (&path, 252, 96),
+            (&path_vertical, 282, 82),
+            (&path_patch, 302, 66),
+        ] {
+            blit_scaled_nearest_alpha(&mut image, sprite, x, y, 2);
+        }
+
+        for (x, y) in [(86, 172), (118, 168), (150, 164), (182, 160)] {
+            blit_scaled_nearest_alpha(&mut image, &trench, x, y, 2);
+        }
+        for (x, y) in [(166, 142), (198, 138), (230, 134), (262, 130)] {
+            blit_scaled_nearest_alpha(&mut image, &berm, x, y, 2);
+        }
+
+        for (x, y) in [(58, 62), (86, 54), (318, 72), (336, 92)] {
+            blit_scaled_nearest_alpha(&mut image, &tree, x, y, 2);
+        }
+        blit_scaled_nearest_alpha(&mut image, &log, 126, 72, 2);
+        blit_scaled_nearest_alpha(&mut image, &rock, 294, 146, 2);
+        blit_scaled_nearest_alpha(&mut image, &wall, 42, 184, 2);
+        blit_scaled_nearest_alpha(&mut image, &stakes, 210, 176, 2);
+        blit_scaled_nearest_alpha(&mut image, &wire, 250, 176, 2);
+        blit_scaled_nearest_alpha(&mut image, &spawn, 34, 112, 2);
+        blit_scaled_nearest_alpha(&mut image, &objective, 318, 106, 2);
+
+        image.outline_rect(10, 10, 364, 220, Rgba8::opaque(77, 88, 70));
+        image
+    }
+
     pub fn export_art_lab_override_preview(
         profile: &ArtLabOverrideProfile,
         root_dir: impl AsRef<Path>,
@@ -697,6 +911,22 @@ pub mod export {
         std::fs::create_dir_all(dir)
             .with_context(|| format!("failed to create {}", dir.display()))?;
         render_art_lab_override_preview(profile)
+            .save_png(&path)
+            .with_context(|| format!("failed to save {}", path.display()))?;
+        Ok(path)
+    }
+
+    pub fn export_art_lab_road_below_preview(
+        profile: &ArtLabOverrideProfile,
+        root_dir: impl AsRef<Path>,
+    ) -> Result<PathBuf> {
+        let path = art_pack_0_1_road_below_preview_path(root_dir);
+        let dir = path
+            .parent()
+            .context("Road Below Art Lab preview path has no parent directory")?;
+        std::fs::create_dir_all(dir)
+            .with_context(|| format!("failed to create {}", dir.display()))?;
+        render_art_lab_road_below_preview(profile)
             .save_png(&path)
             .with_context(|| format!("failed to save {}", path.display()))?;
         Ok(path)
@@ -2494,6 +2724,10 @@ mod tests {
         let preview = render_art_lab_override_preview(&profile);
         assert_eq!(preview.width, 320);
         assert_eq!(preview.height, 208);
+
+        let road_preview = render_art_lab_road_below_preview(&profile);
+        assert_eq!(road_preview.width, 384);
+        assert_eq!(road_preview.height, 240);
     }
 
     #[test]
@@ -2510,6 +2744,53 @@ mod tests {
         let loaded = load_art_lab_override_profile(&path).expect("profile should load");
         assert_eq!(loaded.assignments.len(), 1);
         assert_eq!(loaded.assignments[0].role, ArtLabOverrideRole::Tree);
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn promote_art_pack_copies_sprites_and_rewrites_profile_paths() {
+        let root =
+            std::env::temp_dir().join(format!("groundlab_art_pack_test_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let scratch_root = root.join("exports").join("art_lab");
+        let assets_root = root.join("assets").join("art_packs");
+        let source_dir = scratch_root.join("approved").join("tree");
+        std::fs::create_dir_all(&source_dir).expect("source dir should be created");
+        let source_png = source_dir.join("tree_test.png");
+        PixelImage::new(32, 32, Rgba8::opaque(24, 96, 42))
+            .save_png(&source_png)
+            .expect("source sprite should save");
+
+        let selected_sheet_dir = scratch_root.join("art_pack_0_1");
+        std::fs::create_dir_all(&selected_sheet_dir).expect("sheet dir should be created");
+        PixelImage::new(32, 32, Rgba8::opaque(64, 48, 24))
+            .save_png(selected_sheet_dir.join("art_pack_0_1_selected_sheet.png"))
+            .expect("selected sheet should save");
+
+        let mut profile = ArtLabOverrideProfile::default();
+        profile.set_assignment(
+            ArtLabOverrideRole::Tree,
+            source_png,
+            Some("tree_test".to_string()),
+        );
+        let summary =
+            promote_art_lab_art_pack(&profile, "art_pack_0_1", &assets_root, &scratch_root)
+                .expect("art pack should promote");
+
+        assert_eq!(summary.assignment_count, 1);
+        assert_eq!(summary.copied_files.len(), 1);
+        assert!(summary.preview_path.exists());
+        assert!(summary
+            .selected_sheet_path
+            .as_ref()
+            .is_some_and(|path| path.exists()));
+        let promoted_profile =
+            load_art_lab_override_profile(&summary.art_pack_path).expect("pack should reload");
+        let promoted_path = promoted_profile
+            .assignment_path(ArtLabOverrideRole::Tree)
+            .expect("tree assignment should be promoted");
+        assert!(promoted_path.starts_with(assets_root.join("art_pack_0_1")));
+        assert!(promoted_path.exists());
         let _ = std::fs::remove_dir_all(root);
     }
 }

@@ -1,0 +1,127 @@
+{
+  "id": "art_pack_0_1",
+  "title": "Art Pack 0.1",
+  "art_pack_path": "assets/art_packs/art_pack_0_1/art_pack.json",
+  "summary_path": "assets/art_packs/art_pack_0_1/art_pack_summary.json",
+  "preview_path": "assets/art_packs/art_pack_0_1/preview.png",
+  "selected_sheet_path": "assets/art_packs/art_pack_0_1/selected_sheet.png",
+  "assignment_count": 18,
+  "required_assignment_count": 11,
+  "required_role_count": 11,
+  "path_kit_assignment_count": 7,
+  "path_kit_role_count": 7,
+  "missing_required_roles": [],
+  "broken_assignments": [],
+  "copied_files": [
+    {
+      "role": "PathDirtSurface",
+      "variant_id": "path_seed_99418113_variant_02",
+      "source_path": "exports/art_lab/approved/path/path_seed_99418113_variant_02.png",
+      "promoted_path": "assets/art_packs/art_pack_0_1/sprites/path_dirt_surface.png"
+    },
+    {
+      "role": "PathStraightHorizontal",
+      "variant_id": "path_seed_99418113_variant_00",
+      "source_path": "exports/art_lab/approved/path/path_seed_99418113_variant_00.png",
+      "promoted_path": "assets/art_packs/art_pack_0_1/sprites/path_straight_horizontal.png"
+    },
+    {
+      "role": "PathStraightVertical",
+      "variant_id": "path_seed_99418113_variant_01",
+      "source_path": "exports/art_lab/approved/path/path_seed_99418113_variant_01.png",
+      "promoted_path": "assets/art_packs/art_pack_0_1/sprites/path_straight_vertical.png"
+    },
+    {
+      "role": "PathDiagonalDown",
+      "variant_id": "path_seed_99418113_variant_02",
+      "source_path": "exports/art_lab/approved/path/path_seed_99418113_variant_02.png",
+      "promoted_path": "assets/art_packs/art_pack_0_1/sprites/path_diagonal_down.png"
+    },
+    {
+      "role": "PathDiagonalUp",
+      "variant_id": "path_seed_99418113_variant_03",
+      "source_path": "exports/art_lab/approved/path/path_seed_99418113_variant_03.png",
+      "promoted_path": "assets/art_packs/art_pack_0_1/sprites/path_diagonal_up.png"
+    },
+    {
+      "role": "PathCorner",
+      "variant_id": "path_seed_99418113_variant_04",
+      "source_path": "exports/art_lab/approved/path/path_seed_99418113_variant_04.png",
+      "promoted_path": "assets/art_packs/art_pack_0_1/sprites/path_corner.png"
+    },
+    {
+      "role": "PathEndCap",
+      "variant_id": "path_seed_99418113_variant_05",
+      "source_path": "exports/art_lab/approved/path/path_seed_99418113_variant_05.png",
+      "promoted_path": "assets/art_packs/art_pack_0_1/sprites/path_end_cap.png"
+    },
+    {
+      "role": "PathPatchBlob",
+      "variant_id": "path_seed_99418113_variant_06",
+      "source_path": "exports/art_lab/approved/path/path_seed_99418113_variant_06.png",
+      "promoted_path": "assets/art_packs/art_pack_0_1/sprites/path_patch_blob.png"
+    },
+    {
+      "role": "TrenchRecessedTerrain",
+      "variant_id": "trench_seed_99418113_variant_00",
+      "source_path": "exports/art_lab/approved/trench/trench_seed_99418113_variant_00.png",
+      "promoted_path": "assets/art_packs/art_pack_0_1/sprites/trench_recessed_terrain.png"
+    },
+    {
+      "role": "BermRaisedTerrain",
+      "variant_id": "berm_seed_99418113_variant_00",
+      "source_path": "exports/art_lab/approved/berm/berm_seed_99418113_variant_00.png",
+      "promoted_path": "assets/art_packs/art_pack_0_1/sprites/berm_raised_terrain.png"
+    },
+    {
+      "role": "Tree",
+      "variant_id": "tree_seed_99418113_variant_02",
+      "source_path": "exports/art_lab/approved/tree/tree_seed_99418113_variant_02.png",
+      "promoted_path": "assets/art_packs/art_pack_0_1/sprites/tree.png"
+    },
+    {
+      "role": "Log",
+      "variant_id": "log_seed_99418113_variant_00",
+      "source_path": "exports/art_lab/approved/log/log_seed_99418113_variant_00.png",
+      "promoted_path": "assets/art_packs/art_pack_0_1/sprites/log.png"
+    },
+    {
+      "role": "Rock",
+      "variant_id": "rock_seed_99418113_variant_02",
+      "source_path": "exports/art_lab/approved/rock/rock_seed_99418113_variant_02.png",
+      "promoted_path": "assets/art_packs/art_pack_0_1/sprites/rock.png"
+    },
+    {
+      "role": "Wall",
+      "variant_id": "wall_seed_99418113_variant_01",
+      "source_path": "exports/art_lab/approved/wall/wall_seed_99418113_variant_01.png",
+      "promoted_path": "assets/art_packs/art_pack_0_1/sprites/wall.png"
+    },
+    {
+      "role": "Stakes",
+      "variant_id": "stakes_seed_99418113_variant_05",
+      "source_path": "exports/art_lab/approved/stakes/stakes_seed_99418113_variant_05.png",
+      "promoted_path": "assets/art_packs/art_pack_0_1/sprites/stakes.png"
+    },
+    {
+      "role": "Wire",
+      "variant_id": "wire_seed_99418113_variant_00",
+      "source_path": "exports/art_lab/approved/wire/wire_seed_99418113_variant_00.png",
+      "promoted_path": "assets/art_packs/art_pack_0_1/sprites/wire.png"
+    },
+    {
+      "role": "ObjectiveMarker",
+      "variant_id": "objective_marker_seed_99418113_variant_02",
+      "source_path": "exports/art_lab/approved/objective_marker/objective_marker_seed_99418113_variant_02.png",
+      "promoted_path": "assets/art_packs/art_pack_0_1/sprites/objective_marker.png"
+    },
+    {
+      "role": "SpawnMarker",
+      "variant_id": "spawn_marker_seed_99418113_variant_03",
+      "source_path": "exports/art_lab/approved/spawn_marker/spawn_marker_seed_99418113_variant_03.png",
+      "promoted_path": "assets/art_packs/art_pack_0_1/sprites/spawn_marker.png"
+    }
+  ]
+}
+
+

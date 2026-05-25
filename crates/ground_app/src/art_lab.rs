@@ -5,10 +5,12 @@ use eframe::egui;
 use ground_core::{
     art_override_profile_path, derive_mutated_art_seed,
     export_art_contact_sheet as export_art_contact_sheet_file, export_art_lab_override_preview,
-    export_art_variant_approved, generate_art_variants, load_art_lab_override_profile,
-    render_art_lab_override_preview, save_art_lab_override_profile, ArtLabOverrideAssignment,
-    ArtLabOverrideRole, ArtSpriteFamily, ArtStyleControls, ArtVariant, ArtVariantBatch,
-    ArtVariantMetadata, ArtVariantRequest, PixelImage,
+    export_art_lab_road_below_preview, export_art_variant_approved, generate_art_variants,
+    load_art_lab_override_profile, promote_art_lab_art_pack, promoted_art_pack_profile_path,
+    render_art_lab_override_preview, render_art_lab_road_below_preview,
+    save_art_lab_override_profile, ArtLabOverrideAssignment, ArtLabOverrideRole, ArtSpriteFamily,
+    ArtStyleControls, ArtVariant, ArtVariantBatch, ArtVariantMetadata, ArtVariantRequest,
+    PixelImage,
 };
 
 use crate::{
@@ -16,9 +18,13 @@ use crate::{
     GroundLabApp, ART_REVIEW_TAGS,
 };
 
+const ART_PACK_0_1_ID: &str = "art_pack_0_1";
+const ART_PACK_ASSETS_ROOT: &str = "assets/art_packs";
+const ART_LAB_EXPORT_ROOT: &str = "exports/art_lab";
+
 impl GroundLabApp {
     pub(crate) fn try_load_saved_art_override_profile_on_startup(&mut self, ctx: &egui::Context) {
-        let path = art_override_profile_path("exports/art_lab");
+        let path = art_override_profile_path(ART_LAB_EXPORT_ROOT);
         if !path.exists() {
             return;
         }
@@ -307,7 +313,7 @@ impl GroundLabApp {
     fn show_active_art_pack_panel(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         ui.group(|ui| {
             ui.strong("Active Art Pack");
-            let profile_path = art_override_profile_path("exports/art_lab");
+            let profile_path = art_override_profile_path(ART_LAB_EXPORT_ROOT);
             let required_count = ArtLabOverrideRole::REQUIRED.len();
             let assigned_required = self.required_art_role_assignment_count();
             let broken = self.art_broken_override_assignments();
@@ -345,18 +351,36 @@ impl GroundLabApp {
                 if ui.button("Load saved profile").clicked() {
                     self.load_saved_art_override_profile(ctx);
                 }
+                if ui.button("Load Art Pack 0.1").clicked() {
+                    self.load_promoted_art_pack_0_1(ctx);
+                }
                 if ui.button("Save current profile").clicked() {
                     self.save_art_override_profile();
                 }
                 if ui.button("Refresh preview").clicked() {
                     self.refresh_art_override_preview(ctx);
                 }
+                if ui.button("Render Road Below preview").clicked() {
+                    self.render_road_below_art_pack_preview(ctx);
+                }
                 if ui.button("Export pack summary").clicked() {
                     self.export_active_art_pack_summary();
                 }
+                if ui.button("Promote Art Pack 0.1").clicked() {
+                    self.promote_active_art_pack_0_1(ctx);
+                }
             });
-            if PathBuf::from("exports/art_lab/art_pack_0_1/art_pack_0_1_summary.json").exists() {
+            if PathBuf::from(ART_LAB_EXPORT_ROOT)
+                .join(ART_PACK_0_1_ID)
+                .join("art_pack_0_1_summary.json")
+                .exists()
+            {
                 ui.small("Art Pack 0.1 summary detected.");
+            }
+            let promoted_path =
+                promoted_art_pack_profile_path(ART_PACK_ASSETS_ROOT, ART_PACK_0_1_ID);
+            if promoted_path.exists() {
+                ui.small(format!("Promoted Art Pack: {}", promoted_path.display()));
             }
         });
     }
@@ -873,7 +897,7 @@ impl GroundLabApp {
             self.art_status = "Select a variant before exporting.".to_string();
             return None;
         };
-        match export_art_variant_approved(&variant, "exports/art_lab") {
+        match export_art_variant_approved(&variant, ART_LAB_EXPORT_ROOT) {
             Ok((png_path, _json_path)) => {
                 self.art_approved_variants
                     .insert(variant.id.clone(), png_path.clone());
@@ -892,7 +916,7 @@ impl GroundLabApp {
             self.art_status = "Generate variants before exporting a contact sheet.".to_string();
             return;
         };
-        match export_art_contact_sheet_file(batch, "exports/art_lab") {
+        match export_art_contact_sheet_file(batch, ART_LAB_EXPORT_ROOT) {
             Ok(path) => {
                 self.art_contact_sheet_path = Some(path.clone());
                 self.art_status = format!("Exported contact sheet to {}", path.display());
@@ -946,7 +970,7 @@ impl GroundLabApp {
         );
         self.art_approved_variants
             .insert(sprite.metadata.id.clone(), sprite.png_path.clone());
-        match save_art_lab_override_profile(&self.art_override_profile, "exports/art_lab") {
+        match save_art_lab_override_profile(&self.art_override_profile, ART_LAB_EXPORT_ROOT) {
             Ok(profile_path) => {
                 self.art_status = format!(
                     "Assigned approved {} to {}; saved profile to {}",
@@ -978,7 +1002,7 @@ impl GroundLabApp {
         };
         self.art_override_profile
             .set_assignment(role, png_path, Some(variant.id.clone()));
-        match save_art_lab_override_profile(&self.art_override_profile, "exports/art_lab") {
+        match save_art_lab_override_profile(&self.art_override_profile, ART_LAB_EXPORT_ROOT) {
             Ok(profile_path) => {
                 self.art_status = format!(
                     "Approved + assigned {} to {}; saved profile to {}",
@@ -994,7 +1018,7 @@ impl GroundLabApp {
     }
 
     fn load_saved_art_override_profile(&mut self, ctx: &egui::Context) {
-        let path = art_override_profile_path("exports/art_lab");
+        let path = art_override_profile_path(ART_LAB_EXPORT_ROOT);
         match load_art_lab_override_profile(&path) {
             Ok(profile) => {
                 self.art_override_profile = profile;
@@ -1011,6 +1035,56 @@ impl GroundLabApp {
         }
     }
 
+    fn load_promoted_art_pack_0_1(&mut self, ctx: &egui::Context) {
+        let path = promoted_art_pack_profile_path(ART_PACK_ASSETS_ROOT, ART_PACK_0_1_ID);
+        match load_art_lab_override_profile(&path) {
+            Ok(profile) => {
+                self.art_override_profile = profile;
+                self.rebuild_approved_variants_from_profile();
+                self.refresh_art_override_preview_texture(ctx);
+                self.art_status = format!(
+                    "Loaded Art Pack 0.1 with {} assignment(s).",
+                    self.art_override_profile.assignments.len()
+                );
+            }
+            Err(err) => {
+                self.art_status = format!("Load Art Pack 0.1 failed: {err}");
+            }
+        }
+    }
+
+    fn promote_active_art_pack_0_1(&mut self, ctx: &egui::Context) {
+        match promote_art_lab_art_pack(
+            &self.art_override_profile,
+            ART_PACK_0_1_ID,
+            ART_PACK_ASSETS_ROOT,
+            ART_LAB_EXPORT_ROOT,
+        ) {
+            Ok(summary) => match load_art_lab_override_profile(&summary.art_pack_path) {
+                Ok(profile) => {
+                    self.art_override_profile = profile;
+                    self.rebuild_approved_variants_from_profile();
+                    self.refresh_art_override_preview_texture(ctx);
+                    self.art_preview_path = Some(summary.preview_path.clone());
+                    self.art_status = format!(
+                        "Promoted Art Pack 0.1 to {} with {}/{} core role(s) and {}/{} path kit role(s).",
+                        summary.art_pack_path.display(),
+                        summary.required_assignment_count,
+                        summary.required_role_count,
+                        summary.path_kit_assignment_count,
+                        summary.path_kit_role_count
+                    );
+                }
+                Err(err) => {
+                    self.art_status = format!("Promoted Art Pack 0.1, but reload failed: {err}");
+                }
+            },
+            Err(err) => {
+                self.art_status = format!("Promote Art Pack 0.1 failed: {err}");
+            }
+        }
+    }
+
     fn rebuild_approved_variants_from_profile(&mut self) {
         for assignment in &self.art_override_profile.assignments {
             if let Some(variant_id) = &assignment.variant_id {
@@ -1021,7 +1095,7 @@ impl GroundLabApp {
     }
 
     fn save_art_override_profile(&mut self) {
-        match save_art_lab_override_profile(&self.art_override_profile, "exports/art_lab") {
+        match save_art_lab_override_profile(&self.art_override_profile, ART_LAB_EXPORT_ROOT) {
             Ok(path) => {
                 self.art_status = format!("Saved Art Lab override profile to {}", path.display());
             }
@@ -1069,7 +1143,7 @@ impl GroundLabApp {
     }
 
     fn export_art_override_preview(&mut self) {
-        match export_art_lab_override_preview(&self.art_override_profile, "exports/art_lab") {
+        match export_art_lab_override_preview(&self.art_override_profile, ART_LAB_EXPORT_ROOT) {
             Ok(path) => {
                 self.art_preview_path = Some(path.clone());
                 self.art_status =
@@ -1077,6 +1151,26 @@ impl GroundLabApp {
             }
             Err(err) => {
                 self.art_status = format!("Export override preview failed: {err}");
+            }
+        }
+    }
+
+    fn render_road_below_art_pack_preview(&mut self, ctx: &egui::Context) {
+        let preview = render_art_lab_road_below_preview(&self.art_override_profile);
+        put_texture(
+            ctx,
+            &mut self.art_preview_texture,
+            "art_lab_road_below_preview",
+            &preview,
+        );
+        match export_art_lab_road_below_preview(&self.art_override_profile, ART_LAB_EXPORT_ROOT) {
+            Ok(path) => {
+                self.art_preview_path = Some(path.clone());
+                self.art_status =
+                    format!("Rendered Road Below Art Pack preview to {}", path.display());
+            }
+            Err(err) => {
+                self.art_status = format!("Road Below Art Pack preview export failed: {err}");
             }
         }
     }
@@ -1113,7 +1207,7 @@ impl GroundLabApp {
     }
 
     fn refresh_approved_art_gallery(&mut self, ctx: &egui::Context) {
-        let root = PathBuf::from("exports/art_lab/approved");
+        let root = PathBuf::from(ART_LAB_EXPORT_ROOT).join("approved");
         let mut sprites = Vec::new();
         let mut textures = Vec::new();
         let mut stack = vec![root.clone()];
@@ -1179,7 +1273,7 @@ impl GroundLabApp {
             self.art_status = "No review is available for the selected variant.".to_string();
             return;
         };
-        let dir = PathBuf::from("exports/art_lab/reviews");
+        let dir = PathBuf::from(ART_LAB_EXPORT_ROOT).join("reviews");
         if let Err(err) = fs::create_dir_all(&dir) {
             self.art_status = format!("Save review failed: {err}");
             return;
@@ -1216,7 +1310,7 @@ impl GroundLabApp {
             latest_preview_path: self.art_preview_path.clone(),
             latest_contact_sheet_path: self.art_contact_sheet_path.clone(),
         };
-        let path = PathBuf::from("exports/art_lab/session_summary.json");
+        let path = PathBuf::from(ART_LAB_EXPORT_ROOT).join("session_summary.json");
         if let Some(parent) = path.parent() {
             if let Err(err) = fs::create_dir_all(parent) {
                 self.art_status = format!("Export session summary failed: {err}");
@@ -1239,7 +1333,9 @@ impl GroundLabApp {
     }
 
     fn export_active_art_pack_summary(&mut self) {
-        let path = PathBuf::from("exports/art_lab/art_pack_0_1/art_pack_0_1_summary.json");
+        let path = PathBuf::from(ART_LAB_EXPORT_ROOT)
+            .join(ART_PACK_0_1_ID)
+            .join("art_pack_0_1_summary.json");
         if let Some(parent) = path.parent() {
             if let Err(err) = fs::create_dir_all(parent) {
                 self.art_status = format!("Export pack summary failed: {err}");
@@ -1261,7 +1357,7 @@ impl GroundLabApp {
         let summary = serde_json::json!({
             "id": "art_pack_0_1",
             "title": "Art Pack 0.1 - active Art Lab profile",
-            "profile": art_override_profile_path("exports/art_lab"),
+            "profile": art_override_profile_path(ART_LAB_EXPORT_ROOT),
             "assignment_count": self.art_override_profile.assignments.len(),
             "required_assignment_count": self.required_art_role_assignment_count(),
             "required_role_count": ArtLabOverrideRole::REQUIRED.len(),
