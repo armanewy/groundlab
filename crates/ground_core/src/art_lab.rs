@@ -404,38 +404,63 @@ pub fn derive_mutated_art_seed(parent: &ArtVariant) -> u64 {
     hash ^ (parent.variant_index as u64 + 1).wrapping_mul(0x94d0_49bb_1331_11eb)
 }
 
-pub fn export_art_variant_approved(
-    variant: &ArtVariant,
-    root_dir: impl AsRef<Path>,
-) -> Result<(PathBuf, PathBuf)> {
-    let dir = root_dir
-        .as_ref()
-        .join("approved")
-        .join(variant.family.slug());
-    std::fs::create_dir_all(&dir).with_context(|| format!("failed to create {}", dir.display()))?;
-    let png_path = dir.join(format!("{}.png", variant.id));
-    let json_path = dir.join(format!("{}.json", variant.id));
-    variant
-        .image
-        .save_png(&png_path)
-        .with_context(|| format!("failed to save {}", png_path.display()))?;
-    let metadata = ArtVariantMetadata::from(variant);
-    std::fs::write(&json_path, serde_json::to_string_pretty(&metadata)?)
-        .with_context(|| format!("failed to write {}", json_path.display()))?;
-    Ok((png_path, json_path))
-}
+pub use export::{
+    art_contact_sheet_path, art_override_preview_path, art_override_profile_path,
+    art_variant_approved_paths, build_art_variant_contact_sheet, export_art_contact_sheet,
+    export_art_lab_override_preview, export_art_variant_approved, export_art_variant_batch,
+    load_art_lab_override_profile, render_art_lab_override_preview, save_art_lab_override_profile,
+};
 
-pub fn export_art_variant_batch(
-    batch: &ArtVariantBatch,
-    out_dir: impl AsRef<Path>,
-) -> Result<Vec<(PathBuf, PathBuf)>> {
-    let out_dir = out_dir.as_ref();
-    std::fs::create_dir_all(out_dir)
-        .with_context(|| format!("failed to create {}", out_dir.display()))?;
-    let mut exported = Vec::new();
-    for variant in &batch.variants {
-        let png_path = out_dir.join(format!("{}.png", variant.id));
-        let json_path = out_dir.join(format!("{}.json", variant.id));
+pub mod export {
+    use super::*;
+
+    pub fn art_variant_approved_paths(
+        variant: &ArtVariant,
+        root_dir: impl AsRef<Path>,
+    ) -> (PathBuf, PathBuf) {
+        let dir = root_dir
+            .as_ref()
+            .join("approved")
+            .join(variant.family.slug());
+        (
+            dir.join(format!("{}.png", variant.id)),
+            dir.join(format!("{}.json", variant.id)),
+        )
+    }
+
+    pub fn art_contact_sheet_path(batch: &ArtVariantBatch, root_dir: impl AsRef<Path>) -> PathBuf {
+        root_dir.as_ref().join("contact_sheets").join(format!(
+            "{}_{}_{}.png",
+            batch.request.family.slug(),
+            batch.request.seed,
+            batch.variants.len()
+        ))
+    }
+
+    pub fn art_override_profile_path(root_dir: impl AsRef<Path>) -> PathBuf {
+        root_dir
+            .as_ref()
+            .join("approved")
+            .join("art_lab_overrides.json")
+    }
+
+    pub fn art_override_preview_path(root_dir: impl AsRef<Path>) -> PathBuf {
+        root_dir
+            .as_ref()
+            .join("previews")
+            .join("art_lab_preview.png")
+    }
+
+    pub fn export_art_variant_approved(
+        variant: &ArtVariant,
+        root_dir: impl AsRef<Path>,
+    ) -> Result<(PathBuf, PathBuf)> {
+        let (png_path, json_path) = art_variant_approved_paths(variant, root_dir);
+        let dir = png_path
+            .parent()
+            .context("approved art variant path has no parent directory")?;
+        std::fs::create_dir_all(dir)
+            .with_context(|| format!("failed to create {}", dir.display()))?;
         variant
             .image
             .save_png(&png_path)
@@ -443,132 +468,158 @@ pub fn export_art_variant_batch(
         let metadata = ArtVariantMetadata::from(variant);
         std::fs::write(&json_path, serde_json::to_string_pretty(&metadata)?)
             .with_context(|| format!("failed to write {}", json_path.display()))?;
-        exported.push((png_path, json_path));
-    }
-    Ok(exported)
-}
-
-pub fn build_art_variant_contact_sheet(batch: &ArtVariantBatch) -> PixelImage {
-    let scale = 3;
-    let gap = 4;
-    let border = 1;
-    let count = batch.variants.len() as u32;
-    let columns = (count as f32).sqrt().ceil().max(1.0) as u32;
-    let rows = count.div_ceil(columns).max(1);
-    let cell_w = batch.request.width * scale + border * 2;
-    let cell_h = batch.request.height * scale + border * 2;
-    let width = columns * cell_w + (columns + 1) * gap;
-    let height = rows * cell_h + (rows + 1) * gap;
-    let mut sheet = PixelImage::new(width, height, Rgba8::opaque(18, 21, 19));
-    for (i, variant) in batch.variants.iter().enumerate() {
-        let col = i as u32 % columns;
-        let row = i as u32 / columns;
-        let x0 = gap + col * (cell_w + gap);
-        let y0 = gap + row * (cell_h + gap);
-        sheet.fill_rect(x0, y0, cell_w, cell_h, Rgba8::opaque(34, 38, 34));
-        sheet.outline_rect(x0, y0, cell_w, cell_h, family_color(batch.request.family));
-        blit_scaled_nearest(&mut sheet, &variant.image, x0 + border, y0 + border, scale);
-    }
-    sheet
-}
-
-pub fn export_art_contact_sheet(
-    batch: &ArtVariantBatch,
-    root_dir: impl AsRef<Path>,
-) -> Result<PathBuf> {
-    let dir = root_dir.as_ref().join("contact_sheets");
-    std::fs::create_dir_all(&dir).with_context(|| format!("failed to create {}", dir.display()))?;
-    let path = dir.join(format!(
-        "{}_{}_{}.png",
-        batch.request.family.slug(),
-        batch.request.seed,
-        batch.variants.len()
-    ));
-    build_art_variant_contact_sheet(batch)
-        .save_png(&path)
-        .with_context(|| format!("failed to save {}", path.display()))?;
-    Ok(path)
-}
-
-pub fn save_art_lab_override_profile(
-    profile: &ArtLabOverrideProfile,
-    root_dir: impl AsRef<Path>,
-) -> Result<PathBuf> {
-    let dir = root_dir.as_ref().join("approved");
-    std::fs::create_dir_all(&dir).with_context(|| format!("failed to create {}", dir.display()))?;
-    let path = dir.join("art_lab_overrides.json");
-    std::fs::write(&path, serde_json::to_string_pretty(profile)?)
-        .with_context(|| format!("failed to write {}", path.display()))?;
-    Ok(path)
-}
-
-pub fn load_art_lab_override_profile(path: impl AsRef<Path>) -> Result<ArtLabOverrideProfile> {
-    let path = path.as_ref();
-    let data = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {}", path.display()))?;
-    serde_json::from_str(&data).with_context(|| format!("failed to parse {}", path.display()))
-}
-
-pub fn render_art_lab_override_preview(profile: &ArtLabOverrideProfile) -> PixelImage {
-    let mut image = PixelImage::new(320, 208, Rgba8::opaque(38, 52, 38));
-    fill_art_preview_background(&mut image);
-
-    let path = art_role_image(profile, ArtLabOverrideRole::PathDirtSurface);
-    let trench = art_role_image(profile, ArtLabOverrideRole::TrenchRecessedTerrain);
-    let berm = art_role_image(profile, ArtLabOverrideRole::BermRaisedTerrain);
-    let tree = art_role_image(profile, ArtLabOverrideRole::Tree);
-    let log = art_role_image(profile, ArtLabOverrideRole::Log);
-    let rock = art_role_image(profile, ArtLabOverrideRole::Rock);
-    let wall = art_role_image(profile, ArtLabOverrideRole::Wall);
-    let stakes = art_role_image(profile, ArtLabOverrideRole::Stakes);
-    let wire = art_role_image(profile, ArtLabOverrideRole::Wire);
-    let objective = art_role_image(profile, ArtLabOverrideRole::ObjectiveMarker);
-    let spawn = art_role_image(profile, ArtLabOverrideRole::SpawnMarker);
-
-    for (x, y) in [
-        (32, 112),
-        (64, 104),
-        (96, 96),
-        (128, 88),
-        (160, 80),
-        (192, 72),
-        (224, 64),
-    ] {
-        blit_scaled_nearest_alpha(&mut image, &path, x, y, 2);
-    }
-    for (x, y) in [(72, 132), (104, 128), (136, 124)] {
-        blit_scaled_nearest_alpha(&mut image, &trench, x, y, 2);
-    }
-    for (x, y) in [(158, 112), (190, 108), (222, 104)] {
-        blit_scaled_nearest_alpha(&mut image, &berm, x, y, 2);
+        Ok((png_path, json_path))
     }
 
-    blit_scaled_nearest_alpha(&mut image, &tree, 48, 46, 2);
-    blit_scaled_nearest_alpha(&mut image, &tree, 78, 38, 2);
-    blit_scaled_nearest_alpha(&mut image, &tree, 248, 56, 2);
-    blit_scaled_nearest_alpha(&mut image, &log, 114, 56, 2);
-    blit_scaled_nearest_alpha(&mut image, &rock, 236, 120, 2);
-    blit_scaled_nearest_alpha(&mut image, &wall, 30, 146, 2);
-    blit_scaled_nearest_alpha(&mut image, &stakes, 176, 146, 2);
-    blit_scaled_nearest_alpha(&mut image, &wire, 210, 146, 2);
-    blit_scaled_nearest_alpha(&mut image, &spawn, 34, 86, 2);
-    blit_scaled_nearest_alpha(&mut image, &objective, 254, 82, 2);
+    pub fn export_art_variant_batch(
+        batch: &ArtVariantBatch,
+        out_dir: impl AsRef<Path>,
+    ) -> Result<Vec<(PathBuf, PathBuf)>> {
+        let out_dir = out_dir.as_ref();
+        std::fs::create_dir_all(out_dir)
+            .with_context(|| format!("failed to create {}", out_dir.display()))?;
+        let mut exported = Vec::new();
+        for variant in &batch.variants {
+            let png_path = out_dir.join(format!("{}.png", variant.id));
+            let json_path = out_dir.join(format!("{}.json", variant.id));
+            variant
+                .image
+                .save_png(&png_path)
+                .with_context(|| format!("failed to save {}", png_path.display()))?;
+            let metadata = ArtVariantMetadata::from(variant);
+            std::fs::write(&json_path, serde_json::to_string_pretty(&metadata)?)
+                .with_context(|| format!("failed to write {}", json_path.display()))?;
+            exported.push((png_path, json_path));
+        }
+        Ok(exported)
+    }
 
-    image.outline_rect(8, 8, 304, 192, Rgba8::opaque(77, 88, 70));
-    image
-}
+    pub fn build_art_variant_contact_sheet(batch: &ArtVariantBatch) -> PixelImage {
+        let scale = 3;
+        let gap = 4;
+        let border = 1;
+        let count = batch.variants.len() as u32;
+        let columns = (count as f32).sqrt().ceil().max(1.0) as u32;
+        let rows = count.div_ceil(columns).max(1);
+        let cell_w = batch.request.width * scale + border * 2;
+        let cell_h = batch.request.height * scale + border * 2;
+        let width = columns * cell_w + (columns + 1) * gap;
+        let height = rows * cell_h + (rows + 1) * gap;
+        let mut sheet = PixelImage::new(width, height, Rgba8::opaque(18, 21, 19));
+        for (i, variant) in batch.variants.iter().enumerate() {
+            let col = i as u32 % columns;
+            let row = i as u32 / columns;
+            let x0 = gap + col * (cell_w + gap);
+            let y0 = gap + row * (cell_h + gap);
+            sheet.fill_rect(x0, y0, cell_w, cell_h, Rgba8::opaque(34, 38, 34));
+            sheet.outline_rect(x0, y0, cell_w, cell_h, family_color(batch.request.family));
+            blit_scaled_nearest(&mut sheet, &variant.image, x0 + border, y0 + border, scale);
+        }
+        sheet
+    }
 
-pub fn export_art_lab_override_preview(
-    profile: &ArtLabOverrideProfile,
-    root_dir: impl AsRef<Path>,
-) -> Result<PathBuf> {
-    let dir = root_dir.as_ref().join("previews");
-    std::fs::create_dir_all(&dir).with_context(|| format!("failed to create {}", dir.display()))?;
-    let path = dir.join("art_lab_preview.png");
-    render_art_lab_override_preview(profile)
-        .save_png(&path)
-        .with_context(|| format!("failed to save {}", path.display()))?;
-    Ok(path)
+    pub fn export_art_contact_sheet(
+        batch: &ArtVariantBatch,
+        root_dir: impl AsRef<Path>,
+    ) -> Result<PathBuf> {
+        let path = art_contact_sheet_path(batch, root_dir);
+        let dir = path
+            .parent()
+            .context("art contact sheet path has no parent directory")?;
+        std::fs::create_dir_all(dir)
+            .with_context(|| format!("failed to create {}", dir.display()))?;
+        build_art_variant_contact_sheet(batch)
+            .save_png(&path)
+            .with_context(|| format!("failed to save {}", path.display()))?;
+        Ok(path)
+    }
+
+    pub fn save_art_lab_override_profile(
+        profile: &ArtLabOverrideProfile,
+        root_dir: impl AsRef<Path>,
+    ) -> Result<PathBuf> {
+        let path = art_override_profile_path(root_dir);
+        let dir = path
+            .parent()
+            .context("Art Lab override profile path has no parent directory")?;
+        std::fs::create_dir_all(dir)
+            .with_context(|| format!("failed to create {}", dir.display()))?;
+        std::fs::write(&path, serde_json::to_string_pretty(profile)?)
+            .with_context(|| format!("failed to write {}", path.display()))?;
+        Ok(path)
+    }
+
+    pub fn load_art_lab_override_profile(path: impl AsRef<Path>) -> Result<ArtLabOverrideProfile> {
+        let path = path.as_ref();
+        let data = std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        serde_json::from_str(&data).with_context(|| format!("failed to parse {}", path.display()))
+    }
+
+    pub fn render_art_lab_override_preview(profile: &ArtLabOverrideProfile) -> PixelImage {
+        let mut image = PixelImage::new(320, 208, Rgba8::opaque(38, 52, 38));
+        fill_art_preview_background(&mut image);
+
+        let path = art_role_image(profile, ArtLabOverrideRole::PathDirtSurface);
+        let trench = art_role_image(profile, ArtLabOverrideRole::TrenchRecessedTerrain);
+        let berm = art_role_image(profile, ArtLabOverrideRole::BermRaisedTerrain);
+        let tree = art_role_image(profile, ArtLabOverrideRole::Tree);
+        let log = art_role_image(profile, ArtLabOverrideRole::Log);
+        let rock = art_role_image(profile, ArtLabOverrideRole::Rock);
+        let wall = art_role_image(profile, ArtLabOverrideRole::Wall);
+        let stakes = art_role_image(profile, ArtLabOverrideRole::Stakes);
+        let wire = art_role_image(profile, ArtLabOverrideRole::Wire);
+        let objective = art_role_image(profile, ArtLabOverrideRole::ObjectiveMarker);
+        let spawn = art_role_image(profile, ArtLabOverrideRole::SpawnMarker);
+
+        for (x, y) in [
+            (32, 112),
+            (64, 104),
+            (96, 96),
+            (128, 88),
+            (160, 80),
+            (192, 72),
+            (224, 64),
+        ] {
+            blit_scaled_nearest_alpha(&mut image, &path, x, y, 2);
+        }
+        for (x, y) in [(72, 132), (104, 128), (136, 124)] {
+            blit_scaled_nearest_alpha(&mut image, &trench, x, y, 2);
+        }
+        for (x, y) in [(158, 112), (190, 108), (222, 104)] {
+            blit_scaled_nearest_alpha(&mut image, &berm, x, y, 2);
+        }
+
+        blit_scaled_nearest_alpha(&mut image, &tree, 48, 46, 2);
+        blit_scaled_nearest_alpha(&mut image, &tree, 78, 38, 2);
+        blit_scaled_nearest_alpha(&mut image, &tree, 248, 56, 2);
+        blit_scaled_nearest_alpha(&mut image, &log, 114, 56, 2);
+        blit_scaled_nearest_alpha(&mut image, &rock, 236, 120, 2);
+        blit_scaled_nearest_alpha(&mut image, &wall, 30, 146, 2);
+        blit_scaled_nearest_alpha(&mut image, &stakes, 176, 146, 2);
+        blit_scaled_nearest_alpha(&mut image, &wire, 210, 146, 2);
+        blit_scaled_nearest_alpha(&mut image, &spawn, 34, 86, 2);
+        blit_scaled_nearest_alpha(&mut image, &objective, 254, 82, 2);
+
+        image.outline_rect(8, 8, 304, 192, Rgba8::opaque(77, 88, 70));
+        image
+    }
+
+    pub fn export_art_lab_override_preview(
+        profile: &ArtLabOverrideProfile,
+        root_dir: impl AsRef<Path>,
+    ) -> Result<PathBuf> {
+        let path = art_override_preview_path(root_dir);
+        let dir = path
+            .parent()
+            .context("Art Lab override preview path has no parent directory")?;
+        std::fs::create_dir_all(dir)
+            .with_context(|| format!("failed to create {}", dir.display()))?;
+        render_art_lab_override_preview(profile)
+            .save_png(&path)
+            .with_context(|| format!("failed to save {}", path.display()))?;
+        Ok(path)
+    }
 }
 
 fn generate_family_image(
