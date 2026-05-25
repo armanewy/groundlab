@@ -30,6 +30,13 @@ pub enum ArtSpriteFamily {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum ArtLabOverrideRole {
     PathDirtSurface,
+    PathStraightHorizontal,
+    PathStraightVertical,
+    PathDiagonalDown,
+    PathDiagonalUp,
+    PathCorner,
+    PathEndCap,
+    PathPatchBlob,
     TrenchRecessedTerrain,
     BermRaisedTerrain,
     Tree,
@@ -43,8 +50,39 @@ pub enum ArtLabOverrideRole {
 }
 
 impl ArtLabOverrideRole {
-    pub const ALL: [ArtLabOverrideRole; 11] = [
+    pub const REQUIRED: [ArtLabOverrideRole; 11] = [
         ArtLabOverrideRole::PathDirtSurface,
+        ArtLabOverrideRole::TrenchRecessedTerrain,
+        ArtLabOverrideRole::BermRaisedTerrain,
+        ArtLabOverrideRole::Tree,
+        ArtLabOverrideRole::Log,
+        ArtLabOverrideRole::Rock,
+        ArtLabOverrideRole::Wall,
+        ArtLabOverrideRole::Stakes,
+        ArtLabOverrideRole::Wire,
+        ArtLabOverrideRole::ObjectiveMarker,
+        ArtLabOverrideRole::SpawnMarker,
+    ];
+
+    pub const PATH_KIT: [ArtLabOverrideRole; 7] = [
+        ArtLabOverrideRole::PathStraightHorizontal,
+        ArtLabOverrideRole::PathStraightVertical,
+        ArtLabOverrideRole::PathDiagonalDown,
+        ArtLabOverrideRole::PathDiagonalUp,
+        ArtLabOverrideRole::PathCorner,
+        ArtLabOverrideRole::PathEndCap,
+        ArtLabOverrideRole::PathPatchBlob,
+    ];
+
+    pub const ALL: [ArtLabOverrideRole; 18] = [
+        ArtLabOverrideRole::PathDirtSurface,
+        ArtLabOverrideRole::PathStraightHorizontal,
+        ArtLabOverrideRole::PathStraightVertical,
+        ArtLabOverrideRole::PathDiagonalDown,
+        ArtLabOverrideRole::PathDiagonalUp,
+        ArtLabOverrideRole::PathCorner,
+        ArtLabOverrideRole::PathEndCap,
+        ArtLabOverrideRole::PathPatchBlob,
         ArtLabOverrideRole::TrenchRecessedTerrain,
         ArtLabOverrideRole::BermRaisedTerrain,
         ArtLabOverrideRole::Tree,
@@ -60,6 +98,13 @@ impl ArtLabOverrideRole {
     pub fn label(self) -> &'static str {
         match self {
             ArtLabOverrideRole::PathDirtSurface => "path / dirt surface",
+            ArtLabOverrideRole::PathStraightHorizontal => "path straight horizontal",
+            ArtLabOverrideRole::PathStraightVertical => "path straight vertical",
+            ArtLabOverrideRole::PathDiagonalDown => "path diagonal down",
+            ArtLabOverrideRole::PathDiagonalUp => "path diagonal up",
+            ArtLabOverrideRole::PathCorner => "path corner",
+            ArtLabOverrideRole::PathEndCap => "path end cap",
+            ArtLabOverrideRole::PathPatchBlob => "path patch/blob",
             ArtLabOverrideRole::TrenchRecessedTerrain => "trench / recessed terrain",
             ArtLabOverrideRole::BermRaisedTerrain => "berm / raised terrain",
             ArtLabOverrideRole::Tree => "tree",
@@ -76,6 +121,13 @@ impl ArtLabOverrideRole {
     pub fn slug(self) -> &'static str {
         match self {
             ArtLabOverrideRole::PathDirtSurface => "path_dirt_surface",
+            ArtLabOverrideRole::PathStraightHorizontal => "path_straight_horizontal",
+            ArtLabOverrideRole::PathStraightVertical => "path_straight_vertical",
+            ArtLabOverrideRole::PathDiagonalDown => "path_diagonal_down",
+            ArtLabOverrideRole::PathDiagonalUp => "path_diagonal_up",
+            ArtLabOverrideRole::PathCorner => "path_corner",
+            ArtLabOverrideRole::PathEndCap => "path_end_cap",
+            ArtLabOverrideRole::PathPatchBlob => "path_patch_blob",
             ArtLabOverrideRole::TrenchRecessedTerrain => "trench_recessed_terrain",
             ArtLabOverrideRole::BermRaisedTerrain => "berm_raised_terrain",
             ArtLabOverrideRole::Tree => "tree",
@@ -91,7 +143,14 @@ impl ArtLabOverrideRole {
 
     pub fn suggested_family(self) -> ArtSpriteFamily {
         match self {
-            ArtLabOverrideRole::PathDirtSurface => ArtSpriteFamily::Path,
+            ArtLabOverrideRole::PathDirtSurface
+            | ArtLabOverrideRole::PathStraightHorizontal
+            | ArtLabOverrideRole::PathStraightVertical
+            | ArtLabOverrideRole::PathDiagonalDown
+            | ArtLabOverrideRole::PathDiagonalUp
+            | ArtLabOverrideRole::PathCorner
+            | ArtLabOverrideRole::PathEndCap
+            | ArtLabOverrideRole::PathPatchBlob => ArtSpriteFamily::Path,
             ArtLabOverrideRole::TrenchRecessedTerrain => ArtSpriteFamily::Trench,
             ArtLabOverrideRole::BermRaisedTerrain => ArtSpriteFamily::Berm,
             ArtLabOverrideRole::Tree => ArtSpriteFamily::Tree,
@@ -103,6 +162,14 @@ impl ArtLabOverrideRole {
             ArtLabOverrideRole::ObjectiveMarker => ArtSpriteFamily::ObjectiveMarker,
             ArtLabOverrideRole::SpawnMarker => ArtSpriteFamily::SpawnMarker,
         }
+    }
+
+    pub fn is_required(self) -> bool {
+        Self::REQUIRED.contains(&self)
+    }
+
+    pub fn is_path_kit(self) -> bool {
+        Self::PATH_KIT.contains(&self)
     }
 }
 
@@ -570,6 +637,11 @@ pub mod export {
         fill_art_preview_background(&mut image);
 
         let path = art_role_image(profile, ArtLabOverrideRole::PathDirtSurface);
+        let path_horizontal =
+            art_path_role_image(profile, ArtLabOverrideRole::PathStraightHorizontal);
+        let path_diagonal_down = art_path_role_image(profile, ArtLabOverrideRole::PathDiagonalDown);
+        let path_corner = art_path_role_image(profile, ArtLabOverrideRole::PathCorner);
+        let path_end = art_path_role_image(profile, ArtLabOverrideRole::PathEndCap);
         let trench = art_role_image(profile, ArtLabOverrideRole::TrenchRecessedTerrain);
         let berm = art_role_image(profile, ArtLabOverrideRole::BermRaisedTerrain);
         let tree = art_role_image(profile, ArtLabOverrideRole::Tree);
@@ -581,16 +653,16 @@ pub mod export {
         let objective = art_role_image(profile, ArtLabOverrideRole::ObjectiveMarker);
         let spawn = art_role_image(profile, ArtLabOverrideRole::SpawnMarker);
 
-        for (x, y) in [
-            (32, 112),
-            (64, 104),
-            (96, 96),
-            (128, 88),
-            (160, 80),
-            (192, 72),
-            (224, 64),
+        for (sprite, x, y) in [
+            (&path_end, 32, 112),
+            (&path_diagonal_down, 64, 104),
+            (&path_diagonal_down, 96, 96),
+            (&path_corner, 128, 88),
+            (&path_horizontal, 160, 80),
+            (&path_horizontal, 192, 72),
+            (&path, 224, 64),
         ] {
-            blit_scaled_nearest_alpha(&mut image, &path, x, y, 2);
+            blit_scaled_nearest_alpha(&mut image, sprite, x, y, 2);
         }
         for (x, y) in [(72, 132), (104, 128), (136, 124)] {
             blit_scaled_nearest_alpha(&mut image, &trench, x, y, 2);
@@ -672,6 +744,15 @@ fn art_role_image(profile: &ArtLabOverrideProfile, role: ArtLabOverrideRole) -> 
     .variants
     .remove(0)
     .image
+}
+
+fn art_path_role_image(profile: &ArtLabOverrideProfile, role: ArtLabOverrideRole) -> PixelImage {
+    if let Some(path) = profile.assignment_path(role) {
+        if let Ok(image) = PixelImage::load_png(path) {
+            return image;
+        }
+    }
+    art_role_image(profile, ArtLabOverrideRole::PathDirtSurface)
 }
 
 fn fill_art_preview_background(image: &mut PixelImage) {
@@ -1669,81 +1750,132 @@ fn draw_rock(image: &mut PixelImage, variant_index: u32, rng: &mut TinyRng) {
 }
 
 fn draw_wall(image: &mut PixelImage, variant_index: u32, rng: &mut TinyRng) {
-    draw_shadow(image, 0.40);
-    let base_y = image.height as i32 / 2 + 3;
-    let stone_dark = Rgba8::opaque(59, 60, 57);
-    let stone_mid = Rgba8::opaque(104, 104, 94);
-    let stone_light = Rgba8::opaque(143, 141, 128);
-    match variant_index % 4 {
+    draw_shadow(image, 0.42);
+    let base_y = image.height as i32 / 2 + 5;
+    let dark = Rgba8::opaque(53, 55, 52);
+    let mid = Rgba8::opaque(102, 103, 94);
+    let light = Rgba8::opaque(150, 147, 132);
+    let moss = Rgba8::opaque(83, 112, 68);
+    match variant_index % 5 {
         0 => {
-            for i in 0..4 {
-                let x = 5 + i * 6;
-                let color = if i % 2 == 0 { stone_light } else { stone_mid };
-                image.fill_rect(x, (base_y - 9 + rng.range_i32(0, 3)) as u32, 7, 10, color);
-                image.outline_rect(x, (base_y - 9) as u32, 7, 10, stone_dark);
+            for col in 0..5 {
+                let x = 3 + col * 6 + rng.range_i32(-1, 2);
+                let h = 7 + rng.range_i32(0, 4);
+                let y = base_y - h;
+                rect_i32(
+                    image,
+                    x,
+                    y,
+                    6,
+                    h,
+                    if col % 2 == 0 {
+                        mid
+                    } else {
+                        light.darken(0.10)
+                    },
+                );
+                image.draw_line(x, y, x + 5, y, light);
+                image.draw_line(x + 5, y + 1, x + 5, base_y, dark);
+                if rng.hash_xy(col as u32, variant_index) > 0.42 {
+                    image.set_i32(x + 2, y + 2, moss);
+                }
             }
         }
         1 => {
-            for i in 0..5 {
-                let x = 3 + i * 6;
-                let h = 6 + rng.range_i32(0, 6);
+            for row in 0..3 {
+                for col in 0..4 {
+                    let w = 6 + rng.range_i32(0, 3);
+                    let x = 3 + col * 7 + if row % 2 == 0 { 0 } else { 3 };
+                    let y = base_y - 13 + row * 4 + rng.range_i32(0, 2);
+                    rect_i32(
+                        image,
+                        x,
+                        y,
+                        w,
+                        4,
+                        if (row + col) % 2 == 0 { mid } else { light },
+                    );
+                    image.draw_line(x, y + 3, x + w - 1, y + 3, dark);
+                    image.set_i32(x + 1, y, light.lighten(0.08));
+                }
+            }
+        }
+        2 => {
+            for col in 0..5 {
+                let x = 2 + col * 6;
+                let missing = col == 2 || (col == 3 && variant_index.is_multiple_of(2));
+                if missing {
+                    continue;
+                }
+                let h = 8 + rng.range_i32(-1, 4);
                 rect_i32(
                     image,
                     x,
                     base_y - h,
                     6,
                     h,
-                    if i % 2 == 0 { stone_mid } else { stone_light },
+                    if col % 2 == 0 {
+                        mid
+                    } else {
+                        light.darken(0.12)
+                    },
                 );
-                image.draw_line(x, base_y - h, x + 5, base_y - h, stone_light.lighten(0.10));
-                image.draw_line(x + 5, base_y - h + 1, x + 5, base_y, stone_dark);
+                image.draw_line(x, base_y - h, x + 5, base_y - h, light);
+            }
+            for i in 0..8 {
+                let x = 9 + i * 2 + rng.range_i32(-1, 2);
+                let y = base_y + rng.range_i32(-1, 5);
+                ellipse(
+                    image,
+                    x,
+                    y,
+                    2 + (i % 2),
+                    2,
+                    if i % 3 == 0 { light } else { mid },
+                );
             }
         }
-        2 => {
-            for i in 0..4 {
-                let x = 4 + i * 7;
-                let h = if i == 2 { 3 } else { 9 + rng.range_i32(-1, 3) };
+        3 => {
+            for i in 0..6 {
+                let x = 2 + i * 5 + rng.range_i32(-1, 2);
+                let top_y = base_y - 6 - rng.range_i32(0, 8);
+                let width = 5 + rng.range_i32(0, 3);
                 rect_i32(
                     image,
                     x,
-                    base_y - h,
-                    7,
-                    h,
-                    if i == 2 { stone_dark } else { stone_mid },
+                    top_y,
+                    width,
+                    base_y - top_y,
+                    if i % 2 == 0 { mid } else { dark.lighten(0.18) },
                 );
-                image.draw_line(x, base_y - h, x + 6, base_y - h, stone_light);
-            }
-            for i in 0..5 {
-                ellipse(
-                    image,
-                    6 + i * 5,
-                    base_y + rng.range_i32(0, 4),
-                    3,
-                    2,
-                    stone_mid,
-                );
+                image.draw_line(x, top_y, x + width - 1, top_y, light);
+                if i % 2 == 0 {
+                    image.draw_line(x + width - 1, top_y + 1, x + width - 1, base_y, dark);
+                }
             }
         }
         _ => {
-            for row in 0..3 {
-                for col in 0..4 {
-                    let x = 4 + col * 7 + if row % 2 == 0 { 0 } else { 3 };
-                    let y = base_y - 11 + row * 4;
-                    rect_i32(
-                        image,
-                        x,
-                        y,
-                        7,
-                        4,
-                        if (row + col) % 2 == 0 {
-                            stone_mid
-                        } else {
-                            stone_light
-                        },
-                    );
-                    image.draw_line(x, y + 3, x + 6, y + 3, stone_dark);
-                }
+            for i in 0..9 {
+                let x = 4 + (i % 5) * 5 + rng.range_i32(-1, 2);
+                let y = base_y - 2 - (i / 5) * 4 + rng.range_i32(-1, 2);
+                ellipse(
+                    image,
+                    x,
+                    y,
+                    3 + (i % 2),
+                    2 + (i % 3 == 0) as i32,
+                    if i % 2 == 0 { mid } else { light.darken(0.10) },
+                );
+                image.set_i32(x - 1, y - 1, light);
+                image.draw_line(x - 3, y + 2, x + 3, y + 2, dark.with_alpha(170));
             }
+        }
+    }
+    for _ in 0..5 {
+        let x = rng.range_i32(3, image.width as i32 - 4);
+        let y = rng.range_i32(base_y - 12, base_y + 2);
+        if image.in_bounds(x, y) {
+            image.blend_pixel(x as u32, y as u32, dark, 0.16);
         }
     }
 }
@@ -2190,6 +2322,14 @@ mod tests {
                 batch.variants[0].image.to_rgba_bytes(),
                 batch.variants[1].image.to_rgba_bytes(),
                 "{family:?} variants should differ"
+            );
+            assert!(
+                batch.variants[0]
+                    .image
+                    .pixels
+                    .iter()
+                    .any(|pixel| pixel.a > 0),
+                "{family:?} should produce non-empty art"
             );
         }
     }

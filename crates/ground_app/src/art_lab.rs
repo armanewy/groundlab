@@ -3,11 +3,12 @@ use std::path::PathBuf;
 
 use eframe::egui;
 use ground_core::{
-    derive_mutated_art_seed, export_art_contact_sheet as export_art_contact_sheet_file,
-    export_art_lab_override_preview, export_art_variant_approved, generate_art_variants,
-    render_art_lab_override_preview, save_art_lab_override_profile, ArtLabOverrideRole,
-    ArtSpriteFamily, ArtStyleControls, ArtVariant, ArtVariantBatch, ArtVariantMetadata,
-    ArtVariantRequest, PixelImage,
+    art_override_profile_path, derive_mutated_art_seed,
+    export_art_contact_sheet as export_art_contact_sheet_file, export_art_lab_override_preview,
+    export_art_variant_approved, generate_art_variants, load_art_lab_override_profile,
+    render_art_lab_override_preview, save_art_lab_override_profile, ArtLabOverrideAssignment,
+    ArtLabOverrideRole, ArtSpriteFamily, ArtStyleControls, ArtVariant, ArtVariantBatch,
+    ArtVariantMetadata, ArtVariantRequest, PixelImage,
 };
 
 use crate::{
@@ -16,6 +17,14 @@ use crate::{
 };
 
 impl GroundLabApp {
+    pub(crate) fn try_load_saved_art_override_profile_on_startup(&mut self, ctx: &egui::Context) {
+        let path = art_override_profile_path("exports/art_lab");
+        if !path.exists() {
+            return;
+        }
+        self.load_saved_art_override_profile(ctx);
+    }
+
     pub(crate) fn show_art_lab_controls(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         self.show_panel_tabs(ui);
         ui.heading("Art Lab");
@@ -48,6 +57,9 @@ impl GroundLabApp {
                 self.refresh_art_override_preview(ctx);
             }
         });
+        ui.separator();
+
+        self.show_active_art_pack_panel(ui, ctx);
         ui.separator();
 
         ui.group(|ui| {
@@ -195,6 +207,9 @@ impl GroundLabApp {
             {
                 self.save_art_override_profile();
             }
+            if ui.button("Load saved profile").clicked() {
+                self.load_saved_art_override_profile(ctx);
+            }
             ui.small(format!(
                 "{} assigned role(s)",
                 self.art_override_profile.assignments.len()
@@ -218,7 +233,14 @@ impl GroundLabApp {
                         ui.small(role.label());
                         if let Some(assignment) = assignment {
                             ui.small(assignment.variant_id.as_deref().unwrap_or("approved file"));
-                            ui.small(assignment.path.display().to_string());
+                            if assignment.path.exists() {
+                                ui.small(assignment.path.display().to_string());
+                            } else {
+                                ui.colored_label(
+                                    egui::Color32::from_rgb(224, 128, 92),
+                                    format!("missing file: {}", assignment.path.display()),
+                                );
+                            }
                         } else {
                             ui.small("missing");
                             ui.small("-");
@@ -279,6 +301,63 @@ impl GroundLabApp {
         ui.group(|ui| {
             ui.strong("Status");
             ui.label(&self.art_status);
+        });
+    }
+
+    fn show_active_art_pack_panel(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        ui.group(|ui| {
+            ui.strong("Active Art Pack");
+            let profile_path = art_override_profile_path("exports/art_lab");
+            let required_count = ArtLabOverrideRole::REQUIRED.len();
+            let assigned_required = self.required_art_role_assignment_count();
+            let broken = self.art_broken_override_assignments();
+            ui.small(format!("Profile: {}", profile_path.display()));
+            ui.small(format!(
+                "Core assignments: {assigned_required}/{required_count}"
+            ));
+            ui.small(format!(
+                "Optional path kit assignments: {}/{}",
+                self.art_path_kit_assignment_count(),
+                ArtLabOverrideRole::PATH_KIT.len()
+            ));
+            let missing_roles = self.art_missing_override_roles();
+            if missing_roles.is_empty() {
+                ui.small("Missing core roles: none");
+            } else {
+                ui.small(format!("Missing core roles: {}", missing_roles.join(", ")));
+            }
+            if broken.is_empty() {
+                ui.small("Broken assignment files: none");
+            } else {
+                ui.colored_label(
+                    egui::Color32::from_rgb(224, 128, 92),
+                    format!("Broken assignment files: {}", broken.len()),
+                );
+                for assignment in broken.iter().take(4) {
+                    ui.small(format!(
+                        "{} -> {}",
+                        assignment.role.label(),
+                        assignment.path.display()
+                    ));
+                }
+            }
+            ui.horizontal_wrapped(|ui| {
+                if ui.button("Load saved profile").clicked() {
+                    self.load_saved_art_override_profile(ctx);
+                }
+                if ui.button("Save current profile").clicked() {
+                    self.save_art_override_profile();
+                }
+                if ui.button("Refresh preview").clicked() {
+                    self.refresh_art_override_preview(ctx);
+                }
+                if ui.button("Export pack summary").clicked() {
+                    self.export_active_art_pack_summary();
+                }
+            });
+            if PathBuf::from("exports/art_lab/art_pack_0_1/art_pack_0_1_summary.json").exists() {
+                ui.small("Art Pack 0.1 summary detected.");
+            }
         });
     }
 
@@ -914,6 +993,33 @@ impl GroundLabApp {
         }
     }
 
+    fn load_saved_art_override_profile(&mut self, ctx: &egui::Context) {
+        let path = art_override_profile_path("exports/art_lab");
+        match load_art_lab_override_profile(&path) {
+            Ok(profile) => {
+                self.art_override_profile = profile;
+                self.rebuild_approved_variants_from_profile();
+                self.refresh_art_override_preview_texture(ctx);
+                self.art_status = format!(
+                    "Loaded saved Art Lab override profile with {} assignment(s).",
+                    self.art_override_profile.assignments.len()
+                );
+            }
+            Err(err) => {
+                self.art_status = format!("Load saved profile failed: {err}");
+            }
+        }
+    }
+
+    fn rebuild_approved_variants_from_profile(&mut self) {
+        for assignment in &self.art_override_profile.assignments {
+            if let Some(variant_id) = &assignment.variant_id {
+                self.art_approved_variants
+                    .insert(variant_id.clone(), assignment.path.clone());
+            }
+        }
+    }
+
     fn save_art_override_profile(&mut self) {
         match save_art_lab_override_profile(&self.art_override_profile, "exports/art_lab") {
             Ok(path) => {
@@ -923,6 +1029,28 @@ impl GroundLabApp {
                 self.art_status = format!("Save override profile failed: {err}");
             }
         }
+    }
+
+    fn required_art_role_assignment_count(&self) -> usize {
+        ArtLabOverrideRole::REQUIRED
+            .into_iter()
+            .filter(|role| self.art_override_profile.assignment_path(*role).is_some())
+            .count()
+    }
+
+    fn art_path_kit_assignment_count(&self) -> usize {
+        ArtLabOverrideRole::PATH_KIT
+            .into_iter()
+            .filter(|role| self.art_override_profile.assignment_path(*role).is_some())
+            .count()
+    }
+
+    fn art_broken_override_assignments(&self) -> Vec<&ArtLabOverrideAssignment> {
+        self.art_override_profile
+            .assignments
+            .iter()
+            .filter(|assignment| !assignment.path.exists())
+            .collect()
     }
 
     fn refresh_art_override_preview_texture(&mut self, ctx: &egui::Context) {
@@ -954,7 +1082,7 @@ impl GroundLabApp {
     }
 
     fn art_missing_override_roles(&self) -> Vec<&'static str> {
-        ArtLabOverrideRole::ALL
+        ArtLabOverrideRole::REQUIRED
             .into_iter()
             .filter(|role| self.art_override_profile.assignment_path(*role).is_none())
             .map(ArtLabOverrideRole::label)
@@ -1106,6 +1234,54 @@ impl GroundLabApp {
             }
             Err(err) => {
                 self.art_status = format!("Export session summary failed: {err}");
+            }
+        }
+    }
+
+    fn export_active_art_pack_summary(&mut self) {
+        let path = PathBuf::from("exports/art_lab/art_pack_0_1/art_pack_0_1_summary.json");
+        if let Some(parent) = path.parent() {
+            if let Err(err) = fs::create_dir_all(parent) {
+                self.art_status = format!("Export pack summary failed: {err}");
+                return;
+            }
+        }
+        let missing_roles = self.art_missing_override_roles();
+        let broken: Vec<_> = self
+            .art_broken_override_assignments()
+            .into_iter()
+            .map(|assignment| {
+                serde_json::json!({
+                    "role": assignment.role,
+                    "path": assignment.path,
+                    "variant_id": assignment.variant_id.clone(),
+                })
+            })
+            .collect();
+        let summary = serde_json::json!({
+            "id": "art_pack_0_1",
+            "title": "Art Pack 0.1 - active Art Lab profile",
+            "profile": art_override_profile_path("exports/art_lab"),
+            "assignment_count": self.art_override_profile.assignments.len(),
+            "required_assignment_count": self.required_art_role_assignment_count(),
+            "required_role_count": ArtLabOverrideRole::REQUIRED.len(),
+            "path_kit_assignment_count": self.art_path_kit_assignment_count(),
+            "path_kit_role_count": ArtLabOverrideRole::PATH_KIT.len(),
+            "missing_required_roles": missing_roles,
+            "broken_assignments": broken,
+            "assignments": self.art_override_profile.assignments.clone(),
+        });
+        let result = (|| -> Result<(), String> {
+            let json = serde_json::to_string_pretty(&summary).map_err(|err| err.to_string())?;
+            fs::write(&path, json).map_err(|err| err.to_string())?;
+            Ok(())
+        })();
+        match result {
+            Ok(()) => {
+                self.art_status = format!("Exported active Art Pack summary to {}", path.display());
+            }
+            Err(err) => {
+                self.art_status = format!("Export pack summary failed: {err}");
             }
         }
     }

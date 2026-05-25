@@ -422,6 +422,7 @@ impl GroundLabApp {
             last_preview_size: [1, 1],
             status: "Ready. Art Lab is the current focus.".to_string(),
         };
+        app.try_load_saved_art_override_profile_on_startup(&cc.egui_ctx);
         app.refresh_if_dirty(&cc.egui_ctx);
         app
     }
