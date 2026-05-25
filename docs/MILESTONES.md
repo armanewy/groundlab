@@ -6,10 +6,11 @@ GroundLab's active roadmap is paused on new game/procgen/campaign expansion whil
 mission art direction is locked. SpriteGen remains the terrain art forge, and Mission Lab remains
 the 2.5D tactical engineering defense workbench, but the current priority is making one generated
 mission beauty render read as a coherent high-oblique pixel-art terrain scene rather than a
-schematic board. Visual Lock 7 checks that the production-style source override workflow holds
-across generated theme classes: one accepted mission per theme, generated-only versus authored
-override renders, per-theme before/after images, contact sheets, shared high-impact terrain
-targets, placeholder object load, and fallback reporting.
+schematic board. Visual Lock 8 extends the production-style source override workflow from terrain
+pieces to mission objects and props: object PNGs are loaded before procedural silhouettes, reports
+separate active object overrides from remaining placeholder pressure, and theme consistency renders
+can show whether authored trees, logs, rocks, objectives, spawns, stakes, wire, and ruins improve
+generated mission readability across themes.
 
 ## GamePivot 1 — Mission workbench seed
 
@@ -1095,3 +1096,12 @@ but intentionally does not add stone topology yet.
 - budget/labor model
 - post-run explanation
 - one polished dry upland outpost map
+
+## Visual Lock 8 — Object / Prop Override Set
+
+Implemented.
+
+- committed object override sprites under `assets/visual_lock_08/object_overrides/`
+- mission visual renderer now consumes object override PNGs for trees, logs, rocks, stakes, wire, walls, objectives, and spawn markers
+- visual asset reports distinguish active object overrides from remaining placeholder pressure
+- theme consistency reports now reduce placeholder pressure when object art is covered by source overrides

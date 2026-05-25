@@ -1659,6 +1659,8 @@ pub struct MissionVisualAssetReport {
     pub override_issue_count: usize,
     pub effective_sprite_pieces_used: Vec<String>,
     pub placeholder_object_sprites: Vec<String>,
+    pub object_override_sprites: Vec<String>,
+    pub missing_object_override_sprites: Vec<String>,
     pub missing_visual_pieces: Vec<String>,
     pub fallback_pieces_used: Vec<String>,
     pub warnings: Vec<String>,
@@ -3647,15 +3649,17 @@ pub fn export_visual_lock_theme_consistency(
     let shared_placeholder_impacts = visual_lock_shared_placeholder_impacts(&entries);
     let weakest_visual_identity_theme = entries
         .iter()
-        .max_by_key(|entry| {
-            entry
+        .filter_map(|entry| {
+            let placeholder_load = entry
                 .placeholder_impacts
                 .iter()
                 .map(|impact| impact.estimated_screen_area_px)
                 .sum::<u32>()
-                + entry.override_asset_report.fallback_pieces_used.len() as u32 * 10_000
+                + entry.override_asset_report.fallback_pieces_used.len() as u32 * 10_000;
+            (placeholder_load > 0).then_some((placeholder_load, entry.theme_slug.clone()))
         })
-        .map(|entry| entry.theme_slug.clone());
+        .max_by_key(|(placeholder_load, _)| *placeholder_load)
+        .map(|(_, theme_slug)| theme_slug);
     let override_active_count = entries
         .iter()
         .filter(|entry| entry.override_asset_report.overridden_sprite_count > 0)
@@ -3664,13 +3668,37 @@ pub fn export_visual_lock_theme_consistency(
         .iter()
         .filter(|entry| !entry.override_asset_report.fallback_pieces_used.is_empty())
         .count();
+    let object_override_theme_count = entries
+        .iter()
+        .filter(|entry| {
+            !entry
+                .override_asset_report
+                .object_override_sprites
+                .is_empty()
+        })
+        .count();
+    let missing_object_override_theme_count = entries
+        .iter()
+        .filter(|entry| {
+            !entry
+                .override_asset_report
+                .missing_object_override_sprites
+                .is_empty()
+        })
+        .count();
     let notes = vec![
         format!(
             "Authored terrain overrides were active in {override_active_count}/{} theme render(s).",
             entries.len()
         ),
         format!("{fallback_theme_count} theme render(s) used fallback visual pieces."),
-        "Object placeholders remain benchmark silhouettes; use this report to decide whether the next art pass should target props.".to_string(),
+        format!(
+            "Object override sprites were active in {object_override_theme_count}/{} theme render(s).",
+            entries.len()
+        ),
+        format!(
+            "{missing_object_override_theme_count} theme render(s) reported missing object override sprites."
+        ),
     ];
 
     let report = VisualLockThemeConsistencyReport {
@@ -11268,7 +11296,7 @@ fn export_visual_lock_override_pack(
         .take(8)
         .cloned()
         .collect::<Vec<_>>();
-    let object_source_dir = PathBuf::from("assets/visual_lock_06/object_placeholders");
+    let object_source_dir = PathBuf::from("assets/visual_lock_08/object_overrides");
     for target in &placeholder_targets {
         let path = object_dir.join(format!("{}.png", target.placeholder));
         let source_path = object_source_dir.join(format!("{}.png", target.placeholder));
@@ -11314,7 +11342,7 @@ fn export_visual_lock_override_pack(
         notes: vec![
             "Existing style profile overrides are copied through as source art; generated fallback PNGs are used only for missing benchmark targets.".to_string(),
             "Terrain PNGs under benchmark_override_pack/overrides/ are the effective Visual Lock replacement set for this benchmark.".to_string(),
-            "Object placeholder PNGs are copied from the Visual Lock 6 source pack when available; object sprite manifests are still benchmark targets, not runtime-integrated art-kit pieces.".to_string(),
+            "Object placeholder PNGs are copied from the Visual Lock 8 object override set when available; the mission visual renderer now consumes those same object sprites.".to_string(),
         ],
     };
     write_json(out_dir.join("benchmark_override_report.json"), &report)?;
@@ -12137,12 +12165,29 @@ fn visual_lock_visible_sprite_impacts(state: &MissionState) -> Vec<VisualLockVis
 fn visual_lock_placeholder_impacts(state: &MissionState) -> Vec<VisualLockPlaceholderImpact> {
     let mut out = visual_object_counts(state)
         .into_iter()
+        .filter(|entry| visual_object_override_path(&entry.object).is_none())
         .map(|entry| VisualLockPlaceholderImpact {
             estimated_screen_area_px: entry.count * visual_lock_placeholder_area(&entry.object),
             placeholder: entry.object,
             count: entry.count,
         })
         .collect::<Vec<_>>();
+
+    if !state.map.spawn_cells.is_empty() && visual_object_override_path("spawn_marker").is_none() {
+        out.push(VisualLockPlaceholderImpact {
+            placeholder: "spawn_marker".to_string(),
+            count: state.map.spawn_cells.len() as u32,
+            estimated_screen_area_px: state.map.spawn_cells.len() as u32 * 620,
+        });
+    }
+    if visual_object_override_path("objective_marker").is_none() {
+        out.push(VisualLockPlaceholderImpact {
+            placeholder: "objective_marker".to_string(),
+            count: 1,
+            estimated_screen_area_px: 840,
+        });
+    }
+
     out.sort_by(|a, b| {
         b.estimated_screen_area_px
             .cmp(&a.estimated_screen_area_px)
@@ -12589,6 +12634,9 @@ fn mission_visual_image(
 
     assets.report.effective_sprite_pieces_used = sorted_strings(used_pieces);
     assets.report.placeholder_object_sprites = visual_placeholder_object_counts(state);
+    let object_art = visual_object_override_report(state);
+    assets.report.object_override_sprites = object_art.0;
+    assets.report.missing_object_override_sprites = object_art.1;
     assets.report.missing_visual_pieces = sorted_strings(missing);
     assets.report.fallback_pieces_used = sorted_strings(fallbacks);
     if !assets.report.missing_visual_pieces.is_empty() {
@@ -12635,6 +12683,8 @@ fn mission_visual_asset_context(state: &MissionState) -> MissionVisualAssetConte
         override_issue_count: bundle.report.issue_count(),
         effective_sprite_pieces_used: Vec::new(),
         placeholder_object_sprites: Vec::new(),
+        object_override_sprites: Vec::new(),
+        missing_object_override_sprites: Vec::new(),
         missing_visual_pieces: Vec::new(),
         fallback_pieces_used: Vec::new(),
         warnings,
@@ -12764,8 +12814,58 @@ fn visual_object_counts(state: &MissionState) -> Vec<GeneratedMissionObjectCount
 fn visual_placeholder_object_counts(state: &MissionState) -> Vec<String> {
     visual_object_counts(state)
         .into_iter()
+        .filter(|entry| visual_object_override_path(&entry.object).is_none())
         .map(|entry| format!("{}:{}", entry.object, entry.count))
         .collect()
+}
+
+fn visual_object_override_report(state: &MissionState) -> (Vec<String>, Vec<String>) {
+    let mut active = Vec::new();
+    let mut missing = Vec::new();
+    for entry in visual_object_counts(state) {
+        let label = entry.object;
+        let value = format!("{}:{}", label, entry.count);
+        if visual_object_override_path(&label).is_some() {
+            active.push(value);
+        } else {
+            missing.push(value);
+        }
+    }
+
+    let spawn_count = state.map.spawn_cells.len() as u32;
+    if spawn_count > 0 {
+        if visual_object_override_path("spawn_marker").is_some() {
+            active.push(format!("spawn_marker:{spawn_count}"));
+        } else {
+            missing.push(format!("spawn_marker:{spawn_count}"));
+        }
+    }
+    if visual_object_override_path("objective_marker").is_some() {
+        active.push("objective_marker:1".to_string());
+    } else {
+        missing.push("objective_marker:1".to_string());
+    }
+
+    active.sort();
+    missing.sort();
+    (active, missing)
+}
+
+fn visual_object_override_source_dirs() -> [PathBuf; 2] {
+    [
+        PathBuf::from("assets/visual_lock_08/object_overrides"),
+        PathBuf::from("assets/visual_lock_06/object_placeholders"),
+    ]
+}
+
+fn visual_object_override_path(label: &str) -> Option<PathBuf> {
+    for dir in visual_object_override_source_dirs() {
+        let path = dir.join(format!("{label}.png"));
+        if path.exists() {
+            return Some(path);
+        }
+    }
+    None
 }
 
 fn visual_object_placeholder_label(object: &EnvironmentObject) -> &'static str {
@@ -13345,6 +13445,12 @@ fn draw_visual_objects(
             .unwrap_or(0);
         let (cx, cy) = projection.center(object.cell, height);
         draw_visual_object_shadow(image, cx, cy);
+
+        let label = visual_object_placeholder_label(object);
+        if draw_visual_object_override_sprite(image, cx, cy, label) {
+            continue;
+        }
+
         match &object.kind {
             EnvironmentObjectKind::Tree(TreeState::Standing)
             | EnvironmentObjectKind::Tree(TreeState::PartiallyCut { .. }) => {
@@ -13464,6 +13570,9 @@ fn draw_visual_mission_markers(
     for spawn in &state.map.spawn_cells {
         let height = state.map.cell(*spawn).map(|cell| cell.height).unwrap_or(0);
         let (cx, cy) = projection.center(*spawn, height);
+        if draw_visual_object_override_sprite(image, cx, cy, "spawn_marker") {
+            continue;
+        }
         draw_rgba_line(
             image,
             cx - 5,
@@ -13491,6 +13600,9 @@ fn draw_visual_objective_prop(
         .map(|cell| cell.height)
         .unwrap_or(0);
     let (cx, cy) = projection.center(objective, height);
+    if draw_visual_object_override_sprite(image, cx, cy, "objective_marker") {
+        return;
+    }
     fill_rgba_rect(image, cx - 15, cy - 12, 30, 10, Rgba([22, 24, 20, 55]));
     fill_rgba_rect(image, cx - 13, cy - 20, 26, 16, Rgba([108, 78, 38, 255]));
     fill_rgba_rect(image, cx - 10, cy - 29, 20, 10, Rgba([226, 202, 88, 245]));
@@ -13505,6 +13617,54 @@ fn draw_visual_objective_prop(
         5,
     );
     draw_preview_border_safe(image, cx - 13, cy - 20, 26, 16, Rgba([74, 62, 28, 255]));
+}
+
+fn draw_visual_object_override_sprite(
+    target: &mut RgbaImage,
+    cx: i32,
+    cy: i32,
+    label: &str,
+) -> bool {
+    let Some(path) = visual_object_override_path(label) else {
+        return false;
+    };
+    let Ok(sprite) = image::open(&path).map(|image| image.to_rgba8()) else {
+        return false;
+    };
+    let (anchor_x, anchor_y) =
+        visual_object_override_anchor(label, sprite.width(), sprite.height());
+    for y in 0..sprite.height() {
+        for x in 0..sprite.width() {
+            let pixel = *sprite.get_pixel(x, y);
+            if pixel[3] == 0 {
+                continue;
+            }
+            blend_pixel_rgba(
+                target,
+                cx + anchor_x + x as i32,
+                cy + anchor_y + y as i32,
+                pixel,
+            );
+        }
+    }
+    true
+}
+
+fn visual_object_override_anchor(label: &str, width: u32, height: u32) -> (i32, i32) {
+    let half_w = width as i32 / 2;
+    match label {
+        "tree_standing" => (-half_w, -(height as i32) + 8),
+        "log_or_trunk" => (-half_w, -(height as i32) + 18),
+        "rock" => (-half_w, -(height as i32) + 20),
+        "objective_marker" => (-half_w, -(height as i32) + 10),
+        "spawn_marker" => (-half_w, -(height as i32) + 10),
+        "stakes_cluster" => (-half_w, -(height as i32) + 16),
+        "wire" => (-half_w, -(height as i32) + 20),
+        "wall_or_ruin" => (-half_w, -(height as i32) + 17),
+        "stump" => (-half_w, -(height as i32) + 18),
+        "fighting_position" => (-half_w, -(height as i32) + 18),
+        _ => (-half_w, -(height as i32) + 16),
+    }
 }
 
 fn draw_visual_route(

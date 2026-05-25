@@ -707,7 +707,7 @@ fn main() -> Result<()> {
             }
             let generator = MissionGeneratorSpec::road_below(seed);
             let report = export_visual_lock_theme_consistency(&out_dir, generator, count)?;
-            println!("Exported Visual Lock 7 theme consistency check to {out_dir}.");
+            println!("Exported Visual Lock theme consistency check to {out_dir}.");
             println!(
                 "{} theme render(s) · {} shared high-impact piece(s) · weakest placeholder load: {}.",
                 report.theme_entries.len(),

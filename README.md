@@ -4,7 +4,7 @@ GroundLab is a custom Rust workbench/runtime seed for a terrain-first pixel-art 
 It intentionally avoids commercial or full game engines. The current shell uses `eframe/egui`
 only as a desktop workbench UI, while the project-owned engine code lives in `ground_core`.
 
-## Current status: Visual Lock 7 — theme visual consistency check
+## Current status: Visual Lock 8 — object / prop override set
 
 GroundLab has paused new systems, campaign layers, mechanics, and SpriteGen family expansion to
 lock a minimum generated-mission art bar. The primary product direction is still a 2.5D tactical
@@ -13,10 +13,11 @@ prep-phase work orders, transforms terrain and local objects, then tests those c
 predictable enemy doctrine. The current benchmark takes one accepted generated mission, renders
 beauty/routes/debug views, applies the best known prep script, and audits the visual asset usage so
 art direction can be judged in gameplay context instead of isolated sprites or schematic boards.
-Visual Lock 7 checks the same override workflow across all generated theme classes. It renders one
-accepted mission per theme with a generated-only profile and an authored override profile, exports
-per-theme before/after comparisons, and writes contact sheets plus a consistency report so the next
-art pass can be driven by cross-theme evidence instead of a single ridge benchmark.
+Visual Lock 8 extends that override workflow from terrain pieces to high-pressure object and prop
+placeholders. Mission beauty renders now try committed source PNGs for trees, logs, rocks, stakes,
+wire, wall/ruin, objective, and spawn markers before falling back to simple procedural silhouettes,
+and the visual asset reports distinguish active object overrides from remaining placeholder
+pressure.
 
 SpriteGen remains in the repository as the terrain art forge. It still provides swappable style
 profiles, override PNGs, sprite manifests, validation, and exportable grass/dirt/path/trench/berm/
@@ -756,3 +757,7 @@ This is still not the final game runtime. Milestone 4.12 makes the edit layer te
 image is the visual base, while editable GroundLab terrain remains the source of truth for gameplay
 data, local modifications, patch records, scripted edit stress tests, pathing, LOS, and debug
 overlays.
+
+## Current visual-lock focus
+
+Visual Lock 8 adds committed object/prop override sprites for trees, logs, rocks, stakes, wire, wall/ruin, objective, and spawn markers. Generated terrain pieces remain override-driven; object art now follows the same source-art replacement workflow instead of relying only on debug silhouettes.

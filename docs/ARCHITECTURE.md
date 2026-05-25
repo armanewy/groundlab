@@ -3,7 +3,7 @@
 GroundLab is intentionally not a general engine. It is a custom terrain/art/simulation workbench
 for one future game family: terrain-first prepared-ground defense.
 
-The active roadmap has paused generated-campaign and game-system expansion for Visual Lock 7.
+The active roadmap has paused generated-campaign and game-system expansion for Visual Lock 8.
 SpriteGen remains the terrain art forge, while `ground_game` owns mission specs, prep-phase work
 orders, local materials,
 environment-object states, doctrine route preview, deterministic assault sandbox, assault
@@ -28,7 +28,10 @@ trench, berm, and dirt replacements into committed source PNG overrides so prepa
 exercise the same generated/effective/override contract that production art will use. Visual Lock
 7 applies that authored override profile across all generated theme classes and reports shared
 high-impact terrain pieces, placeholder object load, fallbacks, and the weakest visual-identity
-theme before any systems work resumes.
+theme before any systems work resumes. Visual Lock 8 extends the same source-art replacement path to
+mission objects and props by checking committed object override PNGs before drawing procedural
+fallback silhouettes, while reports separate active object overrides from remaining placeholder
+pressure.
 `ground_app` now treats Mission Lab as the primary tactical prep surface rather than a generic
 terrain editor panel, and Road Below starts as a playable briefing-to-debrief slice. The same
 mission loop now evaluates generated Road-Below-like candidates so GroundLab can batch-generate,
@@ -452,3 +455,7 @@ features can be visually overwritten before replacement detail is drawn.
 flattening, and stone painting. `export_edit_scenario_suite` renders those scenarios to
 `edit_scenarios/` with base, edited, cover-only, debug, patch JSON, and summary reports. This makes
 visual edit quality testable without manually brushing the map every time.
+
+## Visual Lock 8 object override note
+
+Visual Lock 8 extends the override workflow from terrain pieces to mission objects. The mission visual renderer first checks `assets/visual_lock_08/object_overrides/` for object-class sprites such as `tree_standing`, `log_or_trunk`, `rock`, `stakes_cluster`, `wall_or_ruin`, `spawn_marker`, and `objective_marker`. Missing object classes fall back to simple procedural silhouettes, while visual reports keep those fallbacks visible as placeholder pressure.
