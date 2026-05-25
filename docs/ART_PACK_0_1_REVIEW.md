@@ -11,6 +11,9 @@ the target visual direction. The assembled result still reads as stamped
 32x32 sprites on a tactical grid, not as the intended high-oblique illustrated
 terrain scene.
 
+The desired target is a cohesive high-oblique illustrated scene. The tactical
+grid and Art Pack sprites are tools, not the final visual language.
+
 ## Pack State
 
 - Profile: `assets/art_packs/art_pack_0_1/art_pack.json`
@@ -47,6 +50,9 @@ terrain scene.
 - Objective and spawn markers are too board-game-like for the final target.
 - Object scale and ground anchoring are inconsistent enough that props can read
   like icons rather than terrain objects.
+- Earthworks lack authored structure: trench walls/supports/floor and berm
+  crest/slope/clods are not yet strong enough.
+- The visual scene lacks the authored composition of the target reference.
 - Wall is improved but still the most placeholder-like object in the pack. It is readable, but it needs a stronger old-stone or ruin identity.
 - Path pieces are readable in mission context, but the route still has a stepped/tile-kit feel. This is no longer blocking, but path composition remains an Art Pack 0.2 target.
 - Objective and spawn markers are acceptable for internal use, but they still read somewhat board-game-like.
@@ -92,10 +98,16 @@ high-oblique target. The next visual milestone is:
 Use `docs/VISUAL_TARGET_0_1.md` as the target spec before doing more art or
 renderer work.
 
-The first beauty-composition prototype is now versioned at
+The current beauty-composition prototype is versioned at
 `assets/art_packs/art_pack_0_1/road_below_beauty.png`. It is closer to the
-target because it removes the tactical grid and draws continuous scene shapes,
-but it is still a prototype, not visual acceptance.
+target because it removes the tactical grid, draws continuous scene shapes, and
+uses scene-authored props/markers instead of relying on pasted 32x32 sprites.
+It is still a prototype, not visual acceptance.
+
+Visual Target 0.1 is not accepted until
+`docs/VISUAL_TARGET_0_1_SCORECARD.md` passes. The closure milestone is
+“Visual Target 0.1 Closure -- Road Below beauty composition matches the
+reference direction.”
 
 ## Mission Lab Integration
 

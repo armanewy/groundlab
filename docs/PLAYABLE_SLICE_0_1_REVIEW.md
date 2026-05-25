@@ -17,6 +17,9 @@ placeholder/integration pack. The current visual result still reads as stamped
 32x32 sprites on a grid, while the target is a cohesive high-oblique illustrated
 terrain scene.
 
+The desired target is a cohesive high-oblique illustrated scene. The tactical
+grid and Art Pack sprites are tools, not the final visual language.
+
 ## Test Script
 
 1. Open the app.
@@ -67,19 +70,26 @@ terrain scene.
   may still compete with workbench controls until a human pass confirms the
   ordering feels natural.
 - The visual result can be mistaken for accepted art direction because the
-  pipeline works. It should not be; the grid/stamp composition remains a visual
-  failure against the desired target.
+  pipeline works. It should not be; the functional tactical-grid presentation
+  remains separate from the target beauty composition.
 
 ## Visual Gaps
 
-- Visible grid/stamp composition still dominates the beauty read.
-- Path, trench, and berm are tile pieces, not continuous terrain shapes.
+- The tactical interaction view is still grid-based by design. The beauty view
+  removes the grid, but the current result still feels simplified and procedural
+  compared with the authored target.
+- Path, trench, and berm are continuous in the beauty view now, but they still
+  need richer edge detail, constructed volume, and local shadows.
 - Terrain, props, markers, and objects do not share one coherent high-oblique
   perspective.
-- Scene-level lighting, contact shadows, and ground integration are weak.
-- Objective and spawn markers remain too board-game-like.
-- Some object scales and styles still read as icons rather than anchored world
-  props.
+- Scene-level lighting, contact shadows, and ground integration remain too
+  simple.
+- Objective and spawn markers are more muted, but still schematic.
+- Some object scales and styles still read as simplified vector props rather
+  than richly anchored world objects.
+- Earthworks lack enough authored structure: trench wall/floor/lip/support
+  detail and berm crest/slope/clod detail are still too procedural.
+- The beauty scene still needs more target-matched authored density.
 
 ## What Feels Satisfying
 
@@ -111,6 +121,11 @@ terrain scene.
 
 The next visual milestone is `Visual Target 0.1 -- cohesive high-oblique Road
 Below scene`. See `docs/VISUAL_TARGET_0_1.md`.
+
+Visual Target 0.1 is not accepted until
+`docs/VISUAL_TARGET_0_1_SCORECARD.md` passes. The closure milestone is
+“Visual Target 0.1 Closure -- Road Below beauty composition matches the
+reference direction.”
 
 ## Next Narrow Fixes
 
