@@ -479,11 +479,12 @@ impl GroundLabApp {
     fn show_art_lab_controls(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         self.show_panel_tabs(ui);
         ui.heading("Art Lab");
-        ui.label("Generate, compare, approve, and export terrain/object sprites.");
+        ui.label("Generate, compare, approve, assign, and preview sprites.");
         ui.separator();
 
         ui.group(|ui| {
-            ui.strong("Sprite family");
+            ui.strong("Step 1 - Generate");
+            ui.small("Choose a family, tune the style, then generate a batch.");
             egui::ComboBox::from_id_salt("art_family_selector")
                 .selected_text(self.art_family.label())
                 .show_ui(ui, |ui| {
@@ -491,11 +492,6 @@ impl GroundLabApp {
                         ui.selectable_value(&mut self.art_family, family, family.label());
                     }
                 });
-        });
-        ui.separator();
-
-        ui.group(|ui| {
-            ui.strong("Variant controls");
             ui.add(egui::DragValue::new(&mut self.art_seed).prefix("seed "));
             ui.add(
                 egui::DragValue::new(&mut self.art_variant_count)
@@ -517,13 +513,6 @@ impl GroundLabApp {
                 if ui.button("Generate variants").clicked() {
                     self.generate_art_variants_for_lab(ctx);
                 }
-                let can_mutate = self.selected_art_variant().is_some();
-                if ui
-                    .add_enabled(can_mutate, egui::Button::new("Mutate selected"))
-                    .clicked()
-                {
-                    self.mutate_selected_art_variant(ctx);
-                }
                 if ui.button("Clear variants").clicked() {
                     self.art_batch = None;
                     self.art_variant_textures.clear();
@@ -531,32 +520,14 @@ impl GroundLabApp {
                     self.art_status = "Cleared Art Lab variants.".to_string();
                 }
             });
-            ui.horizontal_wrapped(|ui| {
-                let can_export = self.selected_art_variant().is_some();
-                if ui
-                    .add_enabled(can_export, egui::Button::new("Export selected override"))
-                    .clicked()
-                {
-                    self.export_selected_art_variant();
-                }
-                let can_sheet = self
-                    .art_batch
-                    .as_ref()
-                    .is_some_and(|batch| !batch.variants.is_empty());
-                if ui
-                    .add_enabled(can_sheet, egui::Button::new("Export contact sheet"))
-                    .clicked()
-                {
-                    self.export_art_contact_sheet();
-                }
-            });
         });
         ui.separator();
 
         ui.group(|ui| {
-            ui.strong("Selection");
+            ui.strong("Step 2 - Select");
+            ui.small("Click a thumbnail in the variant grid to choose the candidate you want to inspect.");
             if let Some(variant) = self.selected_art_variant() {
-                ui.label(&variant.id);
+                ui.label(format!("Selected: {}", variant.id));
                 ui.small(format!(
                     "style: roughness {:.2} · contrast {:.2} · edge {:.2} · noise {:.2} · warmth {:.2}",
                     variant.style.roughness,
@@ -569,13 +540,30 @@ impl GroundLabApp {
                     ui.small(note);
                 }
             } else {
-                ui.label("No variant selected.");
+                ui.label("No variant selected. Generate a batch, then click a thumbnail.");
             }
         });
         ui.separator();
 
         ui.group(|ui| {
-            ui.strong("Override preview");
+            ui.strong("Step 3 - Refine");
+            ui.small("Generate a related batch around the selected variant.");
+            let can_mutate = self.selected_art_variant().is_some();
+            if ui
+                .add_enabled(can_mutate, egui::Button::new("Mutate selected"))
+                .clicked()
+            {
+                self.mutate_selected_art_variant(ctx);
+            }
+            if !can_mutate {
+                ui.small("Select a variant before mutating.");
+            }
+        });
+        ui.separator();
+
+        ui.group(|ui| {
+            ui.strong("Step 4 - Approve / Assign Role");
+            ui.small("Export the selected sprite, then assign it to a preview role.");
             egui::ComboBox::from_id_salt("art_override_role_selector")
                 .selected_text(self.art_override_role.label())
                 .show_ui(ui, |ui| {
@@ -583,8 +571,23 @@ impl GroundLabApp {
                         ui.selectable_value(&mut self.art_override_role, role, role.label());
                     }
                 });
+            ui.small(format!("Current role: {}", self.art_override_role.label()));
+            if let Some(path) = self
+                .art_override_profile
+                .assignment_path(self.art_override_role)
+            {
+                ui.small(format!("Assigned: {}", path.display()));
+            } else {
+                ui.small("Assigned: none yet");
+            }
             ui.horizontal_wrapped(|ui| {
                 let can_assign = self.selected_art_variant().is_some();
+                if ui
+                    .add_enabled(can_assign, egui::Button::new("Export selected override"))
+                    .clicked()
+                {
+                    self.export_selected_art_variant();
+                }
                 if ui
                     .add_enabled(
                         can_assign,
@@ -594,17 +597,42 @@ impl GroundLabApp {
                 {
                     self.assign_selected_art_variant_to_role();
                 }
-                if ui.button("Save override profile").clicked() {
-                    self.save_art_override_profile();
-                }
-                if ui.button("Render preview with Art Lab overrides").clicked() {
-                    self.render_art_override_preview(ctx);
-                }
             });
+            if !self.art_override_profile.assignments.is_empty()
+                && ui.button("Save override profile").clicked()
+            {
+                self.save_art_override_profile();
+            }
             ui.small(format!(
                 "{} assigned role(s)",
                 self.art_override_profile.assignments.len()
             ));
+        });
+        ui.separator();
+
+        ui.group(|ui| {
+            ui.strong("Step 5 - Preview");
+            ui.small("Render a small fixed scene with the current Art Lab role assignments.");
+            ui.horizontal_wrapped(|ui| {
+                if ui.button("Render preview with Art Lab overrides").clicked() {
+                    self.render_art_override_preview(ctx);
+                }
+                let can_sheet = self
+                    .art_batch
+                    .as_ref()
+                    .is_some_and(|batch| !batch.variants.is_empty());
+                if ui
+                    .add_enabled(can_sheet, egui::Button::new("Export contact sheet"))
+                    .clicked()
+                {
+                    self.export_art_contact_sheet();
+                }
+            });
+            if self.art_override_profile.assignments.is_empty() {
+                ui.small(
+                    "No roles assigned yet. Assign a selected variant before judging the preview.",
+                );
+            }
         });
         ui.separator();
 
@@ -617,8 +645,8 @@ impl GroundLabApp {
     fn show_art_lab_canvas(&mut self, ui: &mut egui::Ui) {
         ui.heading("Art Lab Variants");
         let Some(batch) = &self.art_batch else {
-            ui.label("Variant preview will be wired to SpriteGen in the next step.");
-            ui.small("For this first pass, use Generate variants to create deterministic Art Lab sprites.");
+            ui.label("No variant batch yet.");
+            ui.small("Use Step 1 to generate deterministic sprite variants.");
             return;
         };
         if batch.variants.is_empty() {
