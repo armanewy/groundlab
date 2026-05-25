@@ -19,8 +19,8 @@ use ground_game::{
     export_road_below_seed, load_generated_mission_browser_index, load_generated_mission_pack,
     load_generated_mission_set, load_mission_spec, load_work_order_script,
     mission_rating_for_state, road_below_balance_scripts, road_below_seed_orders,
-    run_work_order_script, save_work_order_script, AssaultEventKind, CellCoord, CoverClass,
-    EarthState, EnemyAgentStatus, EnvironmentObject, EnvironmentObjectKind,
+    route_delta_report, run_work_order_script, save_work_order_script, AssaultEventKind, CellCoord,
+    CoverClass, EarthState, EnemyAgentStatus, EnvironmentObject, EnvironmentObjectKind,
     GeneratedMissionBrowserEntry, GeneratedMissionBrowserIndex, GeneratedMissionPack, GroundKind,
     LogState, MissionPhase, MissionSet, MissionSetSlot, MissionState, MissionTheme,
     ScriptedWorkOrder, TreeState, WorkOrderKind, WorkOrderScript, WorkOrderStatus, WorkTarget,
@@ -588,6 +588,8 @@ impl GroundLabApp {
         self.show_mission_action_toolbar(ui);
         ui.separator();
         self.show_mission_route_panel(ui);
+        ui.separator();
+        self.show_prep_impact_panel(ui);
         ui.separator();
         self.show_assault_panel(ui);
         ui.separator();
@@ -1225,6 +1227,88 @@ impl GroundLabApp {
                 route.total_cost
             ));
         }
+        let initial_routes = MissionState::road_below_seed().route_preview();
+        let delta = route_delta_report(
+            self.mission_state.spec.id.clone(),
+            &initial_routes,
+            &current_routes,
+        );
+        let changed_count = delta.groups.iter().filter(|group| group.changed).count();
+        ui.separator();
+        ui.strong(format!(
+            "Route changes after prep: {changed_count}/{} group(s)",
+            delta.groups.len()
+        ));
+        for group in &delta.groups {
+            let label = if group.changed { "changed" } else { "stable" };
+            ui.small(format!(
+                "{} · {} · {:.1} -> {:.1} ({:+.1})",
+                group.group_label, label, group.initial_cost, group.after_cost, group.cost_delta
+            ));
+            if group.changed {
+                ui.small(format!("  {}", group.explanation));
+            }
+        }
+    }
+
+    fn show_prep_impact_panel(&self, ui: &mut egui::Ui) {
+        ui.collapsing("Prep impact", |ui| {
+            if self.mission_state.work_orders.is_empty() {
+                ui.small("Run work orders to see visible terrain/object changes and route impact.");
+                return;
+            }
+            ui.strong("Completed prep");
+            for order in self.mission_state.work_orders.iter().rev().take(8) {
+                ui.small(format!(
+                    "#{:02} {} · {} · {}",
+                    order.id,
+                    order.kind.label(),
+                    order.status.label(),
+                    order_feedback_cells(order)
+                        .iter()
+                        .map(|cell| format!("({}, {})", cell.x, cell.y))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+                let net = ground_game::LocalMaterialStock::net(
+                    &order.material_outputs,
+                    &order.material_inputs,
+                )
+                .signed_summary();
+                if !net.is_empty() {
+                    ui.small(format!("  Material: {}", net.join(", ")));
+                }
+                ui.small(format!("  {}", visual_result_hint(order.kind)));
+            }
+
+            let initial_routes = MissionState::road_below_seed().route_preview();
+            let current_routes = self.mission_state.route_preview();
+            let delta = route_delta_report(
+                self.mission_state.spec.id.clone(),
+                &initial_routes,
+                &current_routes,
+            );
+            let changed = delta
+                .groups
+                .iter()
+                .filter(|group| group.changed)
+                .collect::<Vec<_>>();
+            ui.separator();
+            ui.strong("Route consequence");
+            if changed.is_empty() {
+                ui.small("Routes are effectively unchanged by current prep.");
+            } else {
+                for group in changed {
+                    ui.small(format!(
+                        "{} changed by {:+.1} route cost · {} old-only / {} new-only cell(s)",
+                        group.group_label,
+                        group.cost_delta,
+                        group.initial_only_cells.len(),
+                        group.after_only_cells.len()
+                    ));
+                }
+            }
+        });
     }
 
     fn show_assault_panel(&mut self, ui: &mut egui::Ui) {
@@ -1313,42 +1397,7 @@ impl GroundLabApp {
             if let Some(debrief) = self.mission_state.assault_debrief() {
                 ui.separator();
                 self.show_debrief_breakdown(ui, &debrief);
-                if let Some(group) = &debrief.influence.most_delayed_group {
-                    ui.small(format!(
-                        "Most delayed: {} · {} tick(s)",
-                        group.group_label, group.magnitude
-                    ));
-                }
-                if let Some(cell) = &debrief.influence.most_effective_obstacle {
-                    ui.small(format!(
-                        "Best obstacle: ({}, {}) · {}",
-                        cell.cell.x, cell.cell.y, cell.label
-                    ));
-                } else {
-                    ui.small("Best obstacle: none affected the assault route.");
-                }
-                if let Some(cell) = debrief.influence.breach_cells.first() {
-                    ui.small(format!(
-                        "Breach point: ({}, {}) · {} hit(s)",
-                        cell.cell.x, cell.cell.y, cell.count
-                    ));
-                } else {
-                    ui.small("Breach point: none.");
-                }
-                ui.small(format!(
-                    "Prediction accuracy: {:.0}% · divergence cells {}",
-                    debrief.route_prediction_accuracy.average_accuracy * 100.0,
-                    debrief.route_prediction_accuracy.total_divergence_cells
-                ));
-                ui.small(format!(
-                    "Rolling hazards: {} released · {} enemy hit(s) · {} obstacle(s) destroyed",
-                    debrief.rolling_hazards.released_count,
-                    debrief.rolling_hazards.enemies_hit,
-                    debrief.rolling_hazards.obstacles_destroyed
-                ));
-                if let Some(unused) = debrief.influence.unused_defenses.first() {
-                    ui.small(format!("Unused defense: {unused}"));
-                }
+                self.show_what_mattered_panel(ui, &debrief);
             }
         } else {
             ui.small("No assault is running. Start uses the current prepared mission state.");
@@ -1388,6 +1437,66 @@ impl GroundLabApp {
             debrief.rating.hazard_enemies_hit,
             debrief.route_prediction_accuracy.average_accuracy * 100.0
         ));
+    }
+
+    fn show_what_mattered_panel(&self, ui: &mut egui::Ui, debrief: &ground_game::AssaultDebrief) {
+        ui.separator();
+        ui.strong("What mattered");
+        if let Some(group) = &debrief.influence.most_delayed_group {
+            ui.small(format!(
+                "Your prep delayed {} by {} tick(s).",
+                group.group_label, group.magnitude
+            ));
+        } else {
+            ui.small("No enemy group was meaningfully delayed.");
+        }
+        if let Some(cell) = &debrief.influence.most_effective_obstacle {
+            ui.small(format!(
+                "Best obstacle: ({}, {}) · {}.",
+                cell.cell.x, cell.cell.y, cell.label
+            ));
+        } else {
+            ui.small("Best obstacle: none affected the assault route.");
+        }
+        if let Some(cell) = debrief.influence.most_delayed_cells.first() {
+            ui.small(format!(
+                "Most delayed cell: ({}, {}) · {} delay event(s).",
+                cell.cell.x, cell.cell.y, cell.count
+            ));
+        }
+        if let Some(cell) = debrief.influence.most_damaging_cells.first() {
+            ui.small(format!(
+                "Most damaging cell: ({}, {}) · {} damage.",
+                cell.cell.x, cell.cell.y, cell.magnitude
+            ));
+        }
+        if let Some(cell) = debrief.influence.breach_cells.first() {
+            ui.small(format!(
+                "Breach point: ({}, {}) · {} hit(s).",
+                cell.cell.x, cell.cell.y, cell.count
+            ));
+        } else {
+            ui.small("Breach point: none.");
+        }
+        ui.small(format!(
+            "Prediction accuracy: {:.0}% · divergence cells {}.",
+            debrief.route_prediction_accuracy.average_accuracy * 100.0,
+            debrief.route_prediction_accuracy.total_divergence_cells
+        ));
+        ui.small(format!(
+            "Rolling hazards: {} released · {} enemy hit(s) · {} obstacle(s) destroyed.",
+            debrief.rolling_hazards.released_count,
+            debrief.rolling_hazards.enemies_hit,
+            debrief.rolling_hazards.obstacles_destroyed
+        ));
+        if debrief.influence.unused_defenses.is_empty() {
+            ui.small("Unused defenses: none called out.");
+        } else {
+            ui.small("Unused defenses:");
+            for unused in debrief.influence.unused_defenses.iter().take(3) {
+                ui.small(format!("  {unused}"));
+            }
+        }
     }
 
     fn show_work_order_queue_panel(&mut self, ui: &mut egui::Ui) {
