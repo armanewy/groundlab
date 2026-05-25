@@ -374,6 +374,15 @@ pub fn generate_art_variants(request: &ArtVariantRequest) -> ArtVariantBatch {
             if let Some(parent_id) = &request.parent_id {
                 notes.push(format!("mutated from {parent_id}"));
             }
+            if matches!(
+                request.family,
+                ArtSpriteFamily::Path | ArtSpriteFamily::Trench | ArtSpriteFamily::Berm
+            ) {
+                notes.push(format!(
+                    "shape: {}",
+                    terrain_shape_for_variant(variant_index).label()
+                ));
+            }
             ArtVariant {
                 id: format!(
                     "{}_seed_{}_variant_{:02}",
@@ -635,8 +644,8 @@ fn generate_family_image(
         ArtSpriteFamily::Berm => draw_berm(&mut image, variant_index, request.style, rng),
         ArtSpriteFamily::Tree => draw_tree(&mut image, variant_index, request.style, rng),
         ArtSpriteFamily::Log => draw_log(&mut image, variant_index, request.style, rng),
-        ArtSpriteFamily::Rock => draw_rock(&mut image, rng),
-        ArtSpriteFamily::Wall => draw_wall(&mut image, rng),
+        ArtSpriteFamily::Rock => draw_rock(&mut image, variant_index, rng),
+        ArtSpriteFamily::Wall => draw_wall(&mut image, variant_index, rng),
         ArtSpriteFamily::Stakes => draw_stakes(&mut image, variant_index, rng),
         ArtSpriteFamily::Wire => draw_wire(&mut image, variant_index, rng),
         ArtSpriteFamily::ObjectiveMarker => draw_marker(&mut image, true, variant_index, rng),
@@ -701,7 +710,8 @@ fn draw_path(
 ) {
     let style = style.sanitized();
     fill(image, Rgba8::opaque(88, 125, 62));
-    let axis = art_band_axis(variant_index);
+    let shape = terrain_shape_for_variant(variant_index);
+    let axis = shape.primary_axis();
     let dirt = art_style_color(Rgba8::opaque(166, 107, 63), style);
     let compact = art_style_color(Rgba8::opaque(128, 78, 47), style).darken(style.contrast * 0.10);
     let dust = art_style_color(Rgba8::opaque(198, 145, 85), style).lighten(style.warmth * 0.04);
@@ -773,6 +783,7 @@ fn draw_path(
         },
         rng,
     );
+    apply_terrain_shape_modifier(image, shape, TerrainBandKind::Path, style, rng);
 }
 
 fn draw_trench(
@@ -783,7 +794,8 @@ fn draw_trench(
 ) {
     let style = style.sanitized();
     fill(image, Rgba8::opaque(83, 120, 61));
-    let axis = art_band_axis(variant_index);
+    let shape = terrain_shape_for_variant(variant_index);
+    let axis = shape.primary_axis();
     // Trench variants should read as earth cut down into the ground: grass/spoil lips,
     // warm walls, then a darker recessed floor instead of a black graphic slot.
     let floor_dark =
@@ -882,6 +894,7 @@ fn draw_trench(
         },
         rng,
     );
+    apply_terrain_shape_modifier(image, shape, TerrainBandKind::Trench, style, rng);
 }
 
 fn draw_berm(
@@ -892,7 +905,8 @@ fn draw_berm(
 ) {
     let style = style.sanitized();
     fill(image, Rgba8::opaque(82, 119, 61));
-    let axis = art_band_axis(variant_index);
+    let shape = terrain_shape_for_variant(variant_index);
+    let axis = shape.primary_axis();
     let top = art_style_color(Rgba8::opaque(149, 101, 56), style);
     let crest = art_style_color(Rgba8::opaque(187, 133, 75), style).lighten(style.warmth * 0.04);
     let face = art_style_color(Rgba8::opaque(101, 65, 40), style).darken(style.contrast * 0.05);
@@ -958,6 +972,7 @@ fn draw_berm(
     );
     draw_mound_strata(image, axis, center, (crest_half, half), phase, style, rng);
     draw_berm_crest_highlights(image, axis, center, crest_half, phase, style, rng);
+    apply_terrain_shape_modifier(image, shape, TerrainBandKind::Berm, style, rng);
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -968,13 +983,59 @@ enum ArtBandAxis {
     DiagonalUp,
 }
 
-fn art_band_axis(variant_index: u32) -> ArtBandAxis {
-    match variant_index % 6 {
-        1 => ArtBandAxis::Vertical,
-        2 => ArtBandAxis::DiagonalDown,
-        3 => ArtBandAxis::Horizontal,
-        4 => ArtBandAxis::DiagonalUp,
-        _ => ArtBandAxis::Horizontal,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TerrainSpriteShape {
+    StraightHorizontal,
+    StraightVertical,
+    DiagonalDown,
+    DiagonalUp,
+    Corner,
+    EndCap,
+    PatchBlob,
+}
+
+impl TerrainSpriteShape {
+    fn label(self) -> &'static str {
+        match self {
+            TerrainSpriteShape::StraightHorizontal => "straight horizontal",
+            TerrainSpriteShape::StraightVertical => "straight vertical",
+            TerrainSpriteShape::DiagonalDown => "diagonal down",
+            TerrainSpriteShape::DiagonalUp => "diagonal up",
+            TerrainSpriteShape::Corner => "corner",
+            TerrainSpriteShape::EndCap => "end cap",
+            TerrainSpriteShape::PatchBlob => "patch/blob",
+        }
+    }
+
+    fn primary_axis(self) -> ArtBandAxis {
+        match self {
+            TerrainSpriteShape::StraightHorizontal
+            | TerrainSpriteShape::Corner
+            | TerrainSpriteShape::EndCap
+            | TerrainSpriteShape::PatchBlob => ArtBandAxis::Horizontal,
+            TerrainSpriteShape::StraightVertical => ArtBandAxis::Vertical,
+            TerrainSpriteShape::DiagonalDown => ArtBandAxis::DiagonalDown,
+            TerrainSpriteShape::DiagonalUp => ArtBandAxis::DiagonalUp,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+enum TerrainBandKind {
+    Path,
+    Trench,
+    Berm,
+}
+
+fn terrain_shape_for_variant(variant_index: u32) -> TerrainSpriteShape {
+    match variant_index % 7 {
+        0 => TerrainSpriteShape::StraightHorizontal,
+        1 => TerrainSpriteShape::StraightVertical,
+        2 => TerrainSpriteShape::DiagonalDown,
+        3 => TerrainSpriteShape::DiagonalUp,
+        4 => TerrainSpriteShape::Corner,
+        5 => TerrainSpriteShape::EndCap,
+        _ => TerrainSpriteShape::PatchBlob,
     }
 }
 
@@ -1188,6 +1249,207 @@ fn draw_berm_crest_highlights(
     }
 }
 
+fn apply_terrain_shape_modifier(
+    image: &mut PixelImage,
+    shape: TerrainSpriteShape,
+    kind: TerrainBandKind,
+    style: ArtStyleControls,
+    rng: &mut TinyRng,
+) {
+    match shape {
+        TerrainSpriteShape::Corner => draw_terrain_corner_spur(image, kind, style, rng),
+        TerrainSpriteShape::EndCap => draw_terrain_end_cap(image, kind, style, rng),
+        TerrainSpriteShape::PatchBlob => draw_terrain_patch_blob(image, kind, style, rng),
+        TerrainSpriteShape::StraightHorizontal
+        | TerrainSpriteShape::StraightVertical
+        | TerrainSpriteShape::DiagonalDown
+        | TerrainSpriteShape::DiagonalUp => {}
+    }
+}
+
+fn terrain_kind_palette(kind: TerrainBandKind, style: ArtStyleControls) -> (Rgba8, Rgba8, Rgba8) {
+    match kind {
+        TerrainBandKind::Path => (
+            art_style_color(Rgba8::opaque(174, 113, 66), style),
+            art_style_color(Rgba8::opaque(126, 78, 49), style),
+            Rgba8::opaque(196, 144, 85),
+        ),
+        TerrainBandKind::Trench => (
+            art_style_color(Rgba8::opaque(52, 38, 31), style),
+            art_style_color(Rgba8::opaque(116, 73, 43), style),
+            Rgba8::opaque(202, 143, 83),
+        ),
+        TerrainBandKind::Berm => (
+            art_style_color(Rgba8::opaque(151, 99, 55), style),
+            art_style_color(Rgba8::opaque(82, 54, 37), style),
+            Rgba8::opaque(213, 155, 88),
+        ),
+    }
+}
+
+fn draw_terrain_corner_spur(
+    image: &mut PixelImage,
+    kind: TerrainBandKind,
+    style: ArtStyleControls,
+    rng: &mut TinyRng,
+) {
+    let (base, shadow, highlight) = terrain_kind_palette(kind, style);
+    let cx = image.width as i32 / 2 + rng.range_i32(-2, 3);
+    let cy = image.height as i32 / 2 + rng.range_i32(-2, 3);
+    let arm = (image.height as i32 / 3).max(8);
+    let half = match kind {
+        TerrainBandKind::Path => 5,
+        TerrainBandKind::Trench => 6,
+        TerrainBandKind::Berm => 5,
+    };
+    for y in cy - arm..=cy {
+        for x in cx - half..=cx + half {
+            if rng.hash_xy(x.max(0) as u32, y.max(0) as u32) > 0.12 + style.roughness * 0.16 {
+                image.set_i32(x, y, base);
+            }
+        }
+    }
+    match kind {
+        TerrainBandKind::Path => {
+            image.draw_line(
+                cx - half,
+                cy - arm,
+                cx - half,
+                cy,
+                highlight.with_alpha(130),
+            );
+            image.draw_line(cx + half, cy - arm, cx + half, cy, shadow.with_alpha(150));
+        }
+        TerrainBandKind::Trench => {
+            rect_i32(
+                image,
+                cx - half / 2,
+                cy - arm,
+                half,
+                arm,
+                shadow.darken(0.12),
+            );
+            image.draw_line(
+                cx - half,
+                cy - arm,
+                cx - half,
+                cy,
+                highlight.with_alpha(150),
+            );
+            image.draw_line(cx + half, cy - arm, cx + half, cy, base.lighten(0.12));
+        }
+        TerrainBandKind::Berm => {
+            image.draw_line(
+                cx - half,
+                cy - arm,
+                cx - half,
+                cy,
+                highlight.with_alpha(165),
+            );
+            image.draw_line(cx + half, cy - arm, cx + half, cy, shadow.with_alpha(165));
+        }
+    }
+}
+
+fn draw_terrain_end_cap(
+    image: &mut PixelImage,
+    kind: TerrainBandKind,
+    style: ArtStyleControls,
+    rng: &mut TinyRng,
+) {
+    let grass = Rgba8::opaque(84, 123, 63);
+    let cut_x = image.width as i32 / 2 + rng.range_i32(2, 6);
+    for y in 0..image.height as i32 {
+        for x in cut_x..image.width as i32 {
+            if rng.hash_xy(x as u32, y as u32) > 0.18 {
+                image.set_i32(
+                    x,
+                    y,
+                    grass.blend(
+                        Rgba8::opaque(105, 139, 76),
+                        rng.hash_xy(y as u32, x as u32) * 0.18,
+                    ),
+                );
+            }
+        }
+    }
+    let (base, shadow, highlight) = terrain_kind_palette(kind, style);
+    let cy = image.height as i32 / 2;
+    ellipse(image, cut_x, cy, 6, 9, base);
+    image.draw_line(
+        cut_x - 2,
+        cy - 8,
+        cut_x - 2,
+        cy + 8,
+        highlight.with_alpha(150),
+    );
+    image.draw_line(cut_x + 3, cy - 7, cut_x + 3, cy + 7, shadow.with_alpha(165));
+}
+
+fn draw_terrain_patch_blob(
+    image: &mut PixelImage,
+    kind: TerrainBandKind,
+    style: ArtStyleControls,
+    rng: &mut TinyRng,
+) {
+    let grass = Rgba8::opaque(84, 123, 63);
+    fill(image, grass);
+    speckles(
+        image,
+        rng,
+        scaled_count(image, 32),
+        Rgba8::opaque(112, 142, 74),
+        0.08,
+    );
+    let (base, shadow, highlight) = terrain_kind_palette(kind, style);
+    let cx = image.width as i32 / 2 + rng.range_i32(-2, 3);
+    let cy = image.height as i32 / 2 + rng.range_i32(-1, 3);
+    let rx = 9 + rng.range_i32(0, 5);
+    let ry = 6 + rng.range_i32(0, 4);
+    ellipse(image, cx, cy, rx, ry, base);
+    match kind {
+        TerrainBandKind::Path => {
+            ellipse(image, cx, cy, rx - 3, (ry - 2).max(2), base.lighten(0.06));
+            image.draw_line(
+                cx - rx + 2,
+                cy,
+                cx + rx - 2,
+                cy + rng.range_i32(-1, 2),
+                shadow.with_alpha(120),
+            );
+        }
+        TerrainBandKind::Trench => {
+            ellipse(image, cx, cy, rx - 3, (ry - 2).max(2), shadow.darken(0.14));
+            ellipse(
+                image,
+                cx - 2,
+                cy - 2,
+                (rx - 5).max(2),
+                (ry - 4).max(2),
+                shadow.darken(0.18),
+            );
+            image.draw_line(cx - rx, cy - 1, cx + rx, cy - 3, highlight.with_alpha(150));
+        }
+        TerrainBandKind::Berm => {
+            ellipse(image, cx, cy, rx - 2, (ry - 1).max(2), base.lighten(0.10));
+            image.draw_line(
+                cx - rx + 1,
+                cy - ry + 2,
+                cx + rx - 1,
+                cy - ry + 2,
+                highlight.with_alpha(165),
+            );
+            image.draw_line(
+                cx - rx + 2,
+                cy + ry - 1,
+                cx + rx - 2,
+                cy + ry,
+                shadow.with_alpha(165),
+            );
+        }
+    }
+}
+
 fn art_band_point(axis: ArtBandAxis, along: f32, lane: f32, image: &PixelImage) -> (i32, i32) {
     let w = image.width.max(1) as f32;
     let h = image.height.max(1) as f32;
@@ -1358,27 +1620,131 @@ fn draw_log(
     );
 }
 
-fn draw_rock(image: &mut PixelImage, rng: &mut TinyRng) {
+fn draw_rock(image: &mut PixelImage, variant_index: u32, rng: &mut TinyRng) {
     draw_shadow(image, 0.40);
-    let cx = image.width as i32 / 2 + rng.range_i32(-2, 2);
+    let cx = image.width as i32 / 2 + rng.range_i32(-2, 3);
     let cy = image.height as i32 / 2 + rng.range_i32(1, 4);
-    ellipse(image, cx, cy, 10, 7, Rgba8::opaque(99, 104, 96));
-    ellipse(image, cx - 2, cy - 2, 7, 4, Rgba8::opaque(139, 143, 131));
-    image.draw_line(cx - 8, cy + 1, cx + 2, cy + 5, Rgba8::opaque(70, 74, 70));
+    let dark = Rgba8::opaque(70, 74, 70);
+    let mid = Rgba8::opaque(99, 104, 96);
+    let light = Rgba8::opaque(145, 149, 136);
+    match variant_index % 5 {
+        0 => {
+            ellipse(image, cx, cy, 10, 7, mid);
+            ellipse(image, cx - 2, cy - 2, 7, 4, light);
+            image.draw_line(cx - 8, cy + 1, cx + 2, cy + 5, dark);
+        }
+        1 => {
+            ellipse(image, cx, cy + 2, 12, 4, mid);
+            ellipse(image, cx - 3, cy, 8, 3, light);
+            image.draw_line(cx - 10, cy + 3, cx + 10, cy + 4, dark);
+        }
+        2 => {
+            ellipse(image, cx, cy, 9, 8, mid);
+            ellipse(image, cx - 3, cy - 3, 5, 3, light);
+            image.draw_line(cx - 1, cy - 5, cx + 2, cy + 3, dark);
+            image.draw_line(cx + 2, cy + 3, cx - 4, cy + 5, dark);
+        }
+        3 => {
+            for i in 0..5 {
+                let x = cx - 9 + i * 4 + rng.range_i32(-1, 2);
+                let y = cy + rng.range_i32(-2, 4);
+                ellipse(
+                    image,
+                    x,
+                    y,
+                    4,
+                    3,
+                    if i % 2 == 0 { mid } else { dark.lighten(0.12) },
+                );
+                image.set_i32(x - 1, y - 1, light);
+            }
+        }
+        _ => {
+            ellipse(image, cx - 2, cy, 7, 8, mid);
+            ellipse(image, cx + 4, cy + 2, 6, 5, dark.lighten(0.10));
+            ellipse(image, cx - 4, cy - 4, 4, 3, light);
+            image.draw_line(cx - 8, cy + 5, cx + 9, cy + 6, dark);
+        }
+    }
 }
 
-fn draw_wall(image: &mut PixelImage, rng: &mut TinyRng) {
+fn draw_wall(image: &mut PixelImage, variant_index: u32, rng: &mut TinyRng) {
     draw_shadow(image, 0.40);
-    let y = image.height / 2;
-    for i in 0..4 {
-        let x = 5 + i * 6;
-        let color = if i % 2 == 0 {
-            Rgba8::opaque(119, 117, 105)
-        } else {
-            Rgba8::opaque(92, 92, 84)
-        };
-        image.fill_rect(x, y - 5 + (rng.next_u32() % 3), 7, 10, color);
-        image.outline_rect(x, y - 5, 7, 10, Rgba8::opaque(53, 54, 51));
+    let base_y = image.height as i32 / 2 + 3;
+    let stone_dark = Rgba8::opaque(59, 60, 57);
+    let stone_mid = Rgba8::opaque(104, 104, 94);
+    let stone_light = Rgba8::opaque(143, 141, 128);
+    match variant_index % 4 {
+        0 => {
+            for i in 0..4 {
+                let x = 5 + i * 6;
+                let color = if i % 2 == 0 { stone_light } else { stone_mid };
+                image.fill_rect(x, (base_y - 9 + rng.range_i32(0, 3)) as u32, 7, 10, color);
+                image.outline_rect(x, (base_y - 9) as u32, 7, 10, stone_dark);
+            }
+        }
+        1 => {
+            for i in 0..5 {
+                let x = 3 + i * 6;
+                let h = 6 + rng.range_i32(0, 6);
+                rect_i32(
+                    image,
+                    x,
+                    base_y - h,
+                    6,
+                    h,
+                    if i % 2 == 0 { stone_mid } else { stone_light },
+                );
+                image.draw_line(x, base_y - h, x + 5, base_y - h, stone_light.lighten(0.10));
+                image.draw_line(x + 5, base_y - h + 1, x + 5, base_y, stone_dark);
+            }
+        }
+        2 => {
+            for i in 0..4 {
+                let x = 4 + i * 7;
+                let h = if i == 2 { 3 } else { 9 + rng.range_i32(-1, 3) };
+                rect_i32(
+                    image,
+                    x,
+                    base_y - h,
+                    7,
+                    h,
+                    if i == 2 { stone_dark } else { stone_mid },
+                );
+                image.draw_line(x, base_y - h, x + 6, base_y - h, stone_light);
+            }
+            for i in 0..5 {
+                ellipse(
+                    image,
+                    6 + i * 5,
+                    base_y + rng.range_i32(0, 4),
+                    3,
+                    2,
+                    stone_mid,
+                );
+            }
+        }
+        _ => {
+            for row in 0..3 {
+                for col in 0..4 {
+                    let x = 4 + col * 7 + if row % 2 == 0 { 0 } else { 3 };
+                    let y = base_y - 11 + row * 4;
+                    rect_i32(
+                        image,
+                        x,
+                        y,
+                        7,
+                        4,
+                        if (row + col) % 2 == 0 {
+                            stone_mid
+                        } else {
+                            stone_light
+                        },
+                    );
+                    image.draw_line(x, y + 3, x + 6, y + 3, stone_dark);
+                }
+            }
+        }
     }
 }
 
@@ -1420,35 +1786,60 @@ fn draw_stakes(image: &mut PixelImage, variant_index: u32, rng: &mut TinyRng) {
 }
 
 fn draw_wire(image: &mut PixelImage, variant_index: u32, rng: &mut TinyRng) {
-    draw_shadow(image, 0.20);
-    let strand_count = 2 + (variant_index % 3);
-    for strand in 0..strand_count {
-        let y = 12 + strand * 4;
-        let phase = rng.next_u32() % 5;
-        for x in 4..image.width.saturating_sub(4) {
-            let wobble = if (x + strand + phase) % 5 < 2 { 1 } else { -1 };
-            let wire = if strand % 2 == 0 {
-                Rgba8::opaque(147, 151, 137)
-            } else {
-                Rgba8::opaque(91, 100, 91)
-            };
-            image.set_i32(x as i32, y as i32 + wobble, wire);
-            if (x + phase).is_multiple_of(7) {
-                image.set_i32(x as i32, y as i32 - 2, Rgba8::opaque(220, 210, 126));
-                image.set_i32(x as i32 + 1, y as i32 + 2, Rgba8::opaque(220, 210, 126));
-            }
-        }
+    draw_shadow(image, 0.28);
+    let post = Rgba8::opaque(104, 77, 45);
+    let post_light = Rgba8::opaque(169, 128, 73);
+    let wire_dark = Rgba8::opaque(76, 88, 83);
+    let wire_mid = Rgba8::opaque(143, 151, 137);
+    let barb = Rgba8::opaque(219, 211, 143);
+    let strand_count = 2 + (variant_index % 2);
+    let x_start = 4 + rng.range_i32(0, 3);
+    let x_end = image.width as i32 - 5 - rng.range_i32(0, 3);
+    let slope = match variant_index % 3 {
+        1 => 2,
+        2 => -2,
+        _ => 0,
+    };
+    let post_count = 2 + (variant_index % 2) as i32;
+    for i in 0..post_count {
+        let t = if post_count == 1 {
+            0.5
+        } else {
+            i as f32 / (post_count - 1) as f32
+        };
+        let x = (x_start as f32 + (x_end - x_start) as f32 * t).round() as i32;
+        let y = 22 + (slope as f32 * (t - 0.5)).round() as i32 + rng.range_i32(-1, 2);
+        image.draw_line(x, y, x + rng.range_i32(-1, 2), y - 13, post);
+        image.set_i32(x - 1, y - 11, post_light);
     }
-    for _ in 0..4 {
-        let x = rng.range_i32(5, image.width as i32 - 5);
-        let y = rng.range_i32(11, 21);
-        image.draw_line(
-            x - 2,
-            y,
-            x + 2,
-            y + rng.range_i32(-1, 2),
-            Rgba8::opaque(196, 195, 166),
-        );
+    for strand in 0..strand_count {
+        let base_y = 12 + strand as i32 * 4 + rng.range_i32(-1, 2);
+        let sag = 2 + rng.range_i32(0, 3);
+        let mut prev = None;
+        for step in 0..=28 {
+            let t = step as f32 / 28.0;
+            let x = x_start as f32 + (x_end - x_start) as f32 * t;
+            let sag_curve = (t - 0.5) * (t - 0.5) * 4.0;
+            let y = base_y as f32
+                + slope as f32 * (t - 0.5)
+                + sag as f32 * (1.0 - sag_curve)
+                + ((step + variant_index) % 3) as f32 * 0.35;
+            let point = (x.round() as i32, y.round() as i32);
+            if let Some((px, py)) = prev {
+                image.draw_line(
+                    px,
+                    py,
+                    point.0,
+                    point.1,
+                    if strand % 2 == 0 { wire_mid } else { wire_dark },
+                );
+            }
+            if step % 5 == (variant_index % 5) {
+                image.draw_line(point.0 - 1, point.1 - 2, point.0 + 1, point.1 + 2, barb);
+                image.draw_line(point.0 - 2, point.1 + 1, point.0 + 2, point.1 - 1, barb);
+            }
+            prev = Some(point);
+        }
     }
 }
 
@@ -1808,6 +2199,8 @@ mod tests {
         for family in [
             ArtSpriteFamily::Tree,
             ArtSpriteFamily::Log,
+            ArtSpriteFamily::Rock,
+            ArtSpriteFamily::Wall,
             ArtSpriteFamily::Stakes,
             ArtSpriteFamily::Wire,
             ArtSpriteFamily::ObjectiveMarker,
@@ -1829,6 +2222,35 @@ mod tests {
                 "{family:?} variants should differ"
             );
         }
+    }
+
+    #[test]
+    fn terrain_variants_record_deterministic_shape_notes() {
+        let request = ArtVariantRequest {
+            family: ArtSpriteFamily::Path,
+            seed: 88,
+            count: 7,
+            width: 32,
+            height: 32,
+            style: ArtStyleControls::default(),
+            parent_id: None,
+        };
+        let batch = generate_art_variants(&request);
+        let shapes: Vec<_> = batch
+            .variants
+            .iter()
+            .filter_map(|variant| {
+                variant
+                    .notes
+                    .iter()
+                    .find(|note| note.starts_with("shape: "))
+            })
+            .cloned()
+            .collect();
+        assert_eq!(shapes.len(), 7);
+        assert!(shapes.iter().any(|shape| shape.contains("corner")));
+        assert!(shapes.iter().any(|shape| shape.contains("end cap")));
+        assert!(shapes.iter().any(|shape| shape.contains("patch/blob")));
     }
 
     #[test]
