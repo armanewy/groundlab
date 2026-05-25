@@ -6,8 +6,9 @@ use std::path::PathBuf;
 use eframe::egui;
 use ground_core::{
     build_seam_test_sheet, ensure_default_asset_files, export_edit_scenario_suite,
-    export_tileset_bundle_with_palette, find_path, load_workbench_assets, muted_field_32,
-    preview_pixel_to_cell, render_terrain_preview, save_palette_file, save_recipe_file,
+    export_tileset_bundle_with_palette, find_path, load_art_lab_override_profile,
+    load_workbench_assets, muted_field_32, preview_pixel_to_cell, promoted_art_pack_profile_path,
+    render_art_lab_road_below_preview, render_terrain_preview, save_palette_file, save_recipe_file,
     validate_tileset, ArtLabOverrideProfile, ArtLabOverrideRole, ArtSpriteFamily, ArtStyleControls,
     ArtVariant, ArtVariantBatch, ArtVariantMetadata, Brush, BrushKind, FileSnapshot,
     GroundMaterial, LightDirection, Palette, PixelImage, PreviewMode, PreviewOptions,
@@ -29,6 +30,8 @@ use serde::{Deserialize, Serialize};
 
 const MAX_UI_TEXTURE_SIDE: usize = 2048;
 const PLAYER_PLAN_PATH: &str = "exports/gamepivot_08/player_plan.ron";
+const ART_PACK_ASSETS_ROOT: &str = "assets/art_packs";
+const ART_PACK_0_1_ID: &str = "art_pack_0_1";
 const ART_REVIEW_TAGS: [&str; 8] = [
     "good silhouette",
     "readable at 32px",
@@ -276,6 +279,10 @@ struct GroundLabApp {
     selected_mission_cell: CellCoord,
     mission_action_mode: MissionActionMode,
     mission_map_mode: MissionMapMode,
+    mission_use_art_pack_0_1: bool,
+    mission_visual_pack_profile: Option<ArtLabOverrideProfile>,
+    mission_visual_pack_texture: Option<egui::TextureHandle>,
+    mission_visual_pack_status: String,
     route_overlay_mode: RouteOverlayMode,
     route_group_filter: usize,
     balance_dashboard: Vec<MissionBalanceDashboardRow>,
@@ -362,7 +369,11 @@ impl GroundLabApp {
             mission_state: playable_road_below_state(),
             selected_mission_cell: CellCoord::new(5, 4),
             mission_action_mode: MissionActionMode::Inspect,
-            mission_map_mode: MissionMapMode::Terrain,
+            mission_map_mode: MissionMapMode::Visual,
+            mission_use_art_pack_0_1: true,
+            mission_visual_pack_profile: None,
+            mission_visual_pack_texture: None,
+            mission_visual_pack_status: "Visual pack: default/generated fallback.".to_string(),
             route_overlay_mode: RouteOverlayMode::Current,
             route_group_filter: 0,
             balance_dashboard: build_balance_dashboard(),
@@ -423,6 +434,7 @@ impl GroundLabApp {
             status: "Ready. Art Lab is the current focus.".to_string(),
         };
         app.try_load_saved_art_override_profile_on_startup(&cc.egui_ctx);
+        app.try_load_mission_visual_pack_on_startup(&cc.egui_ctx);
         app.refresh_if_dirty(&cc.egui_ctx);
         app
     }
@@ -561,6 +573,8 @@ impl GroundLabApp {
 
         self.show_mission_status_panel(ui);
         ui.separator();
+        self.show_mission_visual_pack_panel(ui);
+        ui.separator();
         self.show_mission_lifecycle_panel(ui);
         ui.separator();
         self.show_generated_mission_browser_panel(ui);
@@ -627,6 +641,49 @@ impl GroundLabApp {
                     .collect::<Vec<_>>()
                     .join(" · ")
             ));
+        });
+    }
+
+    fn show_mission_visual_pack_panel(&mut self, ui: &mut egui::Ui) {
+        ui.group(|ui| {
+            ui.strong("Visual pack");
+            ui.horizontal_wrapped(|ui| {
+                let was_enabled = self.mission_use_art_pack_0_1;
+                ui.checkbox(&mut self.mission_use_art_pack_0_1, "Use Art Pack 0.1");
+                if self.mission_use_art_pack_0_1 && !was_enabled {
+                    self.load_mission_visual_pack_0_1(ui.ctx());
+                } else if !self.mission_use_art_pack_0_1 && was_enabled {
+                    self.mission_visual_pack_status =
+                        "Visual pack: default/generated fallback.".to_string();
+                }
+                if ui.button("Reload Art Pack 0.1").clicked() {
+                    self.load_mission_visual_pack_0_1(ui.ctx());
+                }
+                if ui.button("Use generated/default visuals").clicked() {
+                    self.mission_use_art_pack_0_1 = false;
+                    self.mission_visual_pack_status =
+                        "Visual pack: default/generated fallback.".to_string();
+                }
+            });
+            ui.small(&self.mission_visual_pack_status);
+            if let Some(profile) = &self.mission_visual_pack_profile {
+                let broken = profile
+                    .assignments
+                    .iter()
+                    .filter(|assignment| !assignment.path.exists())
+                    .count();
+                ui.small(format!(
+                    "{} assignment(s) · {} broken file reference(s)",
+                    profile.assignments.len(),
+                    broken
+                ));
+                if broken > 0 {
+                    ui.colored_label(
+                        egui::Color32::from_rgb(230, 160, 90),
+                        "Mission Lab will fall back if assigned sprite files are missing.",
+                    );
+                }
+            }
         });
     }
 
@@ -2551,6 +2608,9 @@ impl GroundLabApp {
     fn show_mission_canvas(&mut self, ui: &mut egui::Ui) {
         ui.heading("Mission Prep");
         self.show_mission_command_bar(ui);
+        if self.mission_map_mode == MissionMapMode::Visual {
+            self.show_mission_art_pack_preview(ui);
+        }
         ui.horizontal(|ui| {
             self.show_mission_minimap(ui);
             ui.label("Legend: S spawn, O objective, T tree, L logs/trunk, ^ stakes, = trench, # berm, : road.");
@@ -2651,8 +2711,92 @@ impl GroundLabApp {
                 ui.label(format!("mode {}", self.mission_action_mode.label()));
                 ui.separator();
                 ui.label(format!("map {}", self.mission_map_mode.label()));
+                ui.separator();
+                ui.label(if self.mission_art_pack_active() {
+                    "visual pack Art Pack 0.1"
+                } else {
+                    "visual pack fallback"
+                });
             });
         });
+    }
+
+    fn show_mission_art_pack_preview(&self, ui: &mut egui::Ui) {
+        egui::Frame::group(ui.style()).show(ui, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.strong(if self.mission_art_pack_active() {
+                    "Art Pack 0.1 Road Below preview"
+                } else {
+                    "Generated/default visual preview"
+                });
+                ui.small(&self.mission_visual_pack_status);
+            });
+            // Mission Lab currently uses the Art Lab Road Below preview as the packed-art
+            // surface. A deeper per-cell renderer can replace this without changing the
+            // promoted-pack loading path.
+            if self.mission_art_pack_active() {
+                show_texture_only(
+                    ui,
+                    self.mission_visual_pack_texture.as_ref(),
+                    1.5,
+                    "Art Pack 0.1 preview texture is not loaded.",
+                );
+                ui.small("Tactical grid, selection, routes, and assault overlays remain below.");
+            } else {
+                ui.small("Visual mode is using the existing generated/default tactical grid.");
+            }
+        });
+        ui.add_space(8.0);
+    }
+
+    fn mission_art_pack_active(&self) -> bool {
+        self.mission_use_art_pack_0_1
+            && self.mission_visual_pack_profile.is_some()
+            && self.mission_visual_pack_texture.is_some()
+    }
+
+    fn try_load_mission_visual_pack_on_startup(&mut self, ctx: &egui::Context) {
+        let path = promoted_art_pack_profile_path(ART_PACK_ASSETS_ROOT, ART_PACK_0_1_ID);
+        if path.exists() {
+            self.load_mission_visual_pack_0_1(ctx);
+        }
+    }
+
+    fn load_mission_visual_pack_0_1(&mut self, ctx: &egui::Context) {
+        let path = promoted_art_pack_profile_path(ART_PACK_ASSETS_ROOT, ART_PACK_0_1_ID);
+        match load_art_lab_override_profile(&path) {
+            Ok(profile) => {
+                let broken = profile
+                    .assignments
+                    .iter()
+                    .filter(|assignment| !assignment.path.exists())
+                    .count();
+                let preview = render_art_lab_road_below_preview(&profile);
+                put_texture(
+                    ctx,
+                    &mut self.mission_visual_pack_texture,
+                    "mission_art_pack_0_1_road_below_preview",
+                    &preview,
+                );
+                let assignment_count = profile.assignments.len();
+                self.mission_visual_pack_profile = Some(profile);
+                self.mission_use_art_pack_0_1 = broken == 0;
+                self.mission_visual_pack_status = if broken == 0 {
+                    format!("Visual pack: Art Pack 0.1 ({assignment_count} assignment(s)).")
+                } else {
+                    format!(
+                        "Visual pack: Art Pack 0.1 loaded with {broken} missing file(s); fallback active."
+                    )
+                };
+            }
+            Err(err) => {
+                self.mission_visual_pack_profile = None;
+                self.mission_visual_pack_texture = None;
+                self.mission_use_art_pack_0_1 = false;
+                self.mission_visual_pack_status =
+                    format!("Visual pack: default/generated fallback ({err}).");
+            }
+        }
     }
 
     fn show_mission_minimap(&self, ui: &mut egui::Ui) {
