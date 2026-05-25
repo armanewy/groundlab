@@ -11,6 +11,12 @@ Art Pack 0.1 loads, the Road Below visual context render is readable, and the
 Mission Lab code path exposes the intended phase flow. A human tactile pass
 through every click is still useful before adding larger systems.
 
+Important visual caveat: this accepts the slice for internal interaction
+iteration, not for final visual direction. Art Pack 0.1 is a functional
+placeholder/integration pack. The current visual result still reads as stamped
+32x32 sprites on a grid, while the target is a cohesive high-oblique illustrated
+terrain scene.
+
 ## Test Script
 
 1. Open the app.
@@ -41,6 +47,8 @@ through every click is still useful before adding larger systems.
 - The Art Lab-to-Mission Lab chain is connected end to end: generated sprites
   can become approved pack assets, and those assets now feed the playable
   tactical surface.
+- The current pack is useful for testing the play loop, not for judging final
+  art quality.
 
 ## What Is Confusing
 
@@ -58,6 +66,20 @@ through every click is still useful before adding larger systems.
 - The current UI has accumulated a lot of useful panels; the main player path
   may still compete with workbench controls until a human pass confirms the
   ordering feels natural.
+- The visual result can be mistaken for accepted art direction because the
+  pipeline works. It should not be; the grid/stamp composition remains a visual
+  failure against the desired target.
+
+## Visual Gaps
+
+- Visible grid/stamp composition still dominates the beauty read.
+- Path, trench, and berm are tile pieces, not continuous terrain shapes.
+- Terrain, props, markers, and objects do not share one coherent high-oblique
+  perspective.
+- Scene-level lighting, contact shadows, and ground integration are weak.
+- Objective and spawn markers remain too board-game-like.
+- Some object scales and styles still read as icons rather than anchored world
+  props.
 
 ## What Feels Satisfying
 
@@ -82,8 +104,13 @@ through every click is still useful before adding larger systems.
 
 - Accepted for internal iteration: yes.
 - Needs UI pass before more systems: yes.
-- Needs art pass before more systems: no.
+- Needs art pass before more systems: no for interaction iteration, yes before
+  visual acceptance.
 - Needs content/balance pass before more systems: yes.
+- Visual acceptance: pending.
+
+The next visual milestone is `Visual Target 0.1 -- cohesive high-oblique Road
+Below scene`. See `docs/VISUAL_TARGET_0_1.md`.
 
 ## Next Narrow Fixes
 

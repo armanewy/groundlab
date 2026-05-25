@@ -4,6 +4,13 @@ Art Pack 0.1 is the first versioned Art Lab output. It lives under
 `assets/art_packs/art_pack_0_1/` and is no longer dependent on ignored
 `exports/` scratch state.
 
+This pack is accepted as a functional placeholder and integration test pack.
+It proves that generated/approved art can move through Art Lab, become
+versioned project assets, and render inside Mission Lab. It is not accepted as
+the target visual direction. The assembled result still reads as stamped
+32x32 sprites on a tactical grid, not as the intended high-oblique illustrated
+terrain scene.
+
 ## Pack State
 
 - Profile: `assets/art_packs/art_pack_0_1/art_pack.json`
@@ -24,9 +31,21 @@ Art Pack 0.1 is the first versioned Art Lab output. It lives under
 - The path kit is now represented by separate role sprites instead of one repeated path tile.
 - In the Road Below context preview, path, trench, and berm read as distinct terrain roles at gameplay-preview scale.
 - Stakes and wire read as interactable obstacles in context instead of loose texture noise.
+- The pack is good enough to test interaction, role assignment, prep feedback,
+  and Mission Lab integration.
 
 ## What Needs Work
 
+- The whole assembled scene still looks like a tile/stamp board. The grid and
+  per-cell composition dominate the visual read.
+- Terrain features are still isolated tiles, not continuous earth shapes. Path,
+  trench, and berm need to become blended multi-cell features in a beauty view.
+- Perspective is inconsistent across terrain, props, objects, and markers.
+- The scene lacks shared lighting and shadow composition; each sprite mostly
+  reads as lit in isolation.
+- Objective and spawn markers are too board-game-like for the final target.
+- Object scale and ground anchoring are inconsistent enough that props can read
+  like icons rather than terrain objects.
 - Wall is improved but still the most placeholder-like object in the pack. It is readable, but it needs a stronger old-stone or ruin identity.
 - Path pieces are readable in mission context, but the route still has a stepped/tile-kit feel. This is no longer blocking, but path composition remains an Art Pack 0.2 target.
 - Objective and spawn markers are acceptable for internal use, but they still read somewhat board-game-like.
@@ -38,6 +57,12 @@ Art Pack 0.1 is the first versioned Art Lab output. It lives under
 - Usable for first gameplay-context visual tests: yes.
 - Usable as final production art: no.
 - Needs Art Pack 0.2 before broader gameplay work: no.
+- Accepted as visual target: no.
+- Visual acceptance: pending `Visual Target 0.1`.
+
+Art Pack 0.1 should be treated as a working placeholder pack, not as proof that
+the final art direction is close. More individual 32x32 sprite generation will
+not close the main gap by itself; the next visual problem is scene composition.
 
 ## Screenshots Reviewed
 
@@ -57,7 +82,14 @@ Reviewed questions:
 
 ## Next Decision
 
-Road Below is readable enough to use Art Pack 0.1 as the default visual pack for Mission Lab previews in the next implementation step. Keep the next art-only pass narrow: path kit composition, wall identity, and marker style only.
+Road Below is readable enough to use Art Pack 0.1 as the default visual pack for
+Mission Lab interaction tests. It is not visually close enough to the desired
+high-oblique target. The next visual milestone is:
+
+> Visual Target 0.1 -- cohesive high-oblique Road Below scene.
+
+Use `docs/VISUAL_TARGET_0_1.md` as the target spec before doing more art or
+renderer work.
 
 ## Mission Lab Integration
 
