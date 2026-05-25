@@ -14,83 +14,17 @@ use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_MISSION_EXPORT_DIR: &str = "exports/gamepivot_05_1";
 
-pub mod mission {
-    pub use super::{
-        ascii_map, export_mission_visuals, load_mission_spec, mission_summary,
-        save_mission_preview_png, save_mission_spec, CellCoord, CellRect, CoverClass,
-        DefenderPositionSpec, EarthState, GroundKind, MissionBriefing, MissionCell, MissionMap,
-        MissionObjective, MissionPhase, MissionRenderProjection, MissionSpec, MissionState,
-        MissionVisualTheme,
-    };
-}
-
-pub mod materials {
-    pub use super::{LocalMaterialKind, LocalMaterialStock, MaterialLedgerEntry};
-}
-
-pub mod objects {
-    pub use super::{
-        Direction, EnvironmentObject, EnvironmentObjectKind, LogState, ObstacleState,
-        PositionState, RockState, RollingHazardStatus, TreeState, WallState,
-    };
-}
-
-pub mod tools {
-    pub use super::{CrewPool, MissionConstraints, ToolKind, ToolLoadout};
-}
-
-pub mod enemies {
-    pub use super::{EnemyDoctrine, EnemyGroupSpec, MovementProfile};
-}
-
-pub mod orders {
-    pub use super::{
-        load_work_order_script, run_work_order_script, save_work_order_script,
-        OrderValidationEntry, OrderValidationSeverity, ScriptedWorkOrder, WorkOrder, WorkOrderKind,
-        WorkOrderPreview, WorkOrderScript, WorkOrderStatus, WorkTarget,
-    };
-}
-
-pub mod routing {
-    pub use super::{
-        route_delta_report, route_preview_for_state, DoctrineRouteSet, EnemyRouteDelta,
-        EnemyRoutePreview, RouteDeltaReport,
-    };
-}
-
-pub mod assault {
-    pub use super::{
-        export_assault_run, save_assault_delay_heatmap_png, save_assault_prediction_vs_actual_png,
-        save_assault_pressure_heatmap_png, save_mission_assault_preview_png, AssaultDebrief,
-        AssaultEventCause, AssaultEventKind, AssaultInfluenceSummary, AssaultState, AssaultStatus,
-        AssaultSummary, AssaultTimelineEvent, CellInfluence, EnemyAgent, EnemyAgentStatus,
-        GroupInfluence, RoutePredictionAccuracy, RoutePredictionAccuracyReport,
-    };
-}
-
-pub mod hazards {
-    pub use super::{
-        export_hazard_sandbox_run, predict_rolling_log_path, save_rolling_hazard_preview_png,
-        RollingHazardImpactSummary, RollingHazardState, RollingHazardStatus, RollingHazardStep,
-    };
-}
-
-pub mod rating {
-    pub use super::{
-        export_mission_balance_run, mission_rating_for_state, GeneratedMissionScenarioScore,
-        MissionBalanceReport, MissionBalanceScenarioReport, MissionRating,
-    };
-}
-
-pub mod fixtures {
-    pub use super::{
-        export_road_below_seed, road_below_balance_scripts, road_below_basic_prep_script,
-        road_below_berm_and_stakes_script, road_below_hazard_prep_script,
-        road_below_no_prep_script, road_below_overbuilt_bad_plan_script,
-        road_below_ridge_chokepoint_script, road_below_seed_orders, road_below_spec,
-        road_below_trench_line_script,
-    };
-}
+pub mod assault;
+pub mod enemies;
+pub mod fixtures;
+pub mod hazards;
+pub mod materials;
+pub mod mission;
+pub mod objects;
+pub mod orders;
+pub mod rating;
+pub mod routing;
+pub mod tools;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CellCoord {
