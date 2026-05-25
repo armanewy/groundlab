@@ -105,6 +105,10 @@ pub struct ArtVariantRequest {
     pub count: u32,
     pub width: u32,
     pub height: u32,
+    #[serde(default)]
+    pub style: ArtStyleControls,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
 }
 
 impl ArtVariantRequest {
@@ -117,6 +121,8 @@ impl ArtVariantRequest {
             height: self
                 .height
                 .clamp(ART_VARIANT_MIN_SIZE, ART_VARIANT_MAX_SIZE),
+            style: self.style.sanitized(),
+            parent_id: self.parent_id.clone(),
         }
     }
 }
@@ -129,6 +135,41 @@ impl Default for ArtVariantRequest {
             count: 12,
             width: 32,
             height: 32,
+            style: ArtStyleControls::default(),
+            parent_id: None,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ArtStyleControls {
+    pub roughness: f32,
+    pub contrast: f32,
+    pub edge_emphasis: f32,
+    pub noise: f32,
+    pub warmth: f32,
+}
+
+impl ArtStyleControls {
+    pub fn sanitized(self) -> Self {
+        Self {
+            roughness: self.roughness.clamp(0.0, 1.0),
+            contrast: self.contrast.clamp(0.0, 1.0),
+            edge_emphasis: self.edge_emphasis.clamp(0.0, 1.0),
+            noise: self.noise.clamp(0.0, 1.0),
+            warmth: self.warmth.clamp(0.0, 1.0),
+        }
+    }
+}
+
+impl Default for ArtStyleControls {
+    fn default() -> Self {
+        Self {
+            roughness: 0.5,
+            contrast: 0.5,
+            edge_emphasis: 0.5,
+            noise: 0.5,
+            warmth: 0.5,
         }
     }
 }
@@ -139,6 +180,8 @@ pub struct ArtVariant {
     pub family: ArtSpriteFamily,
     pub seed: u64,
     pub variant_index: u32,
+    pub style: ArtStyleControls,
+    pub parent_id: Option<String>,
     pub image: PixelImage,
     pub notes: Vec<String>,
 }
@@ -157,6 +200,9 @@ pub struct ArtVariantMetadata {
     pub variant_index: u32,
     pub width: u32,
     pub height: u32,
+    pub style: ArtStyleControls,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent_id: Option<String>,
     pub notes: Vec<String>,
 }
 
@@ -169,6 +215,8 @@ impl From<&ArtVariant> for ArtVariantMetadata {
             variant_index: variant.variant_index,
             width: variant.image.width,
             height: variant.image.height,
+            style: variant.style,
+            parent_id: variant.parent_id.clone(),
             notes: variant.notes.clone(),
         }
     }
@@ -181,6 +229,22 @@ pub fn generate_art_variants(request: &ArtVariantRequest) -> ArtVariantBatch {
             let seed = derive_variant_seed(request.seed, request.family, variant_index);
             let mut rng = TinyRng::new(seed);
             let image = generate_family_image(&request, variant_index, &mut rng);
+            let mut notes = vec![
+                format!("family: {}", request.family.label()),
+                format!("deterministic seed: {seed}"),
+                format!(
+                    "style: roughness {:.2}, contrast {:.2}, edge {:.2}, noise {:.2}, warmth {:.2}",
+                    request.style.roughness,
+                    request.style.contrast,
+                    request.style.edge_emphasis,
+                    request.style.noise,
+                    request.style.warmth
+                ),
+                "Art Lab procedural sprite".to_string(),
+            ];
+            if let Some(parent_id) = &request.parent_id {
+                notes.push(format!("mutated from {parent_id}"));
+            }
             ArtVariant {
                 id: format!(
                     "{}_seed_{}_variant_{:02}",
@@ -191,16 +255,24 @@ pub fn generate_art_variants(request: &ArtVariantRequest) -> ArtVariantBatch {
                 family: request.family,
                 seed: request.seed,
                 variant_index,
+                style: request.style,
+                parent_id: request.parent_id.clone(),
                 image,
-                notes: vec![
-                    format!("family: {}", request.family.label()),
-                    format!("deterministic seed: {seed}"),
-                    "Art Lab procedural sprite".to_string(),
-                ],
+                notes,
             }
         })
         .collect();
     ArtVariantBatch { request, variants }
+}
+
+pub fn derive_mutated_art_seed(parent: &ArtVariant) -> u64 {
+    let mut hash = parent.seed ^ 0xd1b5_4a32_d192_ed03;
+    for b in parent.family.slug().bytes().chain(parent.id.bytes()) {
+        hash ^= b as u64;
+        hash = hash.wrapping_mul(0x9e37_79b1_85eb_ca87);
+        hash ^= hash >> 29;
+    }
+    hash ^ (parent.variant_index as u64 + 1).wrapping_mul(0x94d0_49bb_1331_11eb)
 }
 
 pub fn export_art_variant_approved(
@@ -297,9 +369,9 @@ fn generate_family_image(
     let mut image = PixelImage::transparent(request.width, request.height);
     match request.family {
         ArtSpriteFamily::TerrainBase => draw_terrain_base(&mut image, rng),
-        ArtSpriteFamily::Path => draw_path(&mut image, variant_index, rng),
-        ArtSpriteFamily::Trench => draw_trench(&mut image, variant_index, rng),
-        ArtSpriteFamily::Berm => draw_berm(&mut image, variant_index, rng),
+        ArtSpriteFamily::Path => draw_path(&mut image, variant_index, request.style, rng),
+        ArtSpriteFamily::Trench => draw_trench(&mut image, variant_index, request.style, rng),
+        ArtSpriteFamily::Berm => draw_berm(&mut image, variant_index, request.style, rng),
         ArtSpriteFamily::Tree => draw_tree(&mut image, rng),
         ArtSpriteFamily::Log => draw_log(&mut image, rng),
         ArtSpriteFamily::Rock => draw_rock(&mut image, rng),
@@ -319,62 +391,95 @@ fn draw_terrain_base(image: &mut PixelImage, rng: &mut TinyRng) {
     speckles(image, rng, 53, Rgba8::opaque(65, 96, 48), 0.07);
 }
 
-fn draw_path(image: &mut PixelImage, variant_index: u32, rng: &mut TinyRng) {
+fn draw_path(
+    image: &mut PixelImage,
+    variant_index: u32,
+    style: ArtStyleControls,
+    rng: &mut TinyRng,
+) {
+    let style = style.sanitized();
     fill(image, Rgba8::opaque(88, 125, 62));
     let axis = art_band_axis(variant_index);
-    let dirt = Rgba8::opaque(166, 107, 63);
-    let compact = Rgba8::opaque(128, 78, 47);
-    let dust = Rgba8::opaque(198, 145, 85);
+    let dirt = art_style_color(Rgba8::opaque(166, 107, 63), style);
+    let compact = art_style_color(Rgba8::opaque(128, 78, 47), style).darken(style.contrast * 0.10);
+    let dust = art_style_color(Rgba8::opaque(198, 145, 85), style).lighten(style.warmth * 0.04);
     let grass_intrusion = Rgba8::opaque(80, 125, 64);
     let max_lane = art_band_max_lane(axis, image);
     let center = max_lane * (0.48 + (rng.next_f32() - 0.5) * 0.14);
-    let half_width = (max_lane * (0.17 + rng.next_f32() * 0.06)).max(5.0);
+    let half_width =
+        (max_lane * (0.16 + rng.next_f32() * (0.04 + style.roughness * 0.05))).max(5.0);
     let phase = rng.next_f32() * 9.0;
-    let wave_amp = 1.6 + rng.next_f32() * 2.4;
+    let wave_amp = 0.8 + style.roughness * 4.4 + rng.next_f32() * 1.4;
+    let edge_noise_scale = 1.2 + style.roughness * 4.8;
+    let edge_blend = 2.3 + style.edge_emphasis * 4.4;
     for y in 0..image.height {
         for x in 0..image.width {
             let (lane, along) = art_band_coords(axis, x, y, image);
             let centerline = center + art_band_wave(along, phase, wave_amp);
-            let edge_noise = (rng.hash_xy(x, y) - 0.5) * 4.8;
+            let edge_noise = (rng.hash_xy(x, y) - 0.5) * edge_noise_scale;
             let dist = (lane - centerline + edge_noise).abs();
             if dist < half_width {
                 let t = dist / half_width;
                 let noise = rng.hash_xy(x.wrapping_add(19), y.wrapping_add(31));
                 let color = dirt
-                    .blend(compact, 0.22 * (1.0 - t))
-                    .blend(dust, noise * 0.12);
+                    .blend(compact, (0.08 + style.contrast * 0.26) * (1.0 - t))
+                    .blend(dust, noise * style.noise * 0.22);
                 image.set(x, y, color);
-            } else if dist < half_width + 4.5 && rng.hash_xy(x, y) > 0.22 {
-                let t = ((dist - half_width) / 4.5).clamp(0.0, 1.0);
+            } else if dist < half_width + edge_blend
+                && rng.hash_xy(x, y) > 0.40 - style.roughness * 0.34
+            {
+                let t = ((dist - half_width) / edge_blend).clamp(0.0, 1.0);
                 image.set(x, y, dirt.blend(grass_intrusion, 0.38 + t * 0.42));
             }
         }
     }
-    speckles(image, rng, scaled_count(image, 90), dust, 0.13);
-    speckles(image, rng, scaled_count(image, 35), compact, 0.10);
-    draw_path_ruts(image, axis, center, half_width, phase, rng);
+    speckles(
+        image,
+        rng,
+        scaled_count(image, scaled_style_count(35, 130, style.noise)),
+        dust,
+        0.08 + style.noise * 0.10,
+    );
+    speckles(
+        image,
+        rng,
+        scaled_count(image, scaled_style_count(12, 54, style.noise)),
+        compact,
+        0.06 + style.contrast * 0.10,
+    );
+    draw_path_ruts(image, axis, center, half_width, phase, style, rng);
 }
 
-fn draw_trench(image: &mut PixelImage, variant_index: u32, rng: &mut TinyRng) {
+fn draw_trench(
+    image: &mut PixelImage,
+    variant_index: u32,
+    style: ArtStyleControls,
+    rng: &mut TinyRng,
+) {
+    let style = style.sanitized();
     fill(image, Rgba8::opaque(83, 120, 61));
     let axis = art_band_axis(variant_index);
-    let floor_dark = Rgba8::opaque(38, 29, 24);
-    let floor_warm = Rgba8::opaque(67, 45, 31);
-    let wall_lit = Rgba8::opaque(126, 79, 44);
-    let wall_shadow = Rgba8::opaque(84, 53, 35);
-    let lip = Rgba8::opaque(178, 117, 66);
-    let spoil = Rgba8::opaque(138, 88, 51);
+    let floor_dark =
+        art_style_color(Rgba8::opaque(38, 29, 24), style).darken(style.contrast * 0.16);
+    let floor_warm = art_style_color(Rgba8::opaque(67, 45, 31), style);
+    let wall_lit = art_style_color(Rgba8::opaque(126, 79, 44), style).lighten(style.warmth * 0.05);
+    let wall_shadow =
+        art_style_color(Rgba8::opaque(84, 53, 35), style).darken(style.contrast * 0.08);
+    let lip = art_style_color(Rgba8::opaque(178, 117, 66), style);
+    let spoil = art_style_color(Rgba8::opaque(138, 88, 51), style);
     let max_lane = art_band_max_lane(axis, image);
     let center = max_lane * (0.50 + (rng.next_f32() - 0.5) * 0.10);
-    let half = (max_lane * (0.18 + rng.next_f32() * 0.05)).max(5.5);
+    let half = (max_lane * (0.17 + rng.next_f32() * (0.03 + style.edge_emphasis * 0.05))).max(5.5);
     let floor_half = half * (0.42 + rng.next_f32() * 0.10);
     let phase = rng.next_f32() * 11.0;
-    let wave_amp = 1.2 + rng.next_f32() * 2.0;
+    let wave_amp = 0.7 + style.roughness * 3.4 + rng.next_f32() * 1.1;
+    let edge_noise_scale = 1.2 + style.roughness * 4.4;
+    let lip_width = 2.2 + style.edge_emphasis * 3.6;
     for y in 0..image.height {
         for x in 0..image.width {
             let (lane, along) = art_band_coords(axis, x, y, image);
             let centerline = center + art_band_wave(along, phase, wave_amp);
-            let signed = lane - centerline + (rng.hash_xy(x, y) - 0.5) * 3.4;
+            let signed = lane - centerline + (rng.hash_xy(x, y) - 0.5) * edge_noise_scale;
             let dist = signed.abs();
             if dist < floor_half {
                 let center_t = 1.0 - (dist / floor_half).clamp(0.0, 1.0);
@@ -388,57 +493,71 @@ fn draw_trench(image: &mut PixelImage, variant_index: u32, rng: &mut TinyRng) {
                 );
             } else if dist < half {
                 let wall_t = ((dist - floor_half) / (half - floor_half)).clamp(0.0, 1.0);
-                let side_light = if signed < 0.0 { 0.20 } else { 0.0 };
+                let side_light = if signed < 0.0 {
+                    0.12 + style.contrast * 0.20
+                } else {
+                    0.0
+                };
                 image.set(
                     x,
                     y,
                     wall_shadow.blend(wall_lit, side_light + wall_t * 0.34),
                 );
-            } else if dist < half + 3.8 {
-                let edge_t = ((dist - half) / 3.8).clamp(0.0, 1.0);
+            } else if dist < half + lip_width {
+                let edge_t = ((dist - half) / lip_width).clamp(0.0, 1.0);
                 let dirt = lip.blend(spoil, rng.hash_xy(x, y) * 0.18);
                 image.set(x, y, dirt.blend(Rgba8::opaque(91, 124, 65), edge_t * 0.36));
-            } else if dist < half + 6.0 && rng.hash_xy(x, y) > 0.62 {
-                image.blend_pixel(x, y, spoil, 0.34);
+            } else if dist < half + lip_width + 2.8
+                && rng.hash_xy(x, y) > 0.76 - style.roughness * 0.30
+            {
+                image.blend_pixel(x, y, spoil, 0.18 + style.edge_emphasis * 0.24);
             }
         }
     }
     speckles(
         image,
         rng,
-        scaled_count(image, 58),
+        scaled_count(image, scaled_style_count(22, 78, style.noise)),
         Rgba8::opaque(204, 146, 83),
-        0.10,
+        0.06 + style.noise * 0.10,
     );
     speckles(
         image,
         rng,
-        scaled_count(image, 42),
+        scaled_count(image, scaled_style_count(15, 62, style.noise)),
         Rgba8::opaque(27, 23, 22),
-        0.09,
+        0.05 + style.contrast * 0.10,
     );
-    draw_trench_cross_details(image, axis, center, floor_half, phase, rng);
+    draw_trench_cross_details(image, axis, center, floor_half, phase, style, rng);
 }
 
-fn draw_berm(image: &mut PixelImage, variant_index: u32, rng: &mut TinyRng) {
+fn draw_berm(
+    image: &mut PixelImage,
+    variant_index: u32,
+    style: ArtStyleControls,
+    rng: &mut TinyRng,
+) {
+    let style = style.sanitized();
     fill(image, Rgba8::opaque(82, 119, 61));
     let axis = art_band_axis(variant_index);
-    let top = Rgba8::opaque(149, 101, 56);
-    let crest = Rgba8::opaque(187, 133, 75);
-    let face = Rgba8::opaque(101, 65, 40);
-    let base_shadow = Rgba8::opaque(49, 47, 34);
+    let top = art_style_color(Rgba8::opaque(149, 101, 56), style);
+    let crest = art_style_color(Rgba8::opaque(187, 133, 75), style).lighten(style.warmth * 0.04);
+    let face = art_style_color(Rgba8::opaque(101, 65, 40), style).darken(style.contrast * 0.05);
+    let base_shadow = Rgba8::opaque(49, 47, 34).darken(style.contrast * 0.12);
     let grass = Rgba8::opaque(82, 122, 64);
     let max_lane = art_band_max_lane(axis, image);
     let center = max_lane * (0.50 + (rng.next_f32() - 0.5) * 0.12);
-    let half = (max_lane * (0.16 + rng.next_f32() * 0.07)).max(5.0);
+    let half = (max_lane * (0.15 + rng.next_f32() * (0.04 + style.edge_emphasis * 0.05))).max(5.0);
     let crest_half = half * (0.34 + rng.next_f32() * 0.12);
     let phase = rng.next_f32() * 13.0;
-    let wave_amp = 1.4 + rng.next_f32() * 2.4;
+    let wave_amp = 0.8 + style.roughness * 4.0 + rng.next_f32() * 1.2;
+    let edge_noise_scale = 1.2 + style.roughness * 4.2;
+    let transition_width = 2.0 + style.edge_emphasis * 3.4;
     for y in 0..image.height {
         for x in 0..image.width {
             let (lane, along) = art_band_coords(axis, x, y, image);
             let centerline = center + art_band_wave(along, phase, wave_amp);
-            let signed = lane - centerline + (rng.hash_xy(x, y) - 0.5) * 3.8;
+            let signed = lane - centerline + (rng.hash_xy(x, y) - 0.5) * edge_noise_scale;
             let dist = signed.abs();
             if dist < crest_half {
                 let crown = 1.0 - (dist / crest_half).clamp(0.0, 1.0);
@@ -452,23 +571,31 @@ fn draw_berm(image: &mut PixelImage, variant_index: u32, rng: &mut TinyRng) {
                 let face_t = ((dist - crest_half) / (half - crest_half)).clamp(0.0, 1.0);
                 let color = face.blend(top, (1.0 - face_t) * 0.22);
                 image.set(x, y, color);
-            } else if dist < half + 3.4 && rng.hash_xy(x, y) > 0.18 {
-                let t = ((dist - half) / 3.4).clamp(0.0, 1.0);
+            } else if dist < half + transition_width
+                && rng.hash_xy(x, y) > 0.42 - style.roughness * 0.32
+            {
+                let t = ((dist - half) / transition_width).clamp(0.0, 1.0);
                 image.set(x, y, top.blend(grass, 0.35 + t * 0.42));
-            } else if signed > 0.0 && dist < half + 5.2 {
+            } else if signed > 0.0 && dist < half + transition_width + 1.8 {
                 image.blend_pixel(x, y, base_shadow, 0.08 + rng.hash_xy(x, y) * 0.06);
             }
         }
     }
-    speckles(image, rng, scaled_count(image, 62), crest, 0.09);
     speckles(
         image,
         rng,
-        scaled_count(image, 38),
-        Rgba8::opaque(67, 47, 34),
-        0.08,
+        scaled_count(image, scaled_style_count(18, 82, style.noise)),
+        crest,
+        0.05 + style.noise * 0.10,
     );
-    draw_mound_strata(image, axis, center, crest_half, half, phase, rng);
+    speckles(
+        image,
+        rng,
+        scaled_count(image, scaled_style_count(14, 58, style.noise)),
+        Rgba8::opaque(67, 47, 34),
+        0.04 + style.contrast * 0.09,
+    );
+    draw_mound_strata(image, axis, center, (crest_half, half), phase, style, rng);
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -521,16 +648,43 @@ fn scaled_count(image: &PixelImage, base_count: u32) -> u32 {
     (base_count as f32 * scale).round().max(1.0) as u32
 }
 
+fn scaled_style_count(min: u32, max: u32, value: f32) -> u32 {
+    let t = value.clamp(0.0, 1.0);
+    (min as f32 + (max as f32 - min as f32) * t).round() as u32
+}
+
+fn art_style_color(color: Rgba8, style: ArtStyleControls) -> Rgba8 {
+    let warm = Rgba8::opaque(214, 124, 58);
+    let cooled = Rgba8::opaque(92, 121, 91);
+    let warmed = color
+        .blend(cooled, (1.0 - style.warmth) * 0.08)
+        .blend(warm, style.warmth * 0.12);
+    if style.contrast >= 0.5 {
+        let t = (style.contrast - 0.5) * 2.0;
+        if warmed.luma() > 120 {
+            warmed.lighten(t * 0.08)
+        } else {
+            warmed.darken(t * 0.10)
+        }
+    } else {
+        let t = (0.5 - style.contrast) * 2.0;
+        warmed.blend(Rgba8::opaque(128, 112, 82), t * 0.12)
+    }
+}
+
 fn draw_path_ruts(
     image: &mut PixelImage,
     axis: ArtBandAxis,
     center: f32,
     half_width: f32,
     phase: f32,
+    style: ArtStyleControls,
     rng: &mut TinyRng,
 ) {
-    let color = Rgba8::opaque(101, 67, 43).with_alpha(220);
-    let marks = scaled_count(image, 8);
+    let color = art_style_color(Rgba8::opaque(101, 67, 43), style)
+        .darken(style.contrast * 0.08)
+        .with_alpha(clamp_u8(150.0 + style.contrast * 90.0));
+    let marks = scaled_count(image, scaled_style_count(2, 12, style.edge_emphasis));
     for _ in 0..marks {
         let along = rng.next_f32() * image.width.max(image.height) as f32;
         let side = if rng.next_f32() > 0.5 { 1.0 } else { -1.0 };
@@ -555,10 +709,13 @@ fn draw_trench_cross_details(
     center: f32,
     floor_half: f32,
     phase: f32,
+    style: ArtStyleControls,
     rng: &mut TinyRng,
 ) {
-    let detail = Rgba8::opaque(104, 66, 39).with_alpha(215);
-    let marks = scaled_count(image, 5);
+    let detail = art_style_color(Rgba8::opaque(104, 66, 39), style)
+        .darken(style.contrast * 0.08)
+        .with_alpha(clamp_u8(135.0 + style.edge_emphasis * 96.0));
+    let marks = scaled_count(image, scaled_style_count(1, 7, style.edge_emphasis));
     for _ in 0..marks {
         let along = rng.next_f32() * image.width.max(image.height) as f32;
         let lane = center + art_band_wave(along, phase, 1.0);
@@ -577,14 +734,17 @@ fn draw_mound_strata(
     image: &mut PixelImage,
     axis: ArtBandAxis,
     center: f32,
-    crest_half: f32,
-    half: f32,
+    mound_widths: (f32, f32),
     phase: f32,
+    style: ArtStyleControls,
     rng: &mut TinyRng,
 ) {
-    let color = Rgba8::opaque(78, 52, 36).with_alpha(190);
-    let lines = 2 + (rng.next_u32() % 3);
+    let color = art_style_color(Rgba8::opaque(78, 52, 36), style)
+        .darken(style.contrast * 0.08)
+        .with_alpha(clamp_u8(110.0 + style.edge_emphasis * 95.0));
+    let lines = 1 + (style.edge_emphasis * 3.0).round() as u32 + (rng.next_u32() % 2);
     for i in 0..lines {
+        let (crest_half, half) = mound_widths;
         let lane_offset = crest_half + (half - crest_half) * (i as f32 + 0.45) / lines as f32;
         let side = if i % 2 == 0 { 1.0 } else { -1.0 };
         let mut prev = None;
@@ -878,6 +1038,8 @@ pub fn parse_art_variant_cli(family: &str, seed: &str, count: &str) -> Result<Ar
         count,
         width: 32,
         height: 32,
+        style: ArtStyleControls::default(),
+        parent_id: None,
     }
     .sanitized())
 }
@@ -901,6 +1063,8 @@ mod tests {
             count: 4,
             width: 32,
             height: 32,
+            style: ArtStyleControls::default(),
+            parent_id: None,
         };
         let a = generate_art_variants(&request);
         let b = generate_art_variants(&request);
@@ -919,11 +1083,21 @@ mod tests {
             count: 128,
             width: 8,
             height: 512,
+            style: ArtStyleControls {
+                roughness: -1.0,
+                contrast: 2.0,
+                edge_emphasis: 0.5,
+                noise: 0.5,
+                warmth: 0.5,
+            },
+            parent_id: None,
         };
         let batch = generate_art_variants(&request);
         assert_eq!(batch.variants.len(), ART_VARIANT_MAX_COUNT as usize);
         assert_eq!(batch.request.width, ART_VARIANT_MIN_SIZE);
         assert_eq!(batch.request.height, ART_VARIANT_MAX_SIZE);
+        assert_eq!(batch.request.style.roughness, 0.0);
+        assert_eq!(batch.request.style.contrast, 1.0);
     }
 
     #[test]
@@ -934,11 +1108,21 @@ mod tests {
             count: 3,
             width: 32,
             height: 32,
+            style: ArtStyleControls {
+                roughness: 0.7,
+                contrast: 0.6,
+                edge_emphasis: 0.8,
+                noise: 0.4,
+                warmth: 0.9,
+            },
+            parent_id: Some("parent_sprite".to_string()),
         };
         let batch = generate_art_variants(&request);
         let metadata = ArtVariantMetadata::from(&batch.variants[0]);
         let json = serde_json::to_string(&metadata).expect("metadata should serialize");
         assert!(json.contains("berm_seed_77_variant_00"));
+        assert!(json.contains("\"warmth\":0.9"));
+        assert!(json.contains("parent_sprite"));
 
         let sheet = build_art_variant_contact_sheet(&batch);
         assert!(sheet.width > batch.request.width);
@@ -958,6 +1142,8 @@ mod tests {
                 count: 2,
                 width: 32,
                 height: 32,
+                style: ArtStyleControls::default(),
+                parent_id: None,
             };
             let batch = generate_art_variants(&request);
             assert_ne!(
@@ -966,5 +1152,74 @@ mod tests {
                 "{family:?} variants should differ"
             );
         }
+    }
+
+    #[test]
+    fn terrain_style_controls_affect_output() {
+        let muted = ArtVariantRequest {
+            family: ArtSpriteFamily::Trench,
+            seed: 44,
+            count: 1,
+            width: 32,
+            height: 32,
+            style: ArtStyleControls {
+                roughness: 0.0,
+                contrast: 0.0,
+                edge_emphasis: 0.0,
+                noise: 0.0,
+                warmth: 0.0,
+            },
+            parent_id: None,
+        };
+        let sharp = ArtVariantRequest {
+            style: ArtStyleControls {
+                roughness: 1.0,
+                contrast: 1.0,
+                edge_emphasis: 1.0,
+                noise: 1.0,
+                warmth: 1.0,
+            },
+            ..muted.clone()
+        };
+        let muted_batch = generate_art_variants(&muted);
+        let sharp_batch = generate_art_variants(&sharp);
+        assert_ne!(
+            muted_batch.variants[0].image.to_rgba_bytes(),
+            sharp_batch.variants[0].image.to_rgba_bytes()
+        );
+        assert_eq!(sharp_batch.variants[0].style.warmth, 1.0);
+    }
+
+    #[test]
+    fn mutated_seed_is_deterministic_and_records_parent() {
+        let request = ArtVariantRequest {
+            family: ArtSpriteFamily::Path,
+            seed: 12,
+            count: 1,
+            width: 32,
+            height: 32,
+            style: ArtStyleControls::default(),
+            parent_id: None,
+        };
+        let mut parent_batch = generate_art_variants(&request);
+        let parent = parent_batch.variants.remove(0);
+        let seed_a = derive_mutated_art_seed(&parent);
+        let seed_b = derive_mutated_art_seed(&parent);
+        assert_eq!(seed_a, seed_b);
+
+        let mutated = ArtVariantRequest {
+            seed: seed_a,
+            parent_id: Some(parent.id.clone()),
+            ..request
+        };
+        let batch = generate_art_variants(&mutated);
+        assert_eq!(
+            batch.variants[0].parent_id.as_deref(),
+            Some(parent.id.as_str())
+        );
+        assert!(batch.variants[0]
+            .notes
+            .iter()
+            .any(|note| note.contains("mutated from")));
     }
 }

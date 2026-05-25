@@ -2,14 +2,15 @@ use std::path::PathBuf;
 
 use eframe::egui;
 use ground_core::{
-    build_seam_test_sheet, ensure_default_asset_files,
+    build_seam_test_sheet, derive_mutated_art_seed, ensure_default_asset_files,
     export_art_contact_sheet as export_art_contact_sheet_file, export_art_variant_approved,
     export_edit_scenario_suite, export_tileset_bundle_with_palette, find_path,
     generate_art_variants, load_workbench_assets, muted_field_32, preview_pixel_to_cell,
     render_terrain_preview, save_palette_file, save_recipe_file, validate_tileset, ArtSpriteFamily,
-    ArtVariantBatch, ArtVariantRequest, Brush, BrushKind, FileSnapshot, GroundMaterial,
-    LightDirection, Palette, PixelImage, PreviewMode, PreviewOptions, ProjectionKind, TerrainMap,
-    Tileset, TilesetRecipe, ValidationReport, ViewOrientation, WorkbenchAssetPaths,
+    ArtStyleControls, ArtVariantBatch, ArtVariantRequest, Brush, BrushKind, FileSnapshot,
+    GroundMaterial, LightDirection, Palette, PixelImage, PreviewMode, PreviewOptions,
+    ProjectionKind, TerrainMap, Tileset, TilesetRecipe, ValidationReport, ViewOrientation,
+    WorkbenchAssetPaths,
 };
 use ground_game::{
     export_road_below_seed, load_generated_mission_browser_index, load_generated_mission_pack,
@@ -203,6 +204,7 @@ struct GroundLabApp {
     art_seed: u64,
     art_variant_count: u32,
     art_selected_variant_index: Option<usize>,
+    art_style: ArtStyleControls,
     art_batch: Option<ArtVariantBatch>,
     art_variant_textures: Vec<egui::TextureHandle>,
     art_status: String,
@@ -272,6 +274,7 @@ impl GroundLabApp {
             art_seed: 99_418_113,
             art_variant_count: 12,
             art_selected_variant_index: None,
+            art_style: ArtStyleControls::default(),
             art_batch: None,
             art_variant_textures: Vec::new(),
             art_status: "Art Lab ready. Choose a sprite family and generate variants.".to_string(),
@@ -493,9 +496,26 @@ impl GroundLabApp {
                     .prefix("variants "),
             );
             ui.label("Sprite size: 32x32");
+            ui.separator();
+            ui.strong("Style controls");
+            ui.add(egui::Slider::new(&mut self.art_style.roughness, 0.0..=1.0).text("roughness"));
+            ui.add(egui::Slider::new(&mut self.art_style.contrast, 0.0..=1.0).text("contrast"));
+            ui.add(
+                egui::Slider::new(&mut self.art_style.edge_emphasis, 0.0..=1.0)
+                    .text("edge emphasis"),
+            );
+            ui.add(egui::Slider::new(&mut self.art_style.noise, 0.0..=1.0).text("noise"));
+            ui.add(egui::Slider::new(&mut self.art_style.warmth, 0.0..=1.0).text("warmth"));
             ui.horizontal_wrapped(|ui| {
                 if ui.button("Generate variants").clicked() {
                     self.generate_art_variants_for_lab(ctx);
+                }
+                let can_mutate = self.selected_art_variant().is_some();
+                if ui
+                    .add_enabled(can_mutate, egui::Button::new("Mutate selected"))
+                    .clicked()
+                {
+                    self.mutate_selected_art_variant(ctx);
                 }
                 if ui.button("Clear variants").clicked() {
                     self.art_batch = None;
@@ -530,6 +550,14 @@ impl GroundLabApp {
             ui.strong("Selection");
             if let Some(variant) = self.selected_art_variant() {
                 ui.label(&variant.id);
+                ui.small(format!(
+                    "style: roughness {:.2} · contrast {:.2} · edge {:.2} · noise {:.2} · warmth {:.2}",
+                    variant.style.roughness,
+                    variant.style.contrast,
+                    variant.style.edge_emphasis,
+                    variant.style.noise,
+                    variant.style.warmth
+                ));
                 for note in &variant.notes {
                     ui.small(note);
                 }
@@ -620,8 +648,41 @@ impl GroundLabApp {
             count: self.art_variant_count,
             width: 32,
             height: 32,
+            style: self.art_style,
+            parent_id: None,
         };
         let batch = generate_art_variants(&request);
+        self.load_art_variant_batch(ctx, batch, "Generated");
+    }
+
+    fn mutate_selected_art_variant(&mut self, ctx: &egui::Context) {
+        let Some(parent) = self.selected_art_variant().cloned() else {
+            self.art_status = "Select a variant before mutating.".to_string();
+            return;
+        };
+        let seed = derive_mutated_art_seed(&parent);
+        self.art_family = parent.family;
+        self.art_seed = seed;
+        self.art_style = parent.style;
+        let request = ArtVariantRequest {
+            family: parent.family,
+            seed,
+            count: self.art_variant_count,
+            width: parent.image.width,
+            height: parent.image.height,
+            style: parent.style,
+            parent_id: Some(parent.id.clone()),
+        };
+        let batch = generate_art_variants(&request);
+        self.load_art_variant_batch(ctx, batch, &format!("Mutated from {}", parent.id));
+    }
+
+    fn load_art_variant_batch(
+        &mut self,
+        ctx: &egui::Context,
+        batch: ArtVariantBatch,
+        action_label: &str,
+    ) {
         self.art_variant_textures.clear();
         for variant in &batch.variants {
             let color_image = color_image_for_upload(&variant.image);
@@ -633,7 +694,8 @@ impl GroundLabApp {
         }
         self.art_selected_variant_index = batch.variants.first().map(|_| 0);
         self.art_status = format!(
-            "Generated {} {} variant(s).",
+            "{} {} {} variant(s).",
+            action_label,
             batch.variants.len(),
             batch.request.family.label()
         );
