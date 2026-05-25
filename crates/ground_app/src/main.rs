@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::PathBuf;
 
 use eframe::egui;
@@ -208,6 +209,7 @@ struct GroundLabApp {
     art_style: ArtStyleControls,
     art_override_role: ArtLabOverrideRole,
     art_override_profile: ArtLabOverrideProfile,
+    art_approved_variants: HashMap<String, PathBuf>,
     art_preview_texture: Option<egui::TextureHandle>,
     art_batch: Option<ArtVariantBatch>,
     art_variant_textures: Vec<egui::TextureHandle>,
@@ -281,6 +283,7 @@ impl GroundLabApp {
             art_style: ArtStyleControls::default(),
             art_override_role: ArtLabOverrideRole::TrenchRecessedTerrain,
             art_override_profile: ArtLabOverrideProfile::default(),
+            art_approved_variants: HashMap::new(),
             art_preview_texture: None,
             art_batch: None,
             art_variant_textures: Vec::new(),
@@ -568,7 +571,7 @@ impl GroundLabApp {
             ui.horizontal_wrapped(|ui| {
                 let can_assign = self.selected_art_variant().is_some();
                 if ui
-                    .add_enabled(can_assign, egui::Button::new("Export selected override"))
+                    .add_enabled(can_assign, egui::Button::new("Approve selected"))
                     .clicked()
                 {
                     self.export_selected_art_variant();
@@ -582,6 +585,12 @@ impl GroundLabApp {
                 {
                     self.assign_selected_art_variant_to_role();
                 }
+                if ui
+                    .add_enabled(can_assign, egui::Button::new("Approve + assign to role"))
+                    .clicked()
+                {
+                    self.approve_assign_and_save_selected_art_variant_to_role();
+                }
             });
             if !self.art_override_profile.assignments.is_empty()
                 && ui.button("Save override profile").clicked()
@@ -592,6 +601,33 @@ impl GroundLabApp {
                 "{} assigned role(s)",
                 self.art_override_profile.assignments.len()
             ));
+            ui.separator();
+            ui.strong("Current role assignments");
+            egui::Grid::new("art_lab_role_assignments")
+                .num_columns(3)
+                .striped(true)
+                .show(ui, |ui| {
+                    ui.small("Role");
+                    ui.small("Variant");
+                    ui.small("Path");
+                    ui.end_row();
+                    for role in ArtLabOverrideRole::ALL {
+                        let assignment = self
+                            .art_override_profile
+                            .assignments
+                            .iter()
+                            .find(|assignment| assignment.role == role);
+                        ui.small(role.label());
+                        if let Some(assignment) = assignment {
+                            ui.small(assignment.variant_id.as_deref().unwrap_or("approved file"));
+                            ui.small(assignment.path.display().to_string());
+                        } else {
+                            ui.small("missing");
+                            ui.small("-");
+                        }
+                        ui.end_row();
+                    }
+                });
         });
         ui.separator();
 
@@ -825,16 +861,24 @@ impl GroundLabApp {
     }
 
     fn export_selected_art_variant(&mut self) {
-        let Some(variant) = self.selected_art_variant() else {
+        self.approve_selected_art_variant();
+    }
+
+    fn approve_selected_art_variant(&mut self) -> Option<PathBuf> {
+        let Some(variant) = self.selected_art_variant().cloned() else {
             self.art_status = "Select a variant before exporting.".to_string();
-            return;
+            return None;
         };
-        match export_art_variant_approved(variant, "exports/art_lab") {
+        match export_art_variant_approved(&variant, "exports/art_lab") {
             Ok((png_path, _json_path)) => {
-                self.art_status = format!("Exported {} to {}", variant.id, png_path.display());
+                self.art_approved_variants
+                    .insert(variant.id.clone(), png_path.clone());
+                self.art_status = format!("Approved {} to {}", variant.id, png_path.display());
+                Some(png_path)
             }
             Err(err) => {
-                self.art_status = format!("Export selected override failed: {err}");
+                self.art_status = format!("Approve selected failed: {err}");
+                None
             }
         }
     }
@@ -860,17 +904,53 @@ impl GroundLabApp {
             self.art_status = "Select a variant before assigning it to a role.".to_string();
             return;
         };
-        match export_art_variant_approved(&variant, "exports/art_lab") {
-            Ok((png_path, _json_path)) => {
-                self.art_override_profile.set_assignment(
-                    role,
-                    png_path.clone(),
-                    Some(variant.id.clone()),
+        let png_path = self
+            .art_approved_variants
+            .get(&variant.id)
+            .cloned()
+            .or_else(|| self.approve_selected_art_variant());
+        if let Some(png_path) = png_path {
+            self.art_override_profile.set_assignment(
+                role,
+                png_path.clone(),
+                Some(variant.id.clone()),
+            );
+            self.art_status = format!(
+                "Assigned {} to {} using {}",
+                variant.id,
+                role.label(),
+                png_path.display()
+            );
+        }
+    }
+
+    fn approve_assign_and_save_selected_art_variant_to_role(&mut self) {
+        let role = self.art_override_role;
+        let Some(variant) = self.selected_art_variant().cloned() else {
+            self.art_status = "Select a variant before approving and assigning.".to_string();
+            return;
+        };
+        let Some(png_path) = self
+            .art_approved_variants
+            .get(&variant.id)
+            .cloned()
+            .or_else(|| self.approve_selected_art_variant())
+        else {
+            return;
+        };
+        self.art_override_profile
+            .set_assignment(role, png_path, Some(variant.id.clone()));
+        match save_art_lab_override_profile(&self.art_override_profile, "exports/art_lab") {
+            Ok(profile_path) => {
+                self.art_status = format!(
+                    "Approved + assigned {} to {}; saved profile to {}",
+                    variant.id,
+                    role.label(),
+                    profile_path.display()
                 );
-                self.art_status = format!("Assigned {} to {}", variant.id, role.label());
             }
             Err(err) => {
-                self.art_status = format!("Assign override role failed: {err}");
+                self.art_status = format!("Approved + assigned, but profile save failed: {err}");
             }
         }
     }
