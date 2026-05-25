@@ -10,3 +10,5 @@ anyhow.workspace = true
 eframe.workspace = true
 ground_core = { path = "../ground_core" }
 ground_game = { path = "../ground_game" }
+serde.workspace = true
+serde_json.workspace = true

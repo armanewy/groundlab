@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::fs;
 use std::path::PathBuf;
 
 use eframe::egui;
@@ -9,9 +10,9 @@ use ground_core::{
     find_path, generate_art_variants, load_workbench_assets, muted_field_32, preview_pixel_to_cell,
     render_art_lab_override_preview, render_terrain_preview, save_art_lab_override_profile,
     save_palette_file, save_recipe_file, validate_tileset, ArtLabOverrideProfile,
-    ArtLabOverrideRole, ArtSpriteFamily, ArtStyleControls, ArtVariantBatch, ArtVariantRequest,
-    Brush, BrushKind, FileSnapshot, GroundMaterial, LightDirection, Palette, PixelImage,
-    PreviewMode, PreviewOptions, ProjectionKind, TerrainMap, Tileset, TilesetRecipe,
+    ArtLabOverrideRole, ArtSpriteFamily, ArtStyleControls, ArtVariantBatch, ArtVariantMetadata,
+    ArtVariantRequest, Brush, BrushKind, FileSnapshot, GroundMaterial, LightDirection, Palette,
+    PixelImage, PreviewMode, PreviewOptions, ProjectionKind, TerrainMap, Tileset, TilesetRecipe,
     ValidationReport, ViewOrientation, WorkbenchAssetPaths,
 };
 use ground_game::{
@@ -25,9 +26,20 @@ use ground_game::{
     ScriptedWorkOrder, TreeState, WorkOrderKind, WorkOrderScript, WorkOrderStatus, WorkTarget,
     DEFAULT_MISSION_EXPORT_DIR,
 };
+use serde::{Deserialize, Serialize};
 
 const MAX_UI_TEXTURE_SIDE: usize = 2048;
 const PLAYER_PLAN_PATH: &str = "exports/gamepivot_08/player_plan.ron";
+const ART_REVIEW_TAGS: [&str; 8] = [
+    "good silhouette",
+    "readable at 32px",
+    "too noisy",
+    "too flat",
+    "good color",
+    "poor contrast",
+    "good candidate",
+    "reject",
+];
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
@@ -200,6 +212,40 @@ struct MissionBalanceDashboardRow {
     prep_time_used_seconds: u32,
 }
 
+#[derive(Clone, Debug)]
+struct ApprovedArtSprite {
+    metadata: ArtVariantMetadata,
+    png_path: PathBuf,
+    json_path: PathBuf,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct ArtVariantReview {
+    variant_id: String,
+    family: ArtSpriteFamily,
+    seed: u64,
+    tags: Vec<String>,
+    silhouette_readability: u8,
+    color_material_read: u8,
+    style_fit: u8,
+    in_context_usefulness: u8,
+    notes: String,
+}
+
+#[derive(Clone, Debug, Serialize)]
+struct ArtLabSessionSummary {
+    current_family: ArtSpriteFamily,
+    current_seed: u64,
+    current_variant_count: u32,
+    current_style: ArtStyleControls,
+    selected_variant_id: Option<String>,
+    current_override_role: ArtLabOverrideRole,
+    override_profile: ArtLabOverrideProfile,
+    approved_variants: HashMap<String, PathBuf>,
+    latest_preview_path: Option<PathBuf>,
+    latest_contact_sheet_path: Option<PathBuf>,
+}
+
 struct GroundLabApp {
     active_panel: WorkbenchPanel,
     art_family: ArtSpriteFamily,
@@ -210,8 +256,16 @@ struct GroundLabApp {
     art_override_role: ArtLabOverrideRole,
     art_override_profile: ArtLabOverrideProfile,
     art_approved_variants: HashMap<String, PathBuf>,
+    art_batch_parent_id: Option<String>,
+    art_gallery: Vec<ApprovedArtSprite>,
+    art_gallery_textures: Vec<egui::TextureHandle>,
+    art_selected_gallery_index: Option<usize>,
+    art_compare_texture: Option<egui::TextureHandle>,
+    art_compare_texture_path: Option<PathBuf>,
+    art_reviews: HashMap<String, ArtVariantReview>,
     art_preview_texture: Option<egui::TextureHandle>,
     art_preview_path: Option<PathBuf>,
+    art_contact_sheet_path: Option<PathBuf>,
     art_batch: Option<ArtVariantBatch>,
     art_variant_textures: Vec<egui::TextureHandle>,
     art_status: String,
@@ -285,8 +339,16 @@ impl GroundLabApp {
             art_override_role: ArtLabOverrideRole::TrenchRecessedTerrain,
             art_override_profile: ArtLabOverrideProfile::default(),
             art_approved_variants: HashMap::new(),
+            art_batch_parent_id: None,
+            art_gallery: Vec::new(),
+            art_gallery_textures: Vec::new(),
+            art_selected_gallery_index: None,
+            art_compare_texture: None,
+            art_compare_texture_path: None,
+            art_reviews: HashMap::new(),
             art_preview_texture: None,
             art_preview_path: None,
+            art_contact_sheet_path: None,
             art_batch: None,
             art_variant_textures: Vec::new(),
             art_status: "Art Lab ready. Choose a sprite family and generate variants.".to_string(),
@@ -532,12 +594,16 @@ impl GroundLabApp {
             ui.strong("Step 2 - Select / Inspect");
             ui.small("Click a thumbnail in the variant grid to choose the candidate you want to inspect.");
             self.show_selected_art_variant_inspector(ui);
+            self.show_art_review_panel(ui);
         });
         ui.separator();
 
         ui.group(|ui| {
             ui.strong("Step 3 - Refine");
             ui.small("Generate a related batch around the selected variant.");
+            if let Some(parent_id) = &self.art_batch_parent_id {
+                ui.small(format!("Current batch is a mutation of {parent_id}."));
+            }
             let can_mutate = self.selected_art_variant().is_some();
             if ui
                 .add_enabled(can_mutate, egui::Button::new("Mutate selected"))
@@ -547,6 +613,8 @@ impl GroundLabApp {
             }
             if !can_mutate {
                 ui.small("Select a variant before mutating.");
+            } else {
+                ui.small("Mutation preserves family, size, and style controls while deriving a related seed.");
             }
         });
         ui.separator();
@@ -632,6 +700,10 @@ impl GroundLabApp {
                         ui.end_row();
                     }
                 });
+            ui.separator();
+            self.show_art_compare_panel(ui, ctx);
+            ui.separator();
+            self.show_approved_art_gallery(ui, ctx);
         });
         ui.separator();
 
@@ -655,9 +727,15 @@ impl GroundLabApp {
                 {
                     self.export_art_contact_sheet();
                 }
+                if ui.button("Export session summary").clicked() {
+                    self.export_art_session_summary();
+                }
             });
             if let Some(path) = &self.art_preview_path {
                 ui.small(format!("Preview export: {}", path.display()));
+            }
+            if let Some(path) = &self.art_contact_sheet_path {
+                ui.small(format!("Contact sheet: {}", path.display()));
             }
             let missing_roles = self.art_missing_override_roles();
             if missing_roles.is_empty() {
@@ -809,6 +887,176 @@ impl GroundLabApp {
         }
     }
 
+    fn show_art_review_panel(&mut self, ui: &mut egui::Ui) {
+        let Some(variant) = self.selected_art_variant().cloned() else {
+            return;
+        };
+        ui.separator();
+        ui.strong("Review");
+        let review = self
+            .art_reviews
+            .entry(variant.id.clone())
+            .or_insert_with(|| ArtVariantReview {
+                variant_id: variant.id.clone(),
+                family: variant.family,
+                seed: variant.seed,
+                silhouette_readability: 3,
+                color_material_read: 3,
+                style_fit: 3,
+                in_context_usefulness: 3,
+                tags: Vec::new(),
+                notes: String::new(),
+            });
+        for tag in ART_REVIEW_TAGS {
+            let mut enabled = review.tags.iter().any(|existing| existing == tag);
+            if ui.checkbox(&mut enabled, tag).changed() {
+                if enabled {
+                    review.tags.push(tag.to_string());
+                    review.tags.sort();
+                    review.tags.dedup();
+                } else {
+                    review.tags.retain(|existing| existing != tag);
+                }
+            }
+        }
+        ui.add(
+            egui::Slider::new(&mut review.silhouette_readability, 1..=5)
+                .text("silhouette/readability"),
+        );
+        ui.add(
+            egui::Slider::new(&mut review.color_material_read, 1..=5).text("color/material read"),
+        );
+        ui.add(egui::Slider::new(&mut review.style_fit, 1..=5).text("style fit"));
+        ui.add(
+            egui::Slider::new(&mut review.in_context_usefulness, 1..=5)
+                .text("in-context usefulness"),
+        );
+        ui.text_edit_singleline(&mut review.notes);
+        if ui.button("Save review").clicked() {
+            self.save_art_review_for_variant(&variant.id);
+        }
+    }
+
+    fn show_art_compare_panel(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        ui.strong("Compare selected vs assigned role");
+        let Some(selected_index) = self.art_selected_variant_index else {
+            ui.small("Select a variant to compare it with the current role assignment.");
+            return;
+        };
+        let Some(selected_texture_id) = self
+            .art_variant_textures
+            .get(selected_index)
+            .map(|texture| texture.id())
+        else {
+            ui.small("Selected variant texture is not ready.");
+            return;
+        };
+        let assignment = self
+            .art_override_profile
+            .assignments
+            .iter()
+            .find(|assignment| assignment.role == self.art_override_role)
+            .cloned();
+        let Some(assignment) = assignment else {
+            ui.small("No assigned sprite for this role.");
+            return;
+        };
+        self.refresh_art_compare_texture(ctx, &assignment.path);
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                ui.small("Selected candidate");
+                let sized =
+                    egui::load::SizedTexture::new(selected_texture_id, egui::Vec2::splat(96.0));
+                ui.add(
+                    egui::Image::from_texture(sized).texture_options(egui::TextureOptions::NEAREST),
+                );
+            });
+            ui.vertical(|ui| {
+                ui.small("Assigned role sprite");
+                if let Some(texture) = &self.art_compare_texture {
+                    let sized =
+                        egui::load::SizedTexture::new(texture.id(), egui::Vec2::splat(96.0));
+                    ui.add(
+                        egui::Image::from_texture(sized)
+                            .texture_options(egui::TextureOptions::NEAREST),
+                    );
+                } else {
+                    ui.small("Could not load assigned PNG.");
+                }
+            });
+        });
+        if ui.button("Replace role assignment with selected").clicked() {
+            self.approve_assign_and_save_selected_art_variant_to_role();
+            self.refresh_art_override_preview_texture(ctx);
+        }
+    }
+
+    fn show_approved_art_gallery(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
+        ui.strong("Approved sprite gallery");
+        ui.horizontal_wrapped(|ui| {
+            if ui.button("Refresh approved gallery").clicked() {
+                self.refresh_approved_art_gallery(ctx);
+            }
+            if ui
+                .add_enabled(
+                    self.art_selected_gallery_index.is_some(),
+                    egui::Button::new("Assign approved sprite to selected role"),
+                )
+                .clicked()
+            {
+                self.assign_selected_gallery_sprite_to_role();
+                self.refresh_art_override_preview_texture(ctx);
+            }
+        });
+        if self.art_gallery.is_empty() {
+            ui.small("No approved sprites found under exports/art_lab/approved.");
+            return;
+        }
+        egui::ScrollArea::vertical()
+            .max_height(170.0)
+            .show(ui, |ui| {
+                egui::Grid::new("art_lab_gallery_grid")
+                    .num_columns(4)
+                    .spacing([8.0, 8.0])
+                    .show(ui, |ui| {
+                        for index in 0..self.art_gallery.len() {
+                            let selected = self.art_selected_gallery_index == Some(index);
+                            let sprite = &self.art_gallery[index];
+                            ui.vertical(|ui| {
+                                if let Some(texture) = self.art_gallery_textures.get(index) {
+                                    let sized = egui::load::SizedTexture::new(
+                                        texture.id(),
+                                        egui::Vec2::splat(48.0),
+                                    );
+                                    let response = ui.add(
+                                        egui::Image::from_texture(sized)
+                                            .texture_options(egui::TextureOptions::NEAREST)
+                                            .sense(egui::Sense::click()),
+                                    );
+                                    if response.clicked() {
+                                        self.art_selected_gallery_index = Some(index);
+                                    }
+                                }
+                                ui.small(if selected { "selected" } else { "" });
+                                ui.small(sprite.metadata.family.label());
+                            });
+                            if (index + 1) % 4 == 0 {
+                                ui.end_row();
+                            }
+                        }
+                    });
+            });
+        if let Some(index) = self.art_selected_gallery_index {
+            if let Some(sprite) = self.art_gallery.get(index) {
+                ui.separator();
+                ui.small(format!("Approved: {}", sprite.metadata.id));
+                ui.small(format!("Family: {}", sprite.metadata.family.label()));
+                ui.small(format!("PNG: {}", sprite.png_path.display()));
+                ui.small(format!("Metadata: {}", sprite.json_path.display()));
+            }
+        }
+    }
+
     fn generate_art_variants_for_lab(&mut self, ctx: &egui::Context) {
         let request = ArtVariantRequest {
             family: self.art_family,
@@ -861,6 +1109,7 @@ impl GroundLabApp {
             ));
         }
         self.art_selected_variant_index = batch.variants.first().map(|_| 0);
+        self.art_batch_parent_id = batch.request.parent_id.clone();
         self.art_status = format!(
             "{} {} {} variant(s).",
             action_label,
@@ -905,6 +1154,7 @@ impl GroundLabApp {
         };
         match export_art_contact_sheet_file(batch, "exports/art_lab") {
             Ok(path) => {
+                self.art_contact_sheet_path = Some(path.clone());
                 self.art_status = format!("Exported contact sheet to {}", path.display());
             }
             Err(err) => {
@@ -936,6 +1186,39 @@ impl GroundLabApp {
                 role.label(),
                 png_path.display()
             );
+        }
+    }
+
+    fn assign_selected_gallery_sprite_to_role(&mut self) {
+        let role = self.art_override_role;
+        let Some(index) = self.art_selected_gallery_index else {
+            self.art_status = "Select an approved sprite before assigning it.".to_string();
+            return;
+        };
+        let Some(sprite) = self.art_gallery.get(index).cloned() else {
+            self.art_status = "Selected approved sprite is no longer available.".to_string();
+            return;
+        };
+        self.art_override_profile.set_assignment(
+            role,
+            sprite.png_path.clone(),
+            Some(sprite.metadata.id.clone()),
+        );
+        self.art_approved_variants
+            .insert(sprite.metadata.id.clone(), sprite.png_path.clone());
+        match save_art_lab_override_profile(&self.art_override_profile, "exports/art_lab") {
+            Ok(profile_path) => {
+                self.art_status = format!(
+                    "Assigned approved {} to {}; saved profile to {}",
+                    sprite.metadata.id,
+                    role.label(),
+                    profile_path.display()
+                );
+            }
+            Err(err) => {
+                self.art_status =
+                    format!("Assigned approved sprite, but profile save failed: {err}");
+            }
         }
     }
 
@@ -1015,6 +1298,155 @@ impl GroundLabApp {
             .filter(|role| self.art_override_profile.assignment_path(*role).is_none())
             .map(ArtLabOverrideRole::label)
             .collect()
+    }
+
+    fn refresh_art_compare_texture(&mut self, ctx: &egui::Context, path: &PathBuf) {
+        if self.art_compare_texture_path.as_ref() == Some(path)
+            && self.art_compare_texture.is_some()
+        {
+            return;
+        }
+        match PixelImage::load_png(path) {
+            Ok(image) => {
+                put_texture(
+                    ctx,
+                    &mut self.art_compare_texture,
+                    "art_lab_compare_role",
+                    &image,
+                );
+                self.art_compare_texture_path = Some(path.clone());
+            }
+            Err(_) => {
+                self.art_compare_texture = None;
+                self.art_compare_texture_path = Some(path.clone());
+            }
+        }
+    }
+
+    fn refresh_approved_art_gallery(&mut self, ctx: &egui::Context) {
+        let root = PathBuf::from("exports/art_lab/approved");
+        let mut sprites = Vec::new();
+        let mut textures = Vec::new();
+        let mut stack = vec![root.clone()];
+        while let Some(dir) = stack.pop() {
+            let Ok(entries) = fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    stack.push(path);
+                    continue;
+                }
+                if path.extension().and_then(|ext| ext.to_str()) != Some("json") {
+                    continue;
+                }
+                if path.file_name().and_then(|name| name.to_str()) == Some("art_lab_overrides.json")
+                {
+                    continue;
+                }
+                let Ok(text) = fs::read_to_string(&path) else {
+                    continue;
+                };
+                let Ok(metadata) = serde_json::from_str::<ArtVariantMetadata>(&text) else {
+                    continue;
+                };
+                let png_path = path.with_extension("png");
+                let Ok(image) = PixelImage::load_png(&png_path) else {
+                    continue;
+                };
+                textures.push(ctx.load_texture(
+                    format!("approved_{}", metadata.id),
+                    color_image_for_upload(&image),
+                    egui::TextureOptions::NEAREST,
+                ));
+                sprites.push(ApprovedArtSprite {
+                    metadata,
+                    png_path,
+                    json_path: path,
+                });
+            }
+        }
+        sprites.sort_by(|a, b| {
+            a.metadata
+                .family
+                .slug()
+                .cmp(b.metadata.family.slug())
+                .then_with(|| a.metadata.id.cmp(&b.metadata.id))
+        });
+        self.art_gallery = sprites;
+        self.art_gallery_textures = textures;
+        self.art_selected_gallery_index = self
+            .art_selected_gallery_index
+            .filter(|index| *index < self.art_gallery.len());
+        self.art_status = format!(
+            "Loaded {} approved Art Lab sprite(s).",
+            self.art_gallery.len()
+        );
+    }
+
+    fn save_art_review_for_variant(&mut self, variant_id: &str) {
+        let Some(review) = self.art_reviews.get(variant_id) else {
+            self.art_status = "No review is available for the selected variant.".to_string();
+            return;
+        };
+        let dir = PathBuf::from("exports/art_lab/reviews");
+        if let Err(err) = fs::create_dir_all(&dir) {
+            self.art_status = format!("Save review failed: {err}");
+            return;
+        }
+        let path = dir.join(format!("{variant_id}.json"));
+        let result = (|| -> Result<(), String> {
+            let json = serde_json::to_string_pretty(review).map_err(|err| err.to_string())?;
+            fs::write(&path, json).map_err(|err| err.to_string())?;
+            Ok(())
+        })();
+        match result {
+            Ok(()) => {
+                self.art_status = format!("Saved review to {}", path.display());
+            }
+            Err(err) => {
+                self.art_status = format!("Save review failed: {err}");
+            }
+        }
+    }
+
+    fn export_art_session_summary(&mut self) {
+        let selected_variant_id = self
+            .selected_art_variant()
+            .map(|variant| variant.id.clone());
+        let summary = ArtLabSessionSummary {
+            current_family: self.art_family,
+            current_seed: self.art_seed,
+            current_variant_count: self.art_variant_count,
+            current_style: self.art_style,
+            selected_variant_id,
+            current_override_role: self.art_override_role,
+            override_profile: self.art_override_profile.clone(),
+            approved_variants: self.art_approved_variants.clone(),
+            latest_preview_path: self.art_preview_path.clone(),
+            latest_contact_sheet_path: self.art_contact_sheet_path.clone(),
+        };
+        let path = PathBuf::from("exports/art_lab/session_summary.json");
+        if let Some(parent) = path.parent() {
+            if let Err(err) = fs::create_dir_all(parent) {
+                self.art_status = format!("Export session summary failed: {err}");
+                return;
+            }
+        }
+        let result = (|| -> Result<(), String> {
+            let json = serde_json::to_string_pretty(&summary).map_err(|err| err.to_string())?;
+            fs::write(&path, json).map_err(|err| err.to_string())?;
+            Ok(())
+        })();
+        match result {
+            Ok(()) => {
+                self.art_status = format!("Exported session summary to {}", path.display());
+            }
+            Err(err) => {
+                self.art_status = format!("Export session summary failed: {err}");
+            }
+        }
     }
 
     fn show_mission_controls(&mut self, ui: &mut egui::Ui) {
